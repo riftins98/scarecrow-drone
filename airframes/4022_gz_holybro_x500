@@ -1,0 +1,15 @@
+#!/bin/sh
+#
+# @name Holybro X500 full sensor stack (flow, downward rangefinder, 2D lidar, mono cam)
+#
+# @type Quadrotor
+#
+
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=holybro_x500}
+
+. ${R}etc/init.d-posix/airframes/4001_gz_x500
+
+echo "Disabling Sim GPS"
+param set-default SYS_HAS_GPS 0
+param set-default SIM_GPS_USED 0
+param set-default EKF2_GPS_CTRL 0
