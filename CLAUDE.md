@@ -75,10 +75,17 @@ ls /media/px4/PX4-Autopilot/Tools/simulation/gz/worlds/default.sdf
 # If empty: sudo mount -t virtiofs share /media/px4
 ```
 
+Set these in each terminal (or add to `~/.bashrc` to persist):
+```bash
+export SCARECROW_DIR=~/scarecrow-drone   # path to your cloned scarecrow-drone repo
+export PX4_DIR=$SCARECROW_DIR/px4        # PX4 submodule
+```
+
 **Terminal 1 — Gazebo Server:**
 ```bash
-cd /media/px4/PX4-Autopilot
-export GZ_SIM_RESOURCE_PATH=/Users/sriftin/scarecrow-drone/models:/media/px4/PX4-Autopilot/Tools/simulation/gz/models:/media/px4/PX4-Autopilot/Tools/simulation/gz/worlds
+cd $PX4_DIR
+export GZ_SIM_RESOURCE_PATH=$SCARECROW_DIR/models:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds
+export GZ_SIM_SERVER_CONFIG_PATH=$PX4_DIR/src/modules/simulation/gz_bridge/server.config
 gz sim -v 4 -s Tools/simulation/gz/worlds/default.sdf
 ```
 Wait for: `[Msg] Serving scene information on [/world/default/scene/info]`
@@ -91,19 +98,22 @@ Wait for Gazebo window to open, then press ▶ Play.
 
 **Terminal 3 — PX4 SITL:**
 ```bash
-cd /media/px4/PX4-Autopilot
-cp /Users/sriftin/scarecrow-drone/airframes/4022_gz_holybro_x500 \
-   ROMFS/px4fmu_common/init.d-posix/airframes/
-cp /Users/sriftin/scarecrow-drone/airframes/4022_gz_holybro_x500 \
-   build/px4_sitl_default/etc/init.d-posix/airframes/
-cp /Users/sriftin/scarecrow-drone/config/server.config \
-   src/modules/simulation/gz_bridge/
-export GZ_SIM_RESOURCE_PATH=/Users/sriftin/scarecrow-drone/models:/media/px4/PX4-Autopilot/Tools/simulation/gz/models:/media/px4/PX4-Autopilot/Tools/simulation/gz/worlds
+cd $PX4_DIR
+cp $SCARECROW_DIR/airframes/4022_gz_holybro_x500 ROMFS/px4fmu_common/init.d-posix/airframes/
+cp $SCARECROW_DIR/airframes/4022_gz_holybro_x500 build/px4_sitl_default/etc/init.d-posix/airframes/
+cp $SCARECROW_DIR/config/server.config src/modules/simulation/gz_bridge/
+export GZ_SIM_RESOURCE_PATH=$SCARECROW_DIR/models:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds
 PX4_GZ_STANDALONE=1 PX4_GZ_WORLD=default make px4_sitl gz_holybro_x500
 ```
 Wait for: `INFO [px4] Startup script returned successfully`
 
-> **Note on VirtioFS paths**: The VM currently mounts Mac's `/Users/sriftin/PX4-Autopilot` (the px4 submodule) at `/media/px4/PX4-Autopilot`. The scarecrow-drone repo itself (`/Users/sriftin/scarecrow-drone`) is on the Mac and accessible via the Mac path above when running from inside the VM via shared folder. `launch.sh` is the future single-command alternative once the full scarecrow-drone directory is mounted in the VM.
+Then in the PX4 console (`pxh>`):
+```
+commander set_ekf_origin 0 0 0
+commander set_heading 0
+commander mode offboard
+commander arm -f
+```
 
 ---
 
@@ -118,7 +128,7 @@ gz topic -l | grep holybro_x500_0
 ## MAVLink from Mac
 
 ```bash
-ssh saae@192.168.64.9 'cd /media/px4/PX4-Autopilot/build/px4_sitl_default && \
+ssh saae@192.168.64.9 'cd $PX4_DIR/build/px4_sitl_default && \
   ./bin/px4-param --instance 0 set MAV_0_BROADCAST 1'
 # Then connect QGroundControl or: await drone.connect(system_address='udp://192.168.64.9:18570')
 ```
