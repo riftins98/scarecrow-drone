@@ -1,163 +1,148 @@
 # Scarecrow Drone
 
-Autonomous indoor drone simulation — Holybro X500 V2 with full sensor stack, powered by PX4 SITL and Gazebo Harmonic.
+Autonomous GPS-denied indoor drone simulation — Holybro X500 V2 with full sensor stack, powered by PX4 SITL and Gazebo Harmonic.
+
+University final project: proves indoor flight using only optical flow + rangefinder for state estimation, with no GPS dependency.
 
 ## Sensor Stack
 
-| Sensor | Hardware | Simulation Model |
-|---|---|---|
-| Optical flow | MTF-01 | `optical_flow` |
-| Downward rangefinder | TF-Luna | `LW20` |
-| 2D lidar | RPLidar A1M8 | `lidar_2d_v2` |
-| Mono camera | Pi Camera 3 | `mono_cam` |
+| Sensor | Hardware | Gazebo Model | Role |
+|---|---|---|---|
+| Optical flow | MTF-01 | `optical_flow` | Horizontal velocity |
+| Downward rangefinder | TF-Luna | `LW20` / `gpu_lidar` | Height estimation |
+| 2D lidar | RPLidar A1M8 | `lidar_2d_v2` | Obstacle avoidance |
+| Mono camera | Pi Camera 3 | `mono_cam` | Visual awareness |
 
-GPS is disabled — the drone operates fully indoors using optical flow + rangefinder for state estimation.
-
----
+GPS is disabled — the drone navigates indoors using optical flow + rangefinder only.
 
 ## Repository Structure
 
 ```
 scarecrow-drone/
-├── models/holybro_x500/      — Gazebo composite drone model (x500 + all sensors)
-├── airframes/                — PX4 custom airframe definition (ID 4022)
-├── config/server.config      — Gazebo physics + sensor plugin config
-├── px4/                      — PX4-Autopilot (git submodule, scarecrow branch)
-├── launch.sh                 — Simulation launcher script
-└── CLAUDE.md                 — AI assistant context
+├── airframes/4022_gz_holybro_x500   — PX4 airframe (GPS/baro disabled, flow+rangefinder)
+├── config/server.config             — Gazebo server plugins (Sensors, OpticalFlow)
+├── models/holybro_x500/model.sdf    — Composite drone model (x500 + all 4 sensors)
+├── worlds/default.sdf               — Custom world with textured floor for optical flow
+├── scripts/hover_test.py            — MAVSDK hover test (works on sim and real drone)
+├── px4/                             — PX4-Autopilot submodule (branch: scarecrow)
+└── .venv-mavsdk/                    — Python venv with MAVSDK
 ```
-
----
 
 ## Prerequisites
 
-- Ubuntu 24.04 (native or VM) with at least 8GB RAM
+- macOS (Apple Silicon) or Ubuntu 24.04
 - Gazebo Harmonic (gz-sim 8.x)
-- PX4 build dependencies
+- PX4 SITL build dependencies
+- Python 3 with MAVSDK (`pip install mavsdk`)
 
-> **Mac (Apple Silicon) and Windows users:** PX4 + Gazebo cannot run natively. You must use a Ubuntu VM. See the setup guides below.
+## Quick Start
 
----
-
-## VM Setup
-
-### Mac (Apple Silicon — M1/M2/M3)
-
-1. Install [UTM](https://mac.getutm.app)
-2. Create a new VM:
-   - Virtualize (not emulate) — requires Apple Silicon
-   - OS: Linux
-   - Architecture: ARM64
-   - ISO: [Ubuntu 24.04 ARM64](https://ubuntu.com/download/server/arm)
-   - RAM: 8GB minimum, CPU: 4 cores, Disk: 64GB
-   - Enable **Apple Virtualization** framework
-3. Install Ubuntu (default settings, create user `saae`)
-4. In UTM settings → Sharing → add a shared folder pointing to your cloned `scarecrow-drone` directory
-5. Inside the VM, add to `/etc/fstab` for auto-mount:
-   ```
-   share /media/px4 virtiofs defaults 0 0
-   ```
-   Then: `sudo mkdir -p /media/px4 && sudo mount -a`
-
-### Windows
-
-1. Install [VirtualBox](https://www.virtualbox.org) or [VMware Workstation Player](https://www.vmware.com/products/workstation-player.html)
-2. Download [Ubuntu 24.04 x86_64 ISO](https://ubuntu.com/download/desktop)
-3. Create VM: 8GB RAM, 4 cores, 64GB disk, enable 3D acceleration
-4. Install Ubuntu
-5. Set up a shared folder pointing to your cloned `scarecrow-drone` directory
-6. Mount it inside the VM:
-   ```bash
-   sudo mkdir -p /media/px4
-   sudo mount -t vboxsf scarecrow-drone /media/px4   # VirtualBox
-   # or for VMware: sudo mount -t fuse.vmhgfs-fuse .host:/ /media/px4
-   ```
-
----
-
-## One-Time Setup (inside the Ubuntu VM)
+### 1. Clone
 
 ```bash
-# 1. Clone the repo (with submodules)
 git clone --recurse-submodules https://github.com/riftins98/scarecrow-drone.git
 cd scarecrow-drone
+```
 
-# 2. Install PX4 dependencies
+### 2. Build PX4
+
+```bash
 cd px4
-bash Tools/setup/ubuntu.sh --no-nuttx
-
-# 3. Install Gazebo Harmonic
-sudo apt-get install -y gz-sim8
-
-# 4. Build PX4
+bash Tools/setup/ubuntu.sh --no-nuttx  # Linux only
 make px4_sitl gz_holybro_x500
 cd ..
 ```
 
----
+### 3. Run (3 terminals)
 
-## Running the Simulation
-
-Open 3 terminals inside the Ubuntu VM (not SSH):
-
-**Terminal 1 — Gazebo Server:**
+**Terminal 1 — Gazebo:**
 ```bash
-cd /path/to/scarecrow-drone
-GZ_SIM_RESOURCE_PATH=models:px4/Tools/simulation/gz/models:px4/Tools/simulation/gz/worlds \
-gz sim -v 4 -s px4/Tools/simulation/gz/worlds/default.sdf
-```
-Wait for: `[Msg] Serving scene information on [/world/default/scene/info]`
-
-**Terminal 2 — Gazebo GUI:**
-```bash
-gz sim -v 4 -g
-```
-Wait for the Gazebo window to open.
-
-**Terminal 3 — PX4 SITL:**
-```bash
-cd /path/to/scarecrow-drone
-cp airframes/4022_gz_holybro_x500 px4/build/px4_sitl_default/etc/init.d-posix/airframes/
-cp config/server.config px4/src/modules/simulation/gz_bridge/
-PX4_GZ_STANDALONE=1 PX4_GZ_WORLD=default make -C px4 px4_sitl gz_holybro_x500
-```
-Wait for: `INFO [px4] Startup script returned successfully`
-
-Then press **▶ Play** in the Gazebo GUI. The drone `holybro_x500_0` will appear.
-
----
-
-## Validate Sensors
-
-```bash
-gz topic -l | grep holybro_x500_0
+export SCARECROW_DIR=$(pwd)
+export PX4_DIR=$SCARECROW_DIR/px4
+export GZ_SIM_RESOURCE_PATH=$SCARECROW_DIR/models:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds
+export GZ_SIM_SERVER_CONFIG_PATH=$PX4_DIR/src/modules/simulation/gz_bridge/server.config
+export GZ_SIM_SYSTEM_PLUGIN_PATH=$PX4_DIR/build/px4_sitl_default/src/modules/simulation/gz_plugins
+export GZ_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I | awk '{print $1}')
+export GZ_PARTITION=px4
+cd $PX4_DIR
+cp $SCARECROW_DIR/config/server.config src/modules/simulation/gz_bridge/
+gz sim -v 4 -r -s $SCARECROW_DIR/worlds/default.sdf
 ```
 
-Expected topics include: `optical_flow`, `lidar`, `lidar_2d_v2`, `imu`, `air_pressure`, `navsat`, `magnetometer`, `camera_imu`
+**Terminal 2 — PX4 SITL:**
+```bash
+export SCARECROW_DIR=$(pwd)
+export PX4_DIR=$SCARECROW_DIR/px4
+export GZ_SIM_RESOURCE_PATH=$SCARECROW_DIR/models:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds
+export GZ_SIM_SYSTEM_PLUGIN_PATH=$PX4_DIR/build/px4_sitl_default/src/modules/simulation/gz_plugins
+export GZ_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I | awk '{print $1}')
+export GZ_PARTITION=px4
+cd $PX4_DIR
+cp $SCARECROW_DIR/airframes/4022_gz_holybro_x500 ROMFS/px4fmu_common/init.d-posix/airframes/
+cp $SCARECROW_DIR/airframes/4022_gz_holybro_x500 build/px4_sitl_default/etc/init.d-posix/airframes/
+cp $SCARECROW_DIR/airframes/4022_gz_holybro_x500 build/px4_sitl_default/rootfs/etc/init.d-posix/airframes/
+PX4_GZ_STANDALONE=1 PX4_GZ_WORLD=default make px4_sitl gz_holybro_x500
+```
 
----
+Then in `pxh>`:
+```
+param set EKF2_BARO_CTRL 0
+param set EKF2_OF_QMIN 0
+ekf2 stop
+ekf2 start
+commander set_ekf_origin 0 0 0
+commander set_heading 0
+```
 
-## MAVLink Control
+**Terminal 3 — Flight Test:**
+```bash
+cd scarecrow-drone
+source .venv-mavsdk/bin/activate
+python3 scripts/hover_test.py
+```
 
-PX4 MAVLink is on port `18570`. Connect from your host machine:
+## Hover Test Output
 
-**QGroundControl:** Auto-discovers the drone on UDP port 14550.
+The test script verifies sensor configuration before flight:
+```
+=======================================================
+  SENSOR VERIFICATION — GPS-Denied Navigation
+=======================================================
+  [OK] EKF2_GPS_CTRL = 0 — GPS disabled
+  [OK] EKF2_BARO_CTRL = 0 — Barometer disabled for height
+  [OK] EKF2_HGT_REF = 2 — Height reference = rangefinder
+  [OK] EKF2_OF_CTRL = 1 — Optical flow enabled
+  [OK] EKF2_RNG_CTRL = 1 — Rangefinder enabled
 
-**MAVSDK-Python:**
+--- Gazebo Sensor Topics ---
+  [OK] Optical flow (MTF-01)
+  [OK] Flow camera
+  [OK] Downward rangefinder
+  [OK] 2D lidar (RPLidar)
+  [OK] Mono camera (Pi Cam)
+```
+
+Then performs: arm → takeoff → hover → land, logging altitude throughout.
+
+## Real Drone
+
+The hover test script uses MAVSDK — the same code runs on the real drone. Only the connection string changes:
+
 ```python
-await drone.connect(system_address='udp://VM_IP:18570')
-```
+# Simulation
+SYSTEM_ADDRESS = "udp://:14540"
 
-Enable broadcast so the host can receive heartbeats:
-```bash
-cd px4/build/px4_sitl_default
-./bin/px4-param --instance 0 set MAV_0_BROADCAST 1
+# Real drone (companion computer → Pixhawk via USB)
+SYSTEM_ADDRESS = "serial:///dev/ttyACM0:921600"
 ```
-
----
 
 ## Kill Everything
 
 ```bash
-kill $(pgrep -f "gz sim"); kill $(pgrep -x px4)
+pkill -f "gz sim"; pkill -x px4
+sudo rm -f /tmp/px4_lock-0 /tmp/px4-sock-0  # if needed
 ```
+
+## License
+
+University project — private repository.

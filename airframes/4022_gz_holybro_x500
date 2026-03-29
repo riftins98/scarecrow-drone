@@ -14,10 +14,15 @@ param set-default SYS_HAS_GPS 0
 param set-default SIM_GPS_USED 0
 param set-default EKF2_GPS_CTRL 0
 
-echo "Optical flow + rangefinder navigation"
+echo "Optical flow + rangefinder navigation (no GPS, no baro)"
 param set-default EKF2_OF_CTRL 1
 param set-default EKF2_RNG_CTRL 1
 param set-default EKF2_HGT_REF 2
+param set-default EKF2_BARO_CTRL 0
+param set-default EKF2_MAG_TYPE 5
+param set-default EKF2_SYNT_MAG_Z 0
+param set-default SENS_MAG_MODE 0
+param set-default SENS_IMU_MODE 1
 
 echo "Arming config for GPS-denied autonomous sim"
 param set-default COM_RC_IN_MODE 1
@@ -30,3 +35,4 @@ param set-default SIM_BAT_ENABLE 1
 param set-default BAT1_V_EMPTY 3.5
 param set-default BAT1_V_CHARGED 4.2
 param set-default BAT1_N_CELLS 4
+param set-default MAV_0_BROADCAST 1

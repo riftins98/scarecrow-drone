@@ -20,13 +20,13 @@
       <pose relative_to="base_link">0 0 -0.079 0 1.57 0</pose>
     </include>
 
-    <!-- 2D lidar -->
+    <!-- 2D lidar (RPLidar A1M8 — 360° scan for obstacle avoidance) -->
     <include merge='true'>
       <uri>model://lidar_2d_v2</uri>
       <pose relative_to="base_link">.12 0 .26 0 0 0</pose>
     </include>
 
-    <!-- Mono camera -->
+    <!-- Mono camera (Pi Camera 3 — forward-facing) -->
     <include merge='true'>
       <uri>model://mono_cam</uri>
       <pose relative_to="base_link">.12 .03 .242 0 0 0</pose>

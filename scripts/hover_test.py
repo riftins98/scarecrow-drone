@@ -1,130 +1,181 @@
 #!/usr/bin/env python3
 """
-Scarecrow Drone — Hover Test
-Takeoff to 1m, hover 5 seconds, land.
-Requires PX4 SITL running with MAVLink on port 14540.
+Scarecrow Drone — Hover Test (MAVSDK)
+
+GPS-denied indoor flight using ONLY:
+  - Optical flow (MTF-01) for horizontal velocity
+  - Downward rangefinder (TF-Luna) for height
+  - 2D lidar (RPLidar A1M8) for obstacle avoidance
+  - Mono camera (Pi Camera 3) for visual awareness
+
+Sequence: arm -> takeoff to 1m -> hover 5s -> land
+Logs altitude and sensor status throughout.
+
+This script runs identically on simulation and real hardware.
+Only the connection string changes:
+  Sim:  udp://:14540
+  Real: serial:///dev/ttyACM0:921600
 """
 
-import time
-from pymavlink import mavutil
+import asyncio
+import subprocess
+import os
+from mavsdk import System
+from mavsdk.offboard import OffboardError, PositionNedYaw
 
-MAVLINK_PORT = 14540
-TARGET_ALT = 1.0  # meters above ground (NED z = -1.0)
-
-
-def connect():
-    print("Connecting to PX4...")
-    conn = mavutil.mavlink_connection(f"udpin:0.0.0.0:{MAVLINK_PORT}")
-    msg = conn.wait_heartbeat(timeout=15)
-    if msg is None:
-        print("ERROR: No heartbeat received.")
-        exit(1)
-    print(f"Connected to system {conn.target_system}")
-    return conn
+# --- Configuration ---
+SYSTEM_ADDRESS = "udp://:14540"
+TARGET_ALT = 1.5  # meters above ground — set higher to ensure 1m+ reached
 
 
-def set_ekf_origin(conn):
-    print("Setting EKF origin...")
-    conn.mav.set_gps_global_origin_send(
-        conn.target_system,
-        int(0 * 1e7), int(0 * 1e7), int(0 * 1000)
-    )
-    time.sleep(2)
+async def run():
+    drone = System()
+    print("Connecting to drone...")
+    await drone.connect(system_address=SYSTEM_ADDRESS)
 
+    print("Waiting for connection...")
+    async for state in drone.core.connection_state():
+        if state.is_connected:
+            print("Connected!")
+            break
 
-def send_position_setpoint(conn, x=0.0, y=0.0, z=-TARGET_ALT):
-    """Send local NED position setpoint. z negative = up."""
-    conn.mav.set_position_target_local_ned_send(
-        0,
-        conn.target_system,
-        conn.target_component,
-        mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-        0b110111111000,  # only position bits enabled
-        x, y, z,
-        0, 0, 0,
-        0, 0, 0,
-        0, 0
-    )
+    print("Waiting for position estimate...")
+    async for health in drone.telemetry.health():
+        if health.is_local_position_ok:
+            print("Position estimate OK")
+            break
 
+    # --- Verify sensor configuration ---
+    print("\n" + "=" * 55)
+    print("  SENSOR VERIFICATION — GPS-Denied Navigation")
+    print("=" * 55)
+    params_check = {
+        'EKF2_GPS_CTRL':  (0, "GPS disabled"),
+        'EKF2_BARO_CTRL': (0, "Barometer disabled for height"),
+        'EKF2_HGT_REF':   (2, "Height reference = rangefinder"),
+        'EKF2_OF_CTRL':   (1, "Optical flow enabled"),
+        'EKF2_RNG_CTRL':  (1, "Rangefinder enabled"),
+    }
+    all_ok = True
+    for name, (expected, desc) in params_check.items():
+        val = int(await drone.param.get_param_int(name))
+        ok = val == expected
+        print(f"  [{'OK' if ok else 'FAIL'}] {name} = {val} — {desc}")
+        if not ok:
+            all_ok = False
 
-def set_offboard_mode(conn):
-    """Switch to PX4 offboard mode via MAV_CMD_DO_SET_MODE."""
-    print("Switching to Offboard mode...")
-    conn.mav.command_long_send(
-        conn.target_system,
-        conn.target_component,
-        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-        0,
-        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-        6,   # PX4 main mode 6 = Offboard
-        0, 0, 0, 0, 0
-    )
-    time.sleep(1)
+    if not all_ok:
+        print("\nSensor config mismatch! Aborting.")
+        return
 
+    print("\n  All params OK: optical flow + rangefinder navigation")
+    print("=" * 55)
 
-def arm(conn):
+    # --- Verify all 4 sensor topics are publishing in Gazebo ---
+    print("\n--- Gazebo Sensor Topics ---")
+    await verify_gz_sensors()
+
+    # --- Log initial position ---
+    print("\n--- Flight Sequence ---")
+    await log_position(drone, "GROUND")
+
+    # --- Offboard mode ---
+    print("Setting initial setpoint...")
+    await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
+
+    print("Starting offboard mode...")
+    try:
+        await drone.offboard.start()
+    except OffboardError as e:
+        print(f"Offboard failed: {e}")
+        return
+    print("Offboard active")
+
+    # --- Arm ---
     print("Arming...")
-    conn.mav.command_long_send(
-        conn.target_system, conn.target_component,
-        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-        0, 1, 21196, 0, 0, 0, 0, 0
+    await drone.action.arm()
+    print("Armed!")
+
+    # --- Takeoff ---
+    print(f"\nTaking off to {TARGET_ALT}m...")
+    await drone.offboard.set_position_ned(
+        PositionNedYaw(0.0, 0.0, -TARGET_ALT, 0.0)
     )
-    ack = conn.recv_match(type='COMMAND_ACK', blocking=True, timeout=5)
-    if ack and ack.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
-        print("Armed!")
-    else:
-        print(f"Arm failed: {ack}")
-        exit(1)
+
+    for i in range(16):
+        await asyncio.sleep(0.5)
+        await log_position(drone, f"TAKEOFF {i*0.5:.1f}s")
+
+    # --- Hover ---
+    print(f"\nHovering...")
+    for i in range(10):
+        await asyncio.sleep(0.5)
+        await log_position(drone, f"HOVER  {i*0.5:.1f}s")
+
+    # --- Land ---
+    print("\nLanding...")
+    await drone.action.land()
+
+    for i in range(16):
+        await asyncio.sleep(0.5)
+        await log_position(drone, f"LAND   {i*0.5:.1f}s")
+
+    # Wait for disarm
+    print("\nWaiting for disarm...")
+    async for armed in drone.telemetry.armed():
+        if not armed:
+            break
+
+    try:
+        await drone.offboard.stop()
+    except Exception:
+        pass
+
+    print("\n" + "=" * 55)
+    print("  FLIGHT COMPLETE")
+    print("  Navigation: optical flow + rangefinder (NO GPS)")
+    print("=" * 55)
 
 
-def land(conn):
-    print("Landing...")
-    conn.mav.command_long_send(
-        conn.target_system, conn.target_component,
-        mavutil.mavlink.MAV_CMD_NAV_LAND,
-        0, 0, 0, 0, 0, 0, 0, 0
-    )
-    # Keep sending setpoints while landing
-    start = time.time()
-    while time.time() - start < 6:
-        send_position_setpoint(conn, z=0.0)
-        time.sleep(0.1)
-    print("Landed.")
+async def log_position(drone, phase):
+    """Log height and velocity."""
+    async for pos in drone.telemetry.position_velocity_ned():
+        h = -pos.position.down_m
+        vz = pos.velocity.down_m_s
+        n = pos.position.north_m
+        e = pos.position.east_m
+        print(f"  [{phase:12s}] alt={h:6.3f}m  vz={vz:+.3f}  n={n:+.3f} e={e:+.3f}")
+        break
 
 
-def main():
-    conn = connect()
-    set_ekf_origin(conn)
+async def verify_gz_sensors():
+    """Check that all 4 sensor topics exist in Gazebo."""
+    env = os.environ.copy()
+    env["GZ_IP"] = "192.168.68.117"
+    env["GZ_PARTITION"] = "px4"
 
-    # Step 1: stream setpoints BEFORE switching to offboard (required by PX4)
-    print("Pre-streaming setpoints...")
-    for _ in range(30):
-        send_position_setpoint(conn)
-        time.sleep(0.05)
+    try:
+        result = subprocess.run(
+            ["gz", "topic", "-l"],
+            capture_output=True, text=True, timeout=5, env=env
+        )
+        topics = result.stdout
+    except Exception as e:
+        print(f"  Could not query Gazebo topics: {e}")
+        return
 
-    # Step 2: switch to offboard
-    set_offboard_mode(conn)
+    sensors = {
+        "Optical flow (MTF-01)":  "optical_flow/optical_flow",
+        "Flow camera":            "flow_camera/image",
+        "Downward rangefinder":   "lidar_sensor_link/sensor/lidar/scan",
+        "2D lidar (RPLidar)":     "lidar_2d_v2",
+        "Mono camera (Pi Cam)":   "camera_link/sensor/camera",
+    }
 
-    # Step 3: arm
-    arm(conn)
-
-    # Step 4: takeoff — keep streaming setpoints at 1m
-    print(f"Taking off to {TARGET_ALT}m...")
-    start = time.time()
-    while time.time() - start < 6:
-        send_position_setpoint(conn)
-        time.sleep(0.05)
-    print("Hovering...")
-
-    # Step 5: hover for 5 seconds
-    start = time.time()
-    while time.time() - start < 5:
-        send_position_setpoint(conn)
-        time.sleep(0.05)
-
-    # Step 6: land
-    land(conn)
+    for name, pattern in sensors.items():
+        found = pattern in topics
+        print(f"  [{'OK' if found else 'MISSING'}] {name}")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(run())
