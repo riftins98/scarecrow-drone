@@ -6,8 +6,8 @@
 export SCARECROW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PX4_DIR="$SCARECROW_DIR/px4"
 
-# Gazebo resource paths
-export GZ_SIM_RESOURCE_PATH="$SCARECROW_DIR/models:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
+# Gazebo resource paths (includes our custom models and worlds)
+export GZ_SIM_RESOURCE_PATH="$SCARECROW_DIR/models:$SCARECROW_DIR/worlds:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
 export GZ_SIM_SERVER_CONFIG_PATH="$PX4_DIR/src/modules/simulation/gz_bridge/server.config"
 export GZ_SIM_SYSTEM_PLUGIN_PATH="$PX4_DIR/build/px4_sitl_default/src/modules/simulation/gz_plugins"
 
