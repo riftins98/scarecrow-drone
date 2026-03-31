@@ -17,99 +17,422 @@
     </scene>
 
     <!-- ==================== FLOOR ==================== -->
-    <!-- Collision ground plane -->
+    <!-- Collision ground plane (invisible — checkerboard provides visuals) -->
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
         <collision name="collision">
-          <geometry><plane><normal>0 0 1</normal><size>1 1</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
           <surface><friction><ode/></friction></surface>
         </collision>
-        <visual name="visual">
-          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
-          <material>
-            <ambient>0.3 0.3 0.3 1</ambient>
-            <diffuse>0.3 0.3 0.3 1</diffuse>
-          </material>
-        </visual>
       </link>
     </model>
 
-    <!-- Checkerboard floor tiles (8x8 grid, 0.5m tiles) for optical flow -->
+    <!-- Full 20m x 20m checkerboard floor (1m tiles, wall-to-wall) for optical flow -->
     <model name="floor_tiles">
       <static>true</static>
       <pose>0 0 0.001 0 0 0</pose>
       <link name="tiles">
-        <!-- Generate 8x8 checkerboard centered on origin -->
-        <!-- Row 0 -->
-        <visual name="t00"><pose>-1.75 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t01"><pose>-1.75 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t02"><pose>-1.75 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t03"><pose>-1.75 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t04"><pose>-1.75  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t05"><pose>-1.75  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t06"><pose>-1.75  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t07"><pose>-1.75  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <!-- Row 1 -->
-        <visual name="t10"><pose>-1.25 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t11"><pose>-1.25 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t12"><pose>-1.25 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t13"><pose>-1.25 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t14"><pose>-1.25  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t15"><pose>-1.25  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t16"><pose>-1.25  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t17"><pose>-1.25  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <!-- Row 2 -->
-        <visual name="t20"><pose>-0.75 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t21"><pose>-0.75 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t22"><pose>-0.75 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t23"><pose>-0.75 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t24"><pose>-0.75  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t25"><pose>-0.75  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t26"><pose>-0.75  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t27"><pose>-0.75  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <!-- Row 3 -->
-        <visual name="t30"><pose>-0.25 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t31"><pose>-0.25 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t32"><pose>-0.25 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t33"><pose>-0.25 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t34"><pose>-0.25  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t35"><pose>-0.25  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t36"><pose>-0.25  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t37"><pose>-0.25  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <!-- Row 4-7: mirror rows 0-3 -->
-        <visual name="t40"><pose>0.25 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t41"><pose>0.25 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t42"><pose>0.25 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t43"><pose>0.25 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t44"><pose>0.25  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t45"><pose>0.25  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t46"><pose>0.25  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t47"><pose>0.25  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t50"><pose>0.75 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t51"><pose>0.75 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t52"><pose>0.75 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t53"><pose>0.75 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t54"><pose>0.75  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t55"><pose>0.75  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t56"><pose>0.75  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t57"><pose>0.75  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t60"><pose>1.25 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t61"><pose>1.25 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t62"><pose>1.25 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t63"><pose>1.25 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t64"><pose>1.25  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t65"><pose>1.25  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t66"><pose>1.25  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t67"><pose>1.25  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t70"><pose>1.75 -1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t71"><pose>1.75 -1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t72"><pose>1.75 -0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t73"><pose>1.75 -0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t74"><pose>1.75  0.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t75"><pose>1.75  0.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
-        <visual name="t76"><pose>1.75  1.25 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>
-        <visual name="t77"><pose>1.75  1.75 0 0 0 0</pose><geometry><box><size>0.5 0.5 0.001</size></box></geometry><material><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_00"><pose>-9.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_01"><pose>-9.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_02"><pose>-9.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_03"><pose>-9.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_04"><pose>-9.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_05"><pose>-9.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_06"><pose>-9.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_07"><pose>-9.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_08"><pose>-9.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_09"><pose>-9.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_10"><pose>-9.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_11"><pose>-9.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_12"><pose>-9.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_13"><pose>-9.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_14"><pose>-9.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_15"><pose>-9.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_16"><pose>-9.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_17"><pose>-9.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_00_18"><pose>-9.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_00_19"><pose>-9.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_00"><pose>-8.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_01"><pose>-8.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_02"><pose>-8.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_03"><pose>-8.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_04"><pose>-8.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_05"><pose>-8.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_06"><pose>-8.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_07"><pose>-8.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_08"><pose>-8.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_09"><pose>-8.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_10"><pose>-8.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_11"><pose>-8.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_12"><pose>-8.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_13"><pose>-8.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_14"><pose>-8.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_15"><pose>-8.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_16"><pose>-8.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_17"><pose>-8.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_01_18"><pose>-8.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_01_19"><pose>-8.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_00"><pose>-7.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_01"><pose>-7.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_02"><pose>-7.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_03"><pose>-7.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_04"><pose>-7.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_05"><pose>-7.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_06"><pose>-7.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_07"><pose>-7.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_08"><pose>-7.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_09"><pose>-7.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_10"><pose>-7.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_11"><pose>-7.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_12"><pose>-7.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_13"><pose>-7.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_14"><pose>-7.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_15"><pose>-7.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_16"><pose>-7.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_17"><pose>-7.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_02_18"><pose>-7.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_02_19"><pose>-7.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_00"><pose>-6.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_01"><pose>-6.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_02"><pose>-6.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_03"><pose>-6.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_04"><pose>-6.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_05"><pose>-6.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_06"><pose>-6.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_07"><pose>-6.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_08"><pose>-6.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_09"><pose>-6.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_10"><pose>-6.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_11"><pose>-6.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_12"><pose>-6.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_13"><pose>-6.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_14"><pose>-6.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_15"><pose>-6.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_16"><pose>-6.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_17"><pose>-6.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_03_18"><pose>-6.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_03_19"><pose>-6.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_00"><pose>-5.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_01"><pose>-5.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_02"><pose>-5.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_03"><pose>-5.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_04"><pose>-5.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_05"><pose>-5.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_06"><pose>-5.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_07"><pose>-5.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_08"><pose>-5.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_09"><pose>-5.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_10"><pose>-5.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_11"><pose>-5.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_12"><pose>-5.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_13"><pose>-5.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_14"><pose>-5.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_15"><pose>-5.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_16"><pose>-5.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_17"><pose>-5.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_04_18"><pose>-5.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_04_19"><pose>-5.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_00"><pose>-4.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_01"><pose>-4.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_02"><pose>-4.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_03"><pose>-4.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_04"><pose>-4.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_05"><pose>-4.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_06"><pose>-4.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_07"><pose>-4.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_08"><pose>-4.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_09"><pose>-4.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_10"><pose>-4.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_11"><pose>-4.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_12"><pose>-4.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_13"><pose>-4.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_14"><pose>-4.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_15"><pose>-4.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_16"><pose>-4.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_17"><pose>-4.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_05_18"><pose>-4.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_05_19"><pose>-4.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_00"><pose>-3.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_01"><pose>-3.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_02"><pose>-3.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_03"><pose>-3.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_04"><pose>-3.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_05"><pose>-3.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_06"><pose>-3.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_07"><pose>-3.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_08"><pose>-3.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_09"><pose>-3.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_10"><pose>-3.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_11"><pose>-3.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_12"><pose>-3.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_13"><pose>-3.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_14"><pose>-3.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_15"><pose>-3.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_16"><pose>-3.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_17"><pose>-3.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_06_18"><pose>-3.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_06_19"><pose>-3.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_00"><pose>-2.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_01"><pose>-2.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_02"><pose>-2.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_03"><pose>-2.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_04"><pose>-2.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_05"><pose>-2.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_06"><pose>-2.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_07"><pose>-2.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_08"><pose>-2.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_09"><pose>-2.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_10"><pose>-2.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_11"><pose>-2.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_12"><pose>-2.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_13"><pose>-2.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_14"><pose>-2.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_15"><pose>-2.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_16"><pose>-2.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_17"><pose>-2.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_07_18"><pose>-2.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_07_19"><pose>-2.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_00"><pose>-1.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_01"><pose>-1.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_02"><pose>-1.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_03"><pose>-1.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_04"><pose>-1.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_05"><pose>-1.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_06"><pose>-1.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_07"><pose>-1.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_08"><pose>-1.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_09"><pose>-1.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_10"><pose>-1.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_11"><pose>-1.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_12"><pose>-1.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_13"><pose>-1.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_14"><pose>-1.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_15"><pose>-1.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_16"><pose>-1.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_17"><pose>-1.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_08_18"><pose>-1.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_08_19"><pose>-1.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_00"><pose>-0.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_01"><pose>-0.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_02"><pose>-0.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_03"><pose>-0.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_04"><pose>-0.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_05"><pose>-0.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_06"><pose>-0.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_07"><pose>-0.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_08"><pose>-0.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_09"><pose>-0.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_10"><pose>-0.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_11"><pose>-0.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_12"><pose>-0.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_13"><pose>-0.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_14"><pose>-0.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_15"><pose>-0.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_16"><pose>-0.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_17"><pose>-0.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_09_18"><pose>-0.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_09_19"><pose>-0.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_00"><pose>0.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_01"><pose>0.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_02"><pose>0.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_03"><pose>0.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_04"><pose>0.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_05"><pose>0.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_06"><pose>0.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_07"><pose>0.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_08"><pose>0.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_09"><pose>0.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_10"><pose>0.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_11"><pose>0.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_12"><pose>0.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_13"><pose>0.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_14"><pose>0.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_15"><pose>0.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_16"><pose>0.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_17"><pose>0.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_10_18"><pose>0.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_10_19"><pose>0.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_00"><pose>1.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_01"><pose>1.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_02"><pose>1.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_03"><pose>1.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_04"><pose>1.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_05"><pose>1.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_06"><pose>1.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_07"><pose>1.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_08"><pose>1.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_09"><pose>1.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_10"><pose>1.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_11"><pose>1.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_12"><pose>1.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_13"><pose>1.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_14"><pose>1.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_15"><pose>1.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_16"><pose>1.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_17"><pose>1.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_11_18"><pose>1.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_11_19"><pose>1.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_00"><pose>2.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_01"><pose>2.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_02"><pose>2.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_03"><pose>2.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_04"><pose>2.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_05"><pose>2.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_06"><pose>2.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_07"><pose>2.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_08"><pose>2.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_09"><pose>2.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_10"><pose>2.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_11"><pose>2.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_12"><pose>2.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_13"><pose>2.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_14"><pose>2.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_15"><pose>2.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_16"><pose>2.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_17"><pose>2.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_12_18"><pose>2.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_12_19"><pose>2.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_00"><pose>3.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_01"><pose>3.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_02"><pose>3.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_03"><pose>3.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_04"><pose>3.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_05"><pose>3.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_06"><pose>3.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_07"><pose>3.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_08"><pose>3.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_09"><pose>3.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_10"><pose>3.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_11"><pose>3.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_12"><pose>3.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_13"><pose>3.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_14"><pose>3.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_15"><pose>3.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_16"><pose>3.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_17"><pose>3.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_13_18"><pose>3.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_13_19"><pose>3.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_00"><pose>4.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_01"><pose>4.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_02"><pose>4.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_03"><pose>4.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_04"><pose>4.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_05"><pose>4.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_06"><pose>4.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_07"><pose>4.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_08"><pose>4.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_09"><pose>4.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_10"><pose>4.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_11"><pose>4.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_12"><pose>4.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_13"><pose>4.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_14"><pose>4.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_15"><pose>4.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_16"><pose>4.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_17"><pose>4.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_14_18"><pose>4.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_14_19"><pose>4.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_00"><pose>5.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_01"><pose>5.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_02"><pose>5.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_03"><pose>5.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_04"><pose>5.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_05"><pose>5.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_06"><pose>5.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_07"><pose>5.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_08"><pose>5.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_09"><pose>5.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_10"><pose>5.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_11"><pose>5.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_12"><pose>5.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_13"><pose>5.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_14"><pose>5.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_15"><pose>5.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_16"><pose>5.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_17"><pose>5.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_15_18"><pose>5.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_15_19"><pose>5.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_00"><pose>6.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_01"><pose>6.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_02"><pose>6.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_03"><pose>6.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_04"><pose>6.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_05"><pose>6.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_06"><pose>6.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_07"><pose>6.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_08"><pose>6.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_09"><pose>6.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_10"><pose>6.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_11"><pose>6.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_12"><pose>6.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_13"><pose>6.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_14"><pose>6.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_15"><pose>6.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_16"><pose>6.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_17"><pose>6.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_16_18"><pose>6.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_16_19"><pose>6.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_00"><pose>7.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_01"><pose>7.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_02"><pose>7.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_03"><pose>7.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_04"><pose>7.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_05"><pose>7.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_06"><pose>7.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_07"><pose>7.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_08"><pose>7.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_09"><pose>7.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_10"><pose>7.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_11"><pose>7.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_12"><pose>7.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_13"><pose>7.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_14"><pose>7.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_15"><pose>7.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_16"><pose>7.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_17"><pose>7.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_17_18"><pose>7.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_17_19"><pose>7.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_00"><pose>8.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_01"><pose>8.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_02"><pose>8.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_03"><pose>8.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_04"><pose>8.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_05"><pose>8.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_06"><pose>8.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_07"><pose>8.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_08"><pose>8.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_09"><pose>8.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_10"><pose>8.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_11"><pose>8.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_12"><pose>8.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_13"><pose>8.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_14"><pose>8.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_15"><pose>8.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_16"><pose>8.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_17"><pose>8.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_18_18"><pose>8.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_18_19"><pose>8.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_00"><pose>9.5 -9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_01"><pose>9.5 -8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_02"><pose>9.5 -7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_03"><pose>9.5 -6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_04"><pose>9.5 -5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_05"><pose>9.5 -4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_06"><pose>9.5 -3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_07"><pose>9.5 -2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_08"><pose>9.5 -1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_09"><pose>9.5 -0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_10"><pose>9.5 0.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_11"><pose>9.5 1.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_12"><pose>9.5 2.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_13"><pose>9.5 3.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_14"><pose>9.5 4.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_15"><pose>9.5 5.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_16"><pose>9.5 6.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_17"><pose>9.5 7.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <visual name="t_19_18"><pose>9.5 8.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.9 0.9 0.9 1</ambient><diffuse>0.9 0.9 0.9 1</diffuse></material></visual>
+        <visual name="t_19_19"><pose>9.5 9.5 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
       </link>
     </model>
 
@@ -163,12 +486,12 @@
       </link>
     </model>
 
-    <!-- ==================== OBSTACLES ==================== -->
+    <!-- ==================== OBSTACLES (pushed to 6-8m from center) ==================== -->
 
-    <!-- Cylinder pillar — WHITE, in front-right -->
+    <!-- Cylinder pillar — WHITE -->
     <model name="pillar">
       <static>true</static>
-      <pose>2.0 2.0 0.75 0 0 0</pose>
+      <pose>6.0 6.0 0.75 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><cylinder><radius>0.3</radius><length>1.5</length></cylinder></geometry></collision>
         <visual name="v"><geometry><cylinder><radius>0.3</radius><length>1.5</length></cylinder></geometry>
@@ -177,10 +500,10 @@
       </link>
     </model>
 
-    <!-- L-shaped wall — ORANGE, behind-left -->
+    <!-- L-shaped wall — ORANGE -->
     <model name="l_wall_part1">
       <static>true</static>
-      <pose>-2.0 -1.5 0.5 0 0 0</pose>
+      <pose>-6.0 -5.5 0.5 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>2.0 0.15 1.0</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>2.0 0.15 1.0</size></box></geometry>
@@ -190,7 +513,7 @@
     </model>
     <model name="l_wall_part2">
       <static>true</static>
-      <pose>-1.075 -2.25 0.5 0 0 0</pose>
+      <pose>-5.075 -6.25 0.5 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>0.15 1.5 1.0</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>0.15 1.5 1.0</size></box></geometry>
@@ -199,10 +522,10 @@
       </link>
     </model>
 
-    <!-- Wedge/ramp — PURPLE, front-left -->
+    <!-- Wedge/ramp — PURPLE -->
     <model name="ramp">
       <static>true</static>
-      <pose>2.0 -2.0 0 0 0 0</pose>
+      <pose>6.0 -6.0 0 0 0 0</pose>
       <link name="link">
         <collision name="c">
           <pose>0 0 0.25 0 0 0</pose>
@@ -216,10 +539,10 @@
       </link>
     </model>
 
-    <!-- Small box stack — TEAL, near center -->
+    <!-- Small box stack — TEAL -->
     <model name="box_small">
       <static>true</static>
-      <pose>0.8 -0.5 0.2 0 0 0.3</pose>
+      <pose>-6.0 7.0 0.2 0 0 0.3</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>0.4 0.4 0.4</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>0.4 0.4 0.4</size></box></geometry>
@@ -229,7 +552,7 @@
     </model>
     <model name="box_top">
       <static>true</static>
-      <pose>0.8 -0.5 0.55 0 0 0.6</pose>
+      <pose>-6.0 7.0 0.55 0 0 0.6</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>0.3 0.3 0.3</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>0.3 0.3 0.3</size></box></geometry>
@@ -242,16 +565,16 @@
 
     <!-- Ceiling light (bright, centered) -->
     <light name="ceiling_light" type="point">
-      <pose>0 0 2.4 0 0 0</pose>
+      <pose>0 0 2.8 0 0 0</pose>
       <cast_shadows>true</cast_shadows>
-      <intensity>1.5</intensity>
+      <intensity>2.0</intensity>
       <diffuse>1.0 0.95 0.9 1</diffuse>
       <specular>0.5 0.5 0.5 1</specular>
       <attenuation>
-        <range>15</range>
-        <linear>0.05</linear>
+        <range>25</range>
+        <linear>0.03</linear>
         <constant>0.8</constant>
-        <quadratic>0.01</quadratic>
+        <quadratic>0.005</quadratic>
       </attenuation>
     </light>
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the scarecrow drone simulation.
 # One command — PX4 manages Gazebo with GUI.
-# Usage: ./scripts/launch.sh [world_name] [--headless]
+# Usage: ./scripts/shell/launch.sh [world_name] [--headless]
 #   Default world: indoor_room
 set -e
 

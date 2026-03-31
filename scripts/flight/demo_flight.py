@@ -18,8 +18,11 @@ Only the connection string changes:
   Real: serial:///dev/ttyACM0:921600
 """
 
-import asyncio
 import os
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
+
+import asyncio
 import re
 import subprocess
 import sys
@@ -32,8 +35,9 @@ from mavsdk import System
 
 # --- Configuration ---
 SYSTEM_ADDRESS = "udp://:14540"
-TARGET_ALT = 1.0  # meters above ground
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
+TARGET_ALT = 2.5  # meters above ground
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
 
 
 def get_gz_env():
@@ -200,6 +204,8 @@ class CameraRecorder:
         self.topic = None
         self.env = None
         self.tmp_dir = os.path.join(OUTPUT_DIR, ".camera_raw")
+        self.start_time = None
+        self.stop_time = None
 
     def start(self):
         self.running = True
@@ -219,22 +225,44 @@ class CameraRecorder:
             return
 
         print(f"  [camera] Recording...")
-        n = 0
+        self.start_time = time.time()
+        self._frame_count = 0
+        self._lock = threading.Lock()
+
+        def grab_frames():
+            while self.running:
+                try:
+                    result = subprocess.run(
+                        ["gz", "topic", "-e", "-n", "1", "-t", self.topic],
+                        capture_output=True, timeout=8, env=self.env
+                    )
+                    if result.returncode == 0 and len(result.stdout) > 100000:
+                        with self._lock:
+                            n = self._frame_count
+                            self._frame_count += 1
+                        outfile = os.path.join(self.tmp_dir, f"raw_{n:04d}.bin")
+                        with open(outfile, 'wb') as f:
+                            f.write(result.stdout)
+                except Exception:
+                    pass
+
+        # Run 4 capture threads in parallel for higher frame rate
+        workers = []
+        for _ in range(4):
+            t = threading.Thread(target=grab_frames, daemon=True)
+            t.start()
+            workers.append(t)
+
+        # Wait until recording stops
         while self.running:
-            try:
-                outfile = os.path.join(self.tmp_dir, f"raw_{n:04d}.bin")
-                result = subprocess.run(
-                    ["gz", "topic", "-e", "-n", "1", "-t", self.topic],
-                    capture_output=True, timeout=8, env=self.env
-                )
-                if result.returncode == 0 and len(result.stdout) > 50000:
-                    with open(outfile, 'wb') as f:
-                        f.write(result.stdout)
-                    n += 1
-                time.sleep(0.1)
-            except Exception:
-                pass
-        print(f"  [camera] Captured {n} raw frames")
+            time.sleep(0.1)
+
+        # Wait for workers to finish current frame
+        for t in workers:
+            t.join(timeout=3)
+
+        self.stop_time = time.time()
+        print(f"  [camera] Captured {self._frame_count} raw frames")
 
     def save_video(self):
         """Parse raw dumps into PNGs, stitch into MP4 with ffmpeg."""
@@ -277,15 +305,20 @@ class CameraRecorder:
         shutil.copy2(last_png, os.path.join(OUTPUT_DIR, "camera_flight.png"))
         print("  [camera] Saved camera_ground.png + camera_flight.png")
 
-        # Stitch into MP4 with ffmpeg
+        # Stitch into MP4 with ffmpeg at real-time framerate
+        duration = (self.stop_time - self.start_time) if (self.start_time and self.stop_time) else 14
+        real_fps = max(1, good / max(duration, 1))
+        print(f"  [camera] Real framerate: {real_fps:.1f} fps ({good} frames / {duration:.1f}s)")
+
         outpath = os.path.join(OUTPUT_DIR, "flight_camera.mp4")
         try:
             subprocess.run([
-                "ffmpeg", "-y", "-framerate", "10",
+                "ffmpeg", "-y", "-framerate", str(round(real_fps, 1)),
                 "-i", os.path.join(png_dir, "frame_%04d.png"),
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:v", "libx264", "-crf", "18", "-preset", "slow",
+                "-pix_fmt", "yuv420p",
                 outpath
-            ], capture_output=True, timeout=30)
+            ], capture_output=True, timeout=120)
             if os.path.exists(outpath):
                 size = os.path.getsize(outpath)
                 print(f"  [camera] Video: {outpath} ({size // 1024}KB)")
@@ -380,13 +413,15 @@ async def run():
     print("\n--- Gazebo Sensor Topics ---")
     await verify_gz_sensors()
 
-    # --- Set EKF2 height ref to barometer (required for GPS-denied) ---
-    print("\n--- Pre-flight Configuration ---")
+    # --- Pre-flight Setup ---
+    # NOTE: Before running, set heading in pxh>: commander set_heading 0
+    print("\n--- Pre-flight Setup ---")
     try:
-        await drone.param.set_param_int('EKF2_HGT_REF', 0)
-        print("  EKF2_HGT_REF = 0 (barometer)")
-    except Exception:
-        pass
+        await drone.action.set_gps_global_origin(0.0, 0.0, 0.0)
+        print("  EKF origin set (0, 0, 0)")
+    except Exception as e:
+        print(f"  set_gps_global_origin failed: {e}")
+    print("  (heading must be set manually: commander set_heading 0)")
 
     # --- Read ground position ---
     await asyncio.sleep(2)
@@ -439,23 +474,21 @@ async def run():
     print("\nLanding...")
     await drone.action.land()
 
-    for i in range(20):
+    for i in range(30):
         await asyncio.sleep(0.5)
         await log_position(drone, f"LAND   {i*0.5:.1f}s", ground_z)
 
-    # Wait for disarm (with timeout)
+    # Wait for disarm (PX4 auto-disarms after landing)
     print("\nWaiting for disarm...")
     try:
         disarm_timeout = asyncio.get_event_loop().time() + 15
         async for armed in drone.telemetry.armed():
             if not armed:
+                print("  Disarmed!")
                 break
             if asyncio.get_event_loop().time() > disarm_timeout:
-                print("  Disarm timeout — forcing disarm")
-                try:
-                    await drone.action.kill()
-                except Exception:
-                    pass
+                print("  Timeout — disarming")
+                await drone.action.disarm()
                 break
     except Exception:
         pass

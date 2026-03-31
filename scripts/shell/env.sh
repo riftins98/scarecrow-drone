@@ -3,7 +3,7 @@
 # Source this file: source scripts/env.sh
 
 # Resolve repo root (works from any subdirectory)
-export SCARECROW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export SCARECROW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PX4_DIR="$SCARECROW_DIR/px4"
 
 # Gazebo resource paths (includes our custom models and worlds)

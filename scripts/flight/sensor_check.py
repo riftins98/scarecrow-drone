@@ -31,7 +31,8 @@ import numpy as np
 from PIL import Image
 
 # --- Config ---
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
 
 
 def get_gz_env():

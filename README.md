@@ -11,7 +11,7 @@ University final project: proves indoor flight using only optical flow + rangefi
 | Optical flow | MTF-01 | `optical_flow` | Horizontal velocity |
 | Downward rangefinder | TF-Luna | `LW20` / `gpu_lidar` | Height correction |
 | 2D lidar | RPLidar A1M8 | `lidar_2d_v2` | Obstacle avoidance |
-| Mono camera | Pi Camera 3 | `mono_cam` (320x240) | Visual awareness |
+| Mono camera | Pi Camera 3 | `mono_cam` (1280x720) | Visual awareness |
 
 GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correction.
 
@@ -23,15 +23,17 @@ scarecrow-drone/
 ├── config/server.config             — Gazebo server plugins (Sensors, OpticalFlow)
 ├── models/
 │   ├── holybro_x500/model.sdf       — Composite drone model (x500 + all 4 sensors)
-│   └── mono_cam/model.sdf           — Camera model (320x240 for recording)
+│   └── mono_cam/model.sdf           — Camera model (1280x720 HD)
 ├── worlds/
 │   ├── default.sdf                  — Open world with checkerboard floor
-│   └── indoor_room.sdf             — 20m room with colored walls and obstacles
+│   └── indoor_room.sdf             — 20m room with colored walls, obstacles, full checkerboard
 ├── scripts/
-│   ├── launch.sh                    — One-command launcher (GUI or headless)
-│   ├── hover_test.py                — MAVSDK flight test + sensor capture + video
-│   ├── sensor_demo.py               — Standalone sensor data capture
-│   └── env.sh                       — Shared environment variables
+│   ├── shell/
+│   │   ├── launch.sh                — One-command launcher (GUI or headless)
+│   │   └── env.sh                   — Shared environment variables
+│   └── flight/
+│       ├── demo_flight.py           — MAVSDK flight demo + HD video + sensor capture
+│       └── sensor_check.py          — Ground-only sensor data capture (no flight)
 ├── px4/                             — PX4-Autopilot submodule (branch: scarecrow)
 └── .venv-mavsdk/                    — Python venv (create with: python3 -m venv .venv-mavsdk)
 ```
@@ -63,8 +65,6 @@ cd px4
 bash Tools/setup/ubuntu.sh
 cd ..
 ```
-
-This installs: cmake, ninja, gcc, Gazebo Harmonic (gz-harmonic), OpenCV, GStreamer, protobuf, and all Python build dependencies.
 
 ### 3. Install Flight Test Dependencies
 
@@ -115,34 +115,36 @@ pip install mavsdk matplotlib numpy opencv-python-headless pillow
 brew install ffmpeg
 ```
 
-### 3. Launch Simulation
+## Running the Simulation
+
+### 1. Launch
 
 ```bash
-./scripts/launch.sh                    # GUI + indoor room (default)
-./scripts/launch.sh default            # GUI + open world
-./scripts/launch.sh default --headless # headless mode
+./scripts/shell/launch.sh                    # GUI + indoor room (default)
+./scripts/shell/launch.sh default            # GUI + open world
+./scripts/shell/launch.sh default --headless # headless mode
 ```
 
-### 4. Configure PX4
+### 2. Configure PX4
 
 Once you see `pxh>` prompt:
 ```
-commander set_ekf_origin 0 0 0
 commander set_heading 0
-param set EKF2_HGT_REF 0
 ```
 
-### 5. Run Flight Test
+(`set_ekf_origin` is handled automatically by the flight script)
+
+### 3. Run Flight Demo
 
 In a second terminal:
 ```bash
 source .venv-mavsdk/bin/activate
-python3 scripts/hover_test.py
+python3 scripts/flight/demo_flight.py
 ```
 
-## Flight Test Output
+The drone takes off to 2.5m, hovers with optical flow position hold, captures sensor data and HD video, then lands. You can run this multiple times without restarting PX4.
 
-The test verifies sensors, flies to 1.0m, hovers, captures sensor data, and lands:
+## Flight Demo Output
 
 ```
   SENSOR VERIFICATION — GPS-Denied Navigation
@@ -159,14 +161,14 @@ The test verifies sensors, flies to 1.0m, hovers, captures sensor data, and land
 ```
 
 Output files saved to `output/`:
-- `flight_camera.mp4` — camera video during flight
+- `flight_camera.mp4` — HD camera video during flight (real-time speed)
 - `lidar_scan.pdf` — 2D lidar top-down scan of room
 - `optical_flow.pdf` — optical flow quality chart
 - `camera_ground.png` / `camera_flight.png` — camera snapshots
 
 ## Real Drone
 
-The hover test uses MAVSDK — same code runs on real hardware. Only the connection changes:
+The flight demo uses MAVSDK — same code runs on real hardware. Only the connection changes:
 
 ```python
 # Simulation

@@ -11,7 +11,7 @@ University final project: simulate a Holybro X500 V2 drone with full sensor stac
 | Optical flow | MTF-01 | `optical_flow` | Horizontal velocity estimation |
 | Downward rangefinder | TF-Luna | `LW20` + `lidar_sensor_link` (gpu_lidar) | Height correction |
 | 2D lidar | RPLidar A1M8 | `lidar_2d_v2` | Obstacle avoidance / self-position |
-| Mono camera | Pi Camera 3 | `mono_cam` (320x240) | Visual awareness |
+| Mono camera | Pi Camera 3 | `mono_cam` (1280x720) | Visual awareness |
 
 GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correction. Baro is kept enabled — the real Pixhawk has one.
 
@@ -27,15 +27,17 @@ scarecrow-drone/
 │   └── server.config              ← Gazebo server plugins (Sensors + OpticalFlowSystem)
 ├── models/
 │   ├── holybro_x500/model.sdf     ← composite model: x500 + all 4 sensors
-│   └── mono_cam/model.sdf         ← camera at 320x240 for video recording
+│   └── mono_cam/model.sdf         ← camera at 1280x720 for HD video recording
 ├── worlds/
 │   ├── default.sdf                ← open world with checkerboard floor
-│   └── indoor_room.sdf            ← 20m room: colored walls, obstacles, checkerboard floor
+│   └── indoor_room.sdf            ← 20m room: colored walls, obstacles, full checkerboard floor
 ├── scripts/
-│   ├── launch.sh                  ← one-command launcher (GUI or headless)
-│   ├── hover_test.py              ← MAVSDK flight test + video + sensor capture
-│   ├── sensor_demo.py             ← standalone sensor data capture
-│   └── env.sh                     ← shared environment variables
+│   ├── shell/
+│   │   ├── launch.sh              ← one-command launcher (GUI or headless)
+│   │   └── env.sh                 ← shared environment variables
+│   └── flight/
+│       ├── demo_flight.py         ← MAVSDK flight demo + HD video + sensor capture
+│       └── sensor_check.py        ← ground-only sensor data capture (no flight)
 ├── px4/                           ← git submodule: riftins98/PX4-Autopilot branch `scarecrow`
 └── .venv-mavsdk/                  ← Python venv with mavsdk package
 ```
@@ -53,23 +55,24 @@ The airframe `4022_gz_holybro_x500` is based on the stock `4021_gz_x500_flow` wi
 ```sh
 # GPS disabled — indoor flight
 SYS_HAS_GPS 0, SIM_GPS_USED 0, EKF2_GPS_CTRL 0
-EKF2_HGT_REF 0       # height reference = barometer (GPS unavailable)
 
 # Allow arming without GPS
 COM_ARM_WO_GPS 1, COM_RC_IN_MODE 1
 NAV_DLL_ACT 0, NAV_RCL_ACT 0
 ```
 
-Everything else is PX4 stock defaults. Barometer, magnetometer, IMU — all at defaults.
+Everything else is PX4 stock defaults. Barometer, magnetometer, IMU, EKF2 — all at defaults.
 
-**Runtime params** (set in `pxh>` before each flight):
+**Runtime commands** (set in `pxh>` before each flight):
 ```
 commander set_ekf_origin 0 0 0
 commander set_heading 0
-param set EKF2_HGT_REF 0
 ```
 
-**Key lesson**: Don't over-configure EKF2. The stock x500_flow with only GPS disabled flies perfectly. Disabling baro caused altitude control failures.
+**Critical rules**:
+- Don't over-configure EKF2. Stock defaults work. Only disable GPS.
+- **NEVER `param set` EKF2 params at runtime** — it resets the estimator and destroys optical flow fusion.
+- The `set_ekf_origin` is automated by the flight script. Only `set_heading 0` needs manual entry.
 
 ---
 
@@ -78,9 +81,9 @@ param set EKF2_HGT_REF 0
 ### One Command
 
 ```bash
-./scripts/launch.sh                    # GUI + indoor room (default)
-./scripts/launch.sh default            # GUI + open world
-./scripts/launch.sh default --headless # headless mode
+./scripts/shell/launch.sh                    # GUI + indoor room (default)
+./scripts/shell/launch.sh default            # GUI + open world
+./scripts/shell/launch.sh default --headless # headless mode
 ```
 
 The launch script:
@@ -93,31 +96,32 @@ The launch script:
 
 In `pxh>`:
 ```
-commander set_ekf_origin 0 0 0
 commander set_heading 0
-param set EKF2_HGT_REF 0
 ```
 
-### Flight Test
+(`set_ekf_origin` is handled by the flight script automatically)
+
+### Flight Demo
 
 In a second terminal:
 ```bash
 source .venv-mavsdk/bin/activate
-python3 scripts/hover_test.py
+python3 scripts/flight/demo_flight.py
 ```
 
 The script:
 1. Verifies GPS is disabled and sensors are publishing
-2. Sets `EKF2_HGT_REF 0` via MAVSDK
-3. Arms and takes off using PX4's built-in takeoff controller
-4. Records camera video (raw frames to disk, builds MP4 after landing)
-5. Captures lidar scan + optical flow during hover
-6. Lands and produces output files
+2. Sets EKF origin via MAVSDK
+3. Arms and takes off to 2.5m using PX4's built-in takeoff controller
+4. Hovers with optical flow position hold
+5. Records HD camera video (1280x720, multi-threaded capture, MP4 via ffmpeg)
+6. Captures lidar scan + optical flow during hover
+7. Lands using PX4's built-in land controller
 
 ### Output Files
 
 Saved to `output/` (gitignored):
-- `flight_camera.mp4` — camera video from flight
+- `flight_camera.mp4` — HD camera video from flight (real-time speed)
 - `lidar_scan.pdf` — 2D lidar top-down room scan
 - `optical_flow.pdf` — flow quality chart
 - `camera_ground.png` / `camera_flight.png` — camera snapshots
@@ -133,9 +137,8 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 20m x 20m room with:
 - **Red** wall (north), **Blue** wall (south), **Green** wall (east), **Yellow** wall (west)
 - White cylinder pillar, orange L-shaped wall, purple wedge, teal box stack
-- Checkerboard floor
-
-The drone drifts horizontally ~4s into hover (no optical flow position hold) and may hit walls. Use for sensor demos (lidar scan shows room), not for long flights.
+- **Full 20m x 20m checkerboard floor** (400 tiles, 1m each, wall-to-wall) for optical flow
+- Obstacles placed 6-8m from center (clear hover zone)
 
 ---
 
@@ -143,30 +146,35 @@ The drone drifts horizontally ~4s into hover (no optical flow position hold) and
 
 | File | Change |
 |---|---|
-| `ROMFS/.../4022_gz_holybro_x500` | Custom airframe: GPS disabled, baro height ref |
+| `ROMFS/.../4022_gz_holybro_x500` | Custom airframe: GPS disabled, arming overrides |
 | `ROMFS/.../px4-rc.gzsim` | Added `sensors stop/start` after gz_bridge (EKF2 init race fix) |
 | `src/.../GZMixingInterfaceESC.cpp` | float→double cast fix for Apple clang |
 | `src/.../voted_sensors_update.cpp` | IMU priority auto-recovery for sim sensors |
 
 ---
 
-## Current Status (2026-03-30)
+## Current Status (2026-03-31)
 
 ### What Works
-- Drone flies to ~1.0m and hovers stably (5+ seconds in open world)
+- Drone flies to 2.5m and hovers with **optical flow position hold** (holds position, returns when disturbed)
 - All 5 sensor topics publish: optical flow, flow camera, rangefinder, 2D lidar, mono camera
-- Camera video recorded during flight (320x240, ~130 frames, MP4 via ffmpeg)
+- HD camera video recorded during flight (1280x720, multi-threaded, MP4 via ffmpeg)
 - Lidar scan captured during hover (1080 points, PDF)
 - Optical flow quality captured (PDF)
-- MAVSDK hover test with sensor verification
+- MAVSDK flight demo with sensor verification
 - Launch script with GUI and headless modes
+- Multiple flights per session without PX4 restart
 
 ### Known Limitations
-- **Indoor room hover**: drone drifts horizontally after ~4s and may crash into walls (optical flow not fusing for position hold)
-- **Optical flow not fusing**: `cs_opt_flow` stays False — EKF2 chicken-and-egg with terrain estimation
-- **Post-landing tip-over**: simulation lacks landing gear physics, drone tips after touchdown (PX4 enters failsafe)
-- **PX4 restart needed between flights**: post-crash attitude failure persists until restart
+- **Landing drift**: below ~1m altitude, optical flow loses ground texture and position hold degrades — drone may drift on final approach
+- **`commander set_heading 0` is manual**: must be typed in pxh> before flight (MAVSDK shell command doesn't work reliably)
+- **Post-landing tip-over**: simulation lacks landing gear physics, drone may tip after touchdown
 - **GStreamer broken on macOS**: camera video uses PNG+ffmpeg instead
+
+### Key Discoveries
+- **Altitude matters**: optical flow needs 2.5m+ for good feature tracking (at 1m the flow camera sees too little ground texture)
+- **Never `param set` EKF2 at runtime**: setting EKF2_HGT_REF via MAVSDK before flight resets the EKF2 estimator and destroys optical flow fusion
+- **Stock PX4 defaults work**: only GPS disable is needed, all other EKF2 params at defaults
 
 ---
 
@@ -190,7 +198,7 @@ lidar_2d_v2 (1080 samples, 270°, 30Hz) → Gazebo topic (not used by PX4, for c
 
 ### Mono Camera
 ```
-camera (320x240, 30Hz) → Gazebo topic → captured by hover_test.py → MP4 video
+camera (1280x720, 30Hz) → Gazebo topic → captured by demo_flight.py → MP4 video
 ```
 
 ---
@@ -200,9 +208,11 @@ camera (320x240, 30Hz) → Gazebo topic → captured by hover_test.py → MP4 vi
 1. **NO GPS** — do not enable `SIM_GPS_USED`, `EKF2_GPS_CTRL`
 2. **Keep barometer enabled** — baro provides stable height reference, rangefinder provides correction
 3. **Use MAVSDK-Python** for flight control — same code on real drone
-4. **Use stock PX4 defaults** — only change what's necessary (GPS disable + height ref)
-5. **PX4 manages Gazebo** — non-standalone mode, no separate `gz sim -s`
-6. **`env.sh` auto-detects** SDK, homebrew prefix, network IP — no hardcoded paths
+4. **Use stock PX4 defaults** — only change what's necessary (GPS disable + arming overrides)
+5. **NEVER `param set` EKF2 params at runtime** — use `param set-default` in airframe only
+6. **PX4 manages Gazebo** — non-standalone mode, no separate `gz sim -s`
+7. **`env.sh` auto-detects** SDK, homebrew prefix, network IP — no hardcoded paths
+8. **Fly at 2.5m+** — optical flow needs altitude for ground texture visibility
 
 ---
 
