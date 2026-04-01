@@ -4,6 +4,7 @@
 # Usage: ./scripts/shell/launch.sh [world_name] [--headless]
 #   Default world: indoor_room
 set -e
+trap 'echo "[launch] ERROR: script failed at line $LINENO — exit code $?"' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
@@ -29,7 +30,7 @@ echo "[launch] Cleaning up..."
 pkill -x px4 2>/dev/null || true
 pkill -f "gz sim" 2>/dev/null || true
 sleep 2
-rm -f /tmp/px4_lock-0 /tmp/px4-sock-0 2>/dev/null
+rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
 echo "[launch] Clean"
 
 # --- Copy airframe to ROMFS (always exists, build copies it to rootfs) ---
@@ -45,7 +46,7 @@ cp "$SCARECROW_DIR/worlds/"*.sdf "$PX4_DIR/Tools/simulation/gz/worlds/" 2>/dev/n
 
 # --- Build PX4 first (creates rootfs with airframe) ---
 echo "[launch] Building PX4 (this may take a few minutes on first run)..."
-make px4_sitl 2>&1 | tail -3
+make px4_sitl
 
 # --- Copy airframe to rootfs (in case build didn't pick it up from ROMFS) ---
 cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/px4_sitl_default/rootfs/etc/init.d-posix/airframes/ 2>/dev/null || true

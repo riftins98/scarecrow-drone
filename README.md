@@ -71,7 +71,7 @@ cd ..
 ```bash
 python3 -m venv .venv-mavsdk
 source .venv-mavsdk/bin/activate
-pip install mavsdk matplotlib numpy opencv-python-headless pillow
+pip install -r requirements.txt
 ```
 
 ### 4. Install ffmpeg (for video output)
@@ -95,21 +95,15 @@ cd scarecrow-drone
 brew install gz-sim8 opencv qt@5
 ```
 
-### 3. Install PX4 Python Dependencies
-
-```bash
-pip3 install --break-system-packages -r px4/Tools/setup/requirements.txt
-```
-
-### 4. Install Flight Test Dependencies
+### 3. Install Flight Test Dependencies
 
 ```bash
 python3 -m venv .venv-mavsdk
 source .venv-mavsdk/bin/activate
-pip install mavsdk matplotlib numpy opencv-python-headless pillow
+pip install -r requirements.txt
 ```
 
-### 5. Install ffmpeg
+### 4. Install ffmpeg
 
 ```bash
 brew install ffmpeg

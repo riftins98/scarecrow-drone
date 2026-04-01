@@ -1,0 +1,4 @@
+-r px4/Tools/setup/requirements.txt
+mavsdk
+opencv-python-headless
+pillow
