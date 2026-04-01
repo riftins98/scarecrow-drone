@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scarecrow"
+version = "0.1.0"
+description = "Scarecrow Drone — GPS-denied indoor navigation"
+requires-python = ">=3.10"
+dependencies = [
+    "mavsdk",
+    "numpy",
+]
+
+[project.optional-dependencies]
+sim = ["opencv-python-headless", "matplotlib", "pillow"]
+hardware = ["rplidar-roboticia"]
+
+[tool.setuptools.packages.find]
+include = ["scarecrow*"]
