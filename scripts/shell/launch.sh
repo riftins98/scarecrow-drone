@@ -3,6 +3,7 @@
 # One command — PX4 manages Gazebo with GUI.
 # Usage: ./scripts/shell/launch.sh [world_name] [--headless]
 #   Default world: indoor_room
+#   Set spawn position: PX4_GZ_MODEL_POSE="-7,-7,0,0,0,0" ./scripts/shell/launch.sh
 set -e
 trap 'echo "[launch] ERROR: script failed at line $LINENO — exit code $?"' ERR
 
@@ -21,6 +22,7 @@ fi
 echo "============================================"
 echo "  Scarecrow Drone — Simulation Launcher"
 echo "  World: $WORLD"
+echo "  Spawn: ${PX4_GZ_MODEL_POSE:-0,0,0,0,0,0}"
 echo "  GUI: $([ -z "$HEADLESS_FLAG" ] && echo 'YES' || echo 'NO')"
 echo "============================================"
 echo ""
@@ -55,4 +57,8 @@ cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/px4_sitl_default/etc/in
 # --- Launch PX4 + Gazebo ---
 echo "[launch] Starting PX4 + Gazebo..."
 echo ""
-eval $HEADLESS_FLAG PX4_GZ_WORLD="$WORLD" make px4_sitl gz_holybro_x500
+POSE_FLAG=""
+if [ -n "${PX4_GZ_MODEL_POSE}" ]; then
+    POSE_FLAG="PX4_GZ_MODEL_POSE=${PX4_GZ_MODEL_POSE}"
+fi
+eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make px4_sitl gz_holybro_x500
