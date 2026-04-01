@@ -491,10 +491,10 @@
     <!-- Cylinder pillar — WHITE -->
     <model name="pillar">
       <static>true</static>
-      <pose>6.0 6.0 0.75 0 0 0</pose>
+      <pose>6.0 6.0 2.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><cylinder><radius>0.3</radius><length>1.5</length></cylinder></geometry></collision>
-        <visual name="v"><geometry><cylinder><radius>0.3</radius><length>1.5</length></cylinder></geometry>
+        <collision name="c"><geometry><cylinder><radius>0.3</radius><length>4.0</length></cylinder></geometry></collision>
+        <visual name="v"><geometry><cylinder><radius>0.3</radius><length>4.0</length></cylinder></geometry>
           <material><diffuse>0.95 0.95 0.95 1</diffuse><ambient>0.95 0.95 0.95 1</ambient></material>
         </visual>
       </link>
@@ -503,20 +503,20 @@
     <!-- L-shaped wall — ORANGE -->
     <model name="l_wall_part1">
       <static>true</static>
-      <pose>-6.0 -5.5 0.5 0 0 0</pose>
+      <pose>-6.0 -5.5 2.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>2.0 0.15 1.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>2.0 0.15 1.0</size></box></geometry>
+        <collision name="c"><geometry><box><size>2.0 0.15 4.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>2.0 0.15 4.0</size></box></geometry>
           <material><diffuse>0.9 0.5 0.1 1</diffuse><ambient>0.9 0.5 0.1 1</ambient></material>
         </visual>
       </link>
     </model>
     <model name="l_wall_part2">
       <static>true</static>
-      <pose>-5.075 -6.25 0.5 0 0 0</pose>
+      <pose>-5.075 -6.25 2.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.15 1.5 1.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.15 1.5 1.0</size></box></geometry>
+        <collision name="c"><geometry><box><size>0.15 1.5 4.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 1.5 4.0</size></box></geometry>
           <material><diffuse>0.9 0.5 0.1 1</diffuse><ambient>0.9 0.5 0.1 1</ambient></material>
         </visual>
       </link>
@@ -528,12 +528,12 @@
       <pose>6.0 -6.0 0 0 0 0</pose>
       <link name="link">
         <collision name="c">
-          <pose>0 0 0.25 0 0 0</pose>
-          <geometry><box><size>1.0 1.0 0.5</size></box></geometry>
+          <pose>0 0 2.0 0 0 0</pose>
+          <geometry><box><size>1.0 1.0 4.0</size></box></geometry>
         </collision>
         <visual name="v">
-          <pose>0 0 0.25 0 0 0</pose>
-          <geometry><box><size>1.0 1.0 0.5</size></box></geometry>
+          <pose>0 0 2.0 0 0 0</pose>
+          <geometry><box><size>1.0 1.0 4.0</size></box></geometry>
           <material><diffuse>0.6 0.2 0.8 1</diffuse><ambient>0.6 0.2 0.8 1</ambient></material>
         </visual>
       </link>
@@ -542,17 +542,17 @@
     <!-- Small box stack — TEAL -->
     <model name="box_small">
       <static>true</static>
-      <pose>-6.0 7.0 0.2 0 0 0.3</pose>
+      <pose>-6.0 7.0 2.0 0 0 0.3</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.4 0.4 0.4</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.4 0.4 0.4</size></box></geometry>
+        <collision name="c"><geometry><box><size>0.4 0.4 4.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.4 0.4 4.0</size></box></geometry>
           <material><diffuse>0.1 0.7 0.7 1</diffuse><ambient>0.1 0.7 0.7 1</ambient></material>
         </visual>
       </link>
     </model>
     <model name="box_top">
       <static>true</static>
-      <pose>-6.0 7.0 0.55 0 0 0.6</pose>
+      <pose>-6.0 7.0 4.15 0 0 0.6</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>0.3 0.3 0.3</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>0.3 0.3 0.3</size></box></geometry>

@@ -554,8 +554,8 @@ def capture_lidar_and_flow():
             angles = np.linspace(-2.356195, 2.356195, n)
             world_x = np.array(ranges) * np.cos(angles)
             world_y = np.array(ranges) * np.sin(angles)
-            x = -world_y  # east -> plot right (negated to match Gazebo frame)
-            y = world_x   # north -> plot up
+            x = -world_y
+            y = world_x
 
             fig, ax = plt.subplots(1, 1, figsize=(10, 10))
             ax.set_aspect('equal')
@@ -566,8 +566,8 @@ def capture_lidar_and_flow():
             ax.add_patch(room)
             ax.text(0, 10.5, 'RED wall (North)', color='red', fontsize=11, ha='center', fontweight='bold')
             ax.text(0, -11, 'BLUE wall (South)', color='blue', fontsize=11, ha='center', fontweight='bold')
-            ax.text(10.5, 0, 'GREEN\nwall', color='green', fontsize=10, va='center')
-            ax.text(-11.5, 0, 'YELLOW\nwall', color='#B8860B', fontsize=10, va='center')
+            ax.text(-11.5, 0, 'GREEN\nwall', color='green', fontsize=10, va='center')
+            ax.text(10.5, 0, 'YELLOW\nwall', color='#B8860B', fontsize=10, va='center')
             ax.annotate('', xy=(0, 1.2), xytext=(0, 0.3),
                         arrowprops=dict(arrowstyle='->', color='red', lw=2))
             ax.text(0.15, 0.8, 'FWD', color='red', fontsize=9, fontweight='bold')
