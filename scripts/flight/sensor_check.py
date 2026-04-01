@@ -73,86 +73,63 @@ def capture_lidar_scan():
     """Capture 2D lidar scan and produce a top-down plot."""
     print("\n--- 2D Lidar (RPLidar A1M8) ---")
 
-    topic = "/world/indoor_room/model/holybro_x500_0/link/link/sensor/lidar_2d_v2/scan"
-    print(f"  Capturing scan from: {topic}")
+    # Use scarecrow lidar package for correct parsing
+    from scarecrow.sensors.lidar.gazebo import GazeboLidar
+    import time
 
-    data = capture_gz_topic(topic, timeout=10)
-    if not data:
+    lidar = GazeboLidar(num_threads=2)
+    lidar.start()
+    print(f"  Topic: {lidar.topic}")
+
+    # Wait for scan
+    scan = None
+    for _ in range(20):
+        time.sleep(0.5)
+        scan = lidar.get_scan()
+        if scan is not None:
+            break
+
+    lidar.stop()
+
+    if scan is None:
         print("  ERROR: No lidar data received")
         return False
 
-    # Parse ranges from the protobuf text format
-    ranges = []
-    for line in data.split('\n'):
-        line = line.strip()
-        if line.startswith('ranges:'):
-            try:
-                val = float(line.split(':')[1].strip())
-                if val > 0 and val < 30:  # valid range
-                    ranges.append(val)
-            except ValueError:
-                pass
+    print(f"  Got {scan.num_samples} range measurements")
+    print(f"  Front: {scan.front_distance():.1f}m  Left: {scan.left_distance():.1f}m  Right: {scan.right_distance():.1f}m")
 
-    if not ranges:
-        print(f"  ERROR: No valid ranges parsed (got {len(data)} bytes of data)")
-        return False
+    # Convert to cartesian (body frame: x=forward, y=left)
+    angles = scan.angles
+    ranges = scan.ranges
+    valid = (ranges > 0.1) & (ranges < 30.0)
 
-    print(f"  Got {len(ranges)} range measurements")
+    bx = ranges[valid] * np.cos(angles[valid])  # forward
+    by = ranges[valid] * np.sin(angles[valid])   # left
 
-    # Convert to X,Y points (polar to cartesian)
-    # RPLidar A1M8: 270 degree scan, 1080 samples
-    # Rotate so drone's forward (+X world) points UP in the plot
-    n = len(ranges)
-    min_angle = -2.356195  # from model.sdf
-    max_angle = 2.356195
-    angles = np.linspace(min_angle, max_angle, n)
-
-    # World coords: +X = north (drone forward), +Y = east
-    world_x = np.array(ranges) * np.cos(angles)
-    world_y = np.array(ranges) * np.sin(angles)
-
-    # Plot coords: forward (world +X) = UP, right (world +Y) = RIGHT
-    x = world_y   # east  -> plot right
-    y = world_x   # north -> plot up
+    # Plot coords: forward = UP, left = LEFT (bird's eye view, north up)
+    x = -by   # left in body → left in plot (negate so right = positive X)
+    y = bx    # forward in body → up in plot
 
     # Plot
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     ax.set_aspect('equal')
-
-    # Plot scan points
     ax.scatter(x, y, s=1, c='blue', alpha=0.7, label='Lidar scan')
-
-    # Mark drone position
     ax.plot(0, 0, 'r^', markersize=15, label='Drone', zorder=5)
 
-    # Draw room outline (8m x 8m, rotated: forward=up)
-    room = patches.Rectangle((-4, -4), 8, 8, linewidth=2,
-                             edgecolor='gray', facecolor='none', linestyle='--',
-                             label='Room boundary')
-    ax.add_patch(room)
-
-    # Annotate walls (rotated: world +X=up, world +Y=right)
-    # North wall (RED) at world x=+4 → plot top
-    ax.text(0, 4.3, 'RED wall (North)', color='red', fontsize=11, ha='center', fontweight='bold')
-    # South wall (BLUE) at world x=-4 → plot bottom
-    ax.text(0, -4.5, 'BLUE wall (South)', color='blue', fontsize=11, ha='center', fontweight='bold')
-    # East wall (GREEN) at world y=+4 → plot right
-    ax.text(4.2, 0, 'GREEN\nwall\n(East)', color='green', fontsize=10, va='center')
-    # West wall (YELLOW) at world y=-4 → plot left
-    ax.text(-4.9, 0, 'YELLOW\nwall\n(West)', color='#B8860B', fontsize=10, va='center')
-
-    # Arrow showing drone forward direction
-    ax.annotate('', xy=(0, 1.2), xytext=(0, 0.3),
+    # Room boundary (20m x 20m, centered at world origin)
+    # Drone is NOT at world origin — we don't know exact position here,
+    # so just show the scan data without room overlay
+    ax.annotate('', xy=(0, 1.5), xytext=(0, 0.3),
                 arrowprops=dict(arrowstyle='->', color='red', lw=2))
-    ax.text(0.15, 0.8, 'FWD', color='red', fontsize=9, fontweight='bold')
+    ax.text(0.2, 1.0, 'FWD', color='red', fontsize=9, fontweight='bold')
 
-    ax.set_xlabel('X (meters)', fontsize=12)
-    ax.set_ylabel('Y (meters)', fontsize=12)
-    ax.set_title('2D Lidar Scan — RPLidar A1M8 (Indoor Room)', fontsize=14)
+    ax.set_xlabel('Right (m)', fontsize=12)
+    ax.set_ylabel('Forward (m)', fontsize=12)
+    ax.set_title(f'2D Lidar Scan — RPLidar A1M8 ({scan.num_samples} samples, 360°)', fontsize=14)
     ax.legend(loc='upper left', fontsize=10)
     ax.grid(True, alpha=0.3)
-    ax.set_xlim(-6, 6)
-    ax.set_ylim(-6, 6)
+    ax.set_xlim(-12, 12)
+    ax.set_ylim(-12, 12)
 
     outpath = os.path.join(OUTPUT_DIR, "lidar_scan.pdf")
     fig.savefig(outpath, bbox_inches='tight', dpi=150)

@@ -19,6 +19,19 @@ GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correcti
 
 ```
 scarecrow-drone/
+├── scarecrow/                       — Python package (pip install -e .)
+│   ├── sensors/lidar/               — LidarSource ABC, GazeboLidar, RPLidarSource
+│   ├── controllers/                 — WallFollowController, rotate_90()
+│   └── navigation/                  — Future: SLAM, path planning
+├── scripts/
+│   ├── shell/
+│   │   ├── launch.sh                — One-command launcher (GUI or headless)
+│   │   └── env.sh                   — Shared environment variables
+│   └── flight/
+│       ├── demo_flight.py           — Hover demo + HD video + sensor capture
+│       ├── wall_follow.py           — Single wall follow using lidar
+│       ├── room_circuit.py          — Full room perimeter (4 legs + 4 turns)
+│       └── sensor_check.py          — Ground-only sensor data capture
 ├── airframes/4022_gz_holybro_x500   — PX4 airframe (GPS disabled, stock defaults)
 ├── config/server.config             — Gazebo server plugins (Sensors, OpticalFlow)
 ├── models/
@@ -26,14 +39,8 @@ scarecrow-drone/
 │   └── mono_cam/model.sdf           — Camera model (1280x720 HD)
 ├── worlds/
 │   ├── default.sdf                  — Open world with checkerboard floor
-│   └── indoor_room.sdf             — 20m room with colored walls, obstacles, full checkerboard
-├── scripts/
-│   ├── shell/
-│   │   ├── launch.sh                — One-command launcher (GUI or headless)
-│   │   └── env.sh                   — Shared environment variables
-│   └── flight/
-│       ├── demo_flight.py           — MAVSDK flight demo + HD video + sensor capture
-│       └── sensor_check.py          — Ground-only sensor data capture (no flight)
+│   └── indoor_room.sdf             — 20m clean room with colored walls, full checkerboard
+├── pyproject.toml                   — Package config
 ├── px4/                             — PX4-Autopilot submodule (branch: scarecrow)
 └── .venv-mavsdk/                    — Python venv (create with: python3 -m venv .venv-mavsdk)
 ```
@@ -159,6 +166,45 @@ Output files saved to `output/`:
 - `lidar_scan.pdf` — 2D lidar top-down scan of room
 - `optical_flow.pdf` — optical flow quality chart
 - `camera_ground.png` / `camera_flight.png` — camera snapshots
+
+## Wall Follow & Room Circuit
+
+### Wall Follow
+
+```bash
+PX4_GZ_MODEL_POSE="-7,7,0,0,0,0" ./scripts/shell/launch.sh
+# In pxh>: commander set_heading 0
+python3 scripts/flight/wall_follow.py
+```
+
+Follows the left wall at 2m distance, stops 2m from the front wall.
+
+### Room Circuit
+
+```bash
+PX4_GZ_MODEL_POSE="-7,-7,0,0,0,0" ./scripts/shell/launch.sh
+# In pxh>: commander set_heading 0
+python3 scripts/flight/room_circuit.py
+```
+
+Flies the full room perimeter (4 legs + 4 turns) and lands at the starting position. Configurable wall side and distances. Saves lidar scan PDFs at each turn for diagnostics.
+
+### Scarecrow Package
+
+The navigation logic lives in a reusable Python package:
+
+```bash
+pip install -e .  # install in dev mode
+```
+
+```python
+from scarecrow.sensors.lidar.gazebo import GazeboLidar     # simulation
+from scarecrow.sensors.lidar.rplidar import RPLidarSource   # real hardware
+from scarecrow.controllers.wall_follow import WallFollowController
+from scarecrow.controllers.rotation import rotate_90
+```
+
+Same code runs on Gazebo and on the real drone — only the lidar source changes.
 
 ## Real Drone
 

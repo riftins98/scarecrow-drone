@@ -21,6 +21,24 @@ GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correcti
 
 ```
 scarecrow-drone/
+├── scarecrow/                     ← Python package (pip install -e .)
+│   ├── sensors/lidar/
+│   │   ├── base.py                ← LidarSource ABC + LidarScan (SVD wall alignment)
+│   │   ├── gazebo.py              ← GazeboLidar (simulation)
+│   │   └── rplidar.py             ← RPLidarSource (real hardware)
+│   ├── controllers/
+│   │   ├── wall_follow.py         ← WallFollowController (left/right, PD + SVD yaw)
+│   │   └── rotation.py            ← rotate_90() (compass + lidar SVD alignment)
+│   └── navigation/                ← future: SLAM, path planning
+├── scripts/
+│   ├── shell/
+│   │   ├── launch.sh              ← one-command launcher (GUI or headless)
+│   │   └── env.sh                 ← shared environment variables
+│   └── flight/
+│       ├── demo_flight.py         ← MAVSDK flight demo + HD video + sensor capture
+│       ├── wall_follow.py         ← single wall follow using lidar
+│       ├── room_circuit.py        ← full room perimeter (4 legs + 4 turns)
+│       └── sensor_check.py        ← ground-only sensor data capture (no flight)
 ├── airframes/
 │   └── 4022_gz_holybro_x500       ← custom airframe (GPS disabled, stock defaults)
 ├── config/
@@ -30,14 +48,8 @@ scarecrow-drone/
 │   └── mono_cam/model.sdf         ← camera at 1280x720 for HD video recording
 ├── worlds/
 │   ├── default.sdf                ← open world with checkerboard floor
-│   └── indoor_room.sdf            ← 20m room: colored walls, obstacles, full checkerboard floor
-├── scripts/
-│   ├── shell/
-│   │   ├── launch.sh              ← one-command launcher (GUI or headless)
-│   │   └── env.sh                 ← shared environment variables
-│   └── flight/
-│       ├── demo_flight.py         ← MAVSDK flight demo + HD video + sensor capture
-│       └── sensor_check.py        ← ground-only sensor data capture (no flight)
+│   └── indoor_room.sdf            ← 20m clean room: colored walls, full checkerboard floor
+├── pyproject.toml                 ← package config (pip install -e .)
 ├── px4/                           ← git submodule: riftins98/PX4-Autopilot branch `scarecrow`
 └── .venv-mavsdk/                  ← Python venv with mavsdk package
 ```
@@ -134,11 +146,10 @@ Saved to `output/` (gitignored):
 Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls to crash into). Optical flow needs the textured floor for feature tracking.
 
 ### indoor_room.sdf
-20m x 20m room with:
+20m x 20m clean room with:
 - **Red** wall (north), **Blue** wall (south), **Green** wall (east), **Yellow** wall (west)
-- White cylinder pillar, orange L-shaped wall, purple wedge, teal box stack
 - **Full 20m x 20m checkerboard floor** (400 tiles, 1m each, wall-to-wall) for optical flow
-- Obstacles placed 6-8m from center (clear hover zone)
+- No obstacles (clean for wall-follow navigation testing)
 
 ---
 
@@ -153,28 +164,32 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 
 ---
 
-## Current Status (2026-03-31)
+## Current Status (2026-04-02)
 
 ### What Works
-- Drone flies to 2.5m and hovers with **optical flow position hold** (holds position, returns when disturbed)
+- Drone flies to 2.5m and hovers with **optical flow position hold**
+- **Wall following**: follows left or right wall at configurable distance using lidar PD + SVD yaw correction
+- **90° rotation**: compass coarse turn + lidar SVD fine alignment (works in GPS-denied mode)
+- **Room circuit**: full perimeter flight (4 legs + 4 turns), returns to start position
 - All 5 sensor topics publish: optical flow, flow camera, rangefinder, 2D lidar, mono camera
 - HD camera video recorded during flight (1280x720, multi-threaded, MP4 via ffmpeg)
-- Lidar scan captured during hover (1080 points, PDF)
-- Optical flow quality captured (PDF)
-- MAVSDK flight demo with sensor verification
-- Launch script with GUI and headless modes
+- Lidar scan diagnostics saved as PDF at each turn
+- `scarecrow` Python package: reusable sensor interfaces + controllers (pip installable)
+- Same package runs on Gazebo (sim) and real drone (RPLidar A1M8 via USB)
 - Multiple flights per session without PX4 restart
 
 ### Known Limitations
-- **Landing drift**: below ~1m altitude, optical flow loses ground texture and position hold degrades — drone may drift on final approach
-- **`commander set_heading 0` is manual**: must be typed in pxh> before flight (MAVSDK shell command doesn't work reliably)
-- **Post-landing tip-over**: simulation lacks landing gear physics, drone may tip after touchdown
+- **Landing drift**: below ~1m altitude, optical flow loses ground texture — drone may drift on final approach
+- **`commander set_heading 0` is manual**: must be typed in pxh> before flight
+- **PX4 compass drift**: GPS-denied heading drifts ~10-15° from physical heading, compensated by lidar SVD alignment
 - **GStreamer broken on macOS**: camera video uses PNG+ffmpeg instead
 
 ### Key Discoveries
-- **Altitude matters**: optical flow needs 2.5m+ for good feature tracking (at 1m the flow camera sees too little ground texture)
-- **Never `param set` EKF2 at runtime**: setting EKF2_HGT_REF via MAVSDK before flight resets the EKF2 estimator and destroys optical flow fusion
-- **Stock PX4 defaults work**: only GPS disable is needed, all other EKF2 params at defaults
+- **Altitude matters**: optical flow needs 2.5m+ for good feature tracking
+- **Never `param set` EKF2 at runtime**: resets the estimator, destroys optical flow fusion
+- **Stock PX4 defaults work**: only GPS disable is needed
+- **Lidar angle mapping must match model**: 270° lidar mapped to 360° angles produces curved walls and wrong SVD results
+- **Compass + lidar SVD**: compass for coarse turns, lidar SVD for precise wall alignment — compensates for GPS-denied heading drift
 
 ---
 

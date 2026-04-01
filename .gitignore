@@ -1,10 +1,11 @@
 venv/
+.venv*/
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 .env
 logs/
 *.log
 .DS_Store
 output/
-__pycache__/
