@@ -15,13 +15,20 @@ University final project: proves indoor flight using only optical flow + rangefi
 
 GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correction.
 
+## Lidar Contract
+
+Lidar is unified across simulation and real hardware (RPLidar adapter):
+- Full-circle scan: `-pi .. +pi` (360°)
+- Sample count: `1440`
+- Direction mapping: `0°=front`, `+90°=left`, `-90°/270°=right`, `±180°=rear`
+
 ## Repository Structure
 
 ```
 scarecrow-drone/
 ├── scarecrow/                       — Python package (pip install -e .)
 │   ├── sensors/lidar/               — LidarSource ABC, GazeboLidar, RPLidarSource
-│   ├── controllers/                 — WallFollowController, rotate_90()
+│   ├── controllers/                 — WallFollowController, rotate_90(), DistanceStabilizerController
 │   └── navigation/                  — Future: SLAM, path planning
 ├── scripts/
 │   ├── shell/
@@ -189,6 +196,14 @@ python3 scripts/flight/room_circuit.py
 
 Flies the full room perimeter (4 legs + 4 turns) and lands at the starting position. Configurable wall side and distances. Saves lidar scan PDFs at each turn for diagnostics.
 
+After each turn, the drone runs post-turn stabilization using distance constraints before starting the next leg (and before final landing transition):
+- Side wall target (`left` or `right` based on `WALL_SIDE`)
+- Rear wall target
+
+Current defaults in `scripts/flight/room_circuit.py`:
+- `POST_TURN_SIDE_TARGET = 3.0`
+- `POST_TURN_REAR_TARGET = 3.0`
+
 ### Scarecrow Package
 
 The navigation logic lives in a reusable Python package:
@@ -200,6 +215,7 @@ pip install -e .  # install in dev mode
 ```python
 from scarecrow.sensors.lidar.gazebo import GazeboLidar     # simulation
 from scarecrow.sensors.lidar.rplidar import RPLidarSource   # real hardware
+from scarecrow.controllers.distance_stabilizer import DistanceStabilizerController, DistanceTargets
 from scarecrow.controllers.wall_follow import WallFollowController
 from scarecrow.controllers.rotation import rotate_90
 ```

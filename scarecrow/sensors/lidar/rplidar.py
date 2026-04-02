@@ -3,7 +3,9 @@
 Requires: pip install rplidar-roboticia
 Connect: RPLidar A1M8 via USB → /dev/ttyUSB0 (Linux) or /dev/tty.usbserial (macOS)
 
-TODO: Implement when hardware arrives. Interface matches GazeboLidar exactly.
+Output contract is unified with simulation:
+    - 1440 samples
+    - angle_min=-pi, angle_max=+pi (full 360°)
 """
 from __future__ import annotations
 
@@ -14,6 +16,11 @@ import time
 import numpy as np
 
 from .base import LidarScan, LidarSource
+
+
+ANGLE_MIN = -math.pi
+ANGLE_MAX = math.pi
+TARGET_SAMPLES = 1440
 
 
 class RPLidarSource(LidarSource):
@@ -65,30 +72,48 @@ class RPLidarSource(LidarSource):
         for scan in self._lidar.iter_scans():
             if not self._running:
                 break
-            # scan = [(quality, angle_deg, distance_mm), ...]
-            # Convert to sorted ranges array matching lidar_2d_v2 format
-            if len(scan) < 10:
+            scan_obj = self._convert_scan(scan)
+            if scan_obj is None:
                 continue
-
-            # Sort by angle
-            scan.sort(key=lambda p: p[1])
-
-            # Convert to radians and meters
-            angles_deg = np.array([p[1] for p in scan])
-            distances_mm = np.array([p[2] for p in scan])
-
-            angles_rad = np.deg2rad(angles_deg) - math.pi  # center at 0=forward
-            distances_m = distances_mm / 1000.0
-
-            # Resample to fixed 1080 bins matching simulation
-            target_angles = np.linspace(-2.356195, 2.356195, 1080)
-            resampled = np.interp(target_angles, angles_rad, distances_m,
-                                  left=0.0, right=0.0)
-
-            scan_obj = LidarScan(
-                ranges=resampled.astype(np.float32),
-                angle_min=-2.356195,
-                angle_max=2.356195,
-            )
             with self._lock:
                 self._latest_scan = scan_obj
+
+    @staticmethod
+    def _convert_scan(scan_points: list[tuple[int, float, float]]) -> LidarScan | None:
+        """Convert raw RPLidar points into a fixed 360° `LidarScan`.
+
+        Args:
+            scan_points: Sequence of (quality, angle_deg, distance_mm).
+
+        Returns:
+            LidarScan in unified full-circle format, or None if insufficient data.
+        """
+        if len(scan_points) < 10:
+            return None
+
+        pts = sorted(scan_points, key=lambda p: p[1])
+        angles_deg = np.array([p[1] for p in pts], dtype=np.float64)
+        distances_mm = np.array([p[2] for p in pts], dtype=np.float64)
+
+        valid = distances_mm > 0.0
+        if np.count_nonzero(valid) < 10:
+            return None
+
+        angles_deg = angles_deg[valid]
+        distances_m = (distances_mm[valid] / 1000.0)
+
+        # Map native 0..360° to body frame -pi..pi with 0=forward.
+        angles_rad = np.deg2rad(angles_deg) - math.pi
+
+        # Periodic extension avoids edge artifacts at -pi/pi seam.
+        angles_ext = np.concatenate((angles_rad[-1:] - 2 * math.pi, angles_rad, angles_rad[:1] + 2 * math.pi))
+        ranges_ext = np.concatenate((distances_m[-1:], distances_m, distances_m[:1]))
+
+        target_angles = np.linspace(ANGLE_MIN, ANGLE_MAX, TARGET_SAMPLES)
+        resampled = np.interp(target_angles, angles_ext, ranges_ext)
+
+        return LidarScan(
+            ranges=resampled.astype(np.float32),
+            angle_min=ANGLE_MIN,
+            angle_max=ANGLE_MAX,
+        )
