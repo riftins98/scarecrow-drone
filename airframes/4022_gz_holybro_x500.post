@@ -1,0 +1,11 @@
+#!/bin/sh
+# Post-autostart hook for 4022_gz_holybro_x500.
+# Runs after commander/estimator startup.
+
+# Allow disabling this behavior for debugging.
+if [ "${SCARECROW_AUTO_SET_HEADING:-1}" = "1" ]
+then
+	# Give estimator a brief moment before forcing yaw reference.
+	sleep 2
+	commander set_heading 0
+fi

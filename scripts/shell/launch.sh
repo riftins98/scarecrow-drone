@@ -39,6 +39,7 @@ echo "[launch] Clean"
 cd "$PX4_DIR"
 echo "[launch] Copying airframe and config..."
 cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" ROMFS/px4fmu_common/init.d-posix/airframes/
+cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" ROMFS/px4fmu_common/init.d-posix/airframes/
 cp "$SCARECROW_DIR/config/server.config" src/modules/simulation/gz_bridge/
 
 # Copy custom models and world to PX4 dirs
@@ -53,6 +54,8 @@ make px4_sitl
 # --- Copy airframe to rootfs (in case build didn't pick it up from ROMFS) ---
 cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/px4_sitl_default/rootfs/etc/init.d-posix/airframes/ 2>/dev/null || true
 cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/px4_sitl_default/etc/init.d-posix/airframes/ 2>/dev/null || true
+cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" build/px4_sitl_default/rootfs/etc/init.d-posix/airframes/ 2>/dev/null || true
+cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" build/px4_sitl_default/etc/init.d-posix/airframes/ 2>/dev/null || true
 
 # --- Launch PX4 + Gazebo ---
 echo "[launch] Starting PX4 + Gazebo..."

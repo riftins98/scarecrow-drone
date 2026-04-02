@@ -40,7 +40,8 @@ scarecrow-drone/
 │       ├── room_circuit.py        ← full room perimeter (4 legs + 4 turns)
 │       └── sensor_check.py        ← ground-only sensor data capture (no flight)
 ├── airframes/
-│   └── 4022_gz_holybro_x500       ← custom airframe (GPS disabled, stock defaults)
+│   ├── 4022_gz_holybro_x500       ← custom airframe (GPS disabled, stock defaults)
+│   └── 4022_gz_holybro_x500.post  ← post-start hook: auto-runs commander set_heading 0
 ├── config/
 │   └── server.config              ← Gazebo server plugins (Sensors + OpticalFlowSystem)
 ├── models/
@@ -75,16 +76,13 @@ NAV_DLL_ACT 0, NAV_RCL_ACT 0
 
 Everything else is PX4 stock defaults. Barometer, magnetometer, IMU, EKF2 — all at defaults.
 
-**Runtime commands** (set in `pxh>` before each flight):
-```
-commander set_ekf_origin 0 0 0
-commander set_heading 0
-```
+**Runtime commands** — both are now automated, no manual entry needed:
+- `commander set_ekf_origin 0 0 0` — set by the flight script via MAVSDK
+- `commander set_heading 0` — set by `4022_gz_holybro_x500.post` hook at PX4 startup
 
 **Critical rules**:
 - Don't over-configure EKF2. Stock defaults work. Only disable GPS.
 - **NEVER `param set` EKF2 params at runtime** — it resets the estimator and destroys optical flow fusion.
-- The `set_ekf_origin` is automated by the flight script. Only `set_heading 0` needs manual entry.
 
 ---
 
@@ -106,12 +104,7 @@ The launch script:
 
 ### After Launch
 
-In `pxh>`:
-```
-commander set_heading 0
-```
-
-(`set_ekf_origin` is handled by the flight script automatically)
+No manual commands needed. `set_heading 0` runs automatically via the `.post` hook, and `set_ekf_origin` is handled by the flight script.
 
 ### Flight Demo
 
@@ -180,7 +173,7 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 
 ### Known Limitations
 - **Landing drift**: below ~1m altitude, optical flow loses ground texture — drone may drift on final approach
-- **`commander set_heading 0` is manual**: must be typed in pxh> before flight
+- **`commander set_heading 0` is automated**: runs via `4022_gz_holybro_x500.post` hook at startup
 - **PX4 compass drift**: GPS-denied heading drifts ~10-15° from physical heading, compensated by lidar SVD alignment
 - **GStreamer broken on macOS**: camera video uses PNG+ffmpeg instead
 

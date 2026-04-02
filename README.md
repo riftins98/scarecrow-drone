@@ -128,9 +128,11 @@ brew install ffmpeg
 
 ### 2. Configure PX4
 
-Once you see `pxh>` prompt:
-```
-commander set_heading 0
+`commander set_heading 0` is now applied automatically during launch.
+
+If you want to disable that behavior for a run:
+```bash
+SCARECROW_AUTO_SET_HEADING=0 ./scripts/shell/launch.sh
 ```
 
 (`set_ekf_origin` is handled automatically by the flight script)
@@ -173,7 +175,6 @@ Output files saved to `output/`:
 
 ```bash
 PX4_GZ_MODEL_POSE="-7,7,0,0,0,0" ./scripts/shell/launch.sh
-# In pxh>: commander set_heading 0
 python3 scripts/flight/wall_follow.py
 ```
 
@@ -183,7 +184,6 @@ Follows the left wall at 2m distance, stops 2m from the front wall.
 
 ```bash
 PX4_GZ_MODEL_POSE="-7,-7,0,0,0,0" ./scripts/shell/launch.sh
-# In pxh>: commander set_heading 0
 python3 scripts/flight/room_circuit.py
 ```
 
