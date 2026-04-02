@@ -28,7 +28,8 @@ scarecrow-drone/
 │   │   └── rplidar.py             ← RPLidarSource (real hardware)
 │   ├── controllers/
 │   │   ├── wall_follow.py         ← WallFollowController (left/right, PD + SVD yaw)
-│   │   └── rotation.py            ← rotate_90() (compass + lidar SVD alignment)
+│   │   ├── rotation.py            ← rotate_90() (compass + lidar SVD alignment)
+│   │   └── distance_stabilizer.py ← DistanceStabilizerController (optional front/rear/left/right targets)
 │   └── navigation/                ← future: SLAM, path planning
 ├── scripts/
 │   ├── shell/
@@ -164,6 +165,7 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 - **Wall following**: follows left or right wall at configurable distance using lidar PD + SVD yaw correction
 - **90° rotation**: compass coarse turn + lidar SVD fine alignment (works in GPS-denied mode)
 - **Room circuit**: full perimeter flight (4 legs + 4 turns), returns to start position
+- **Post-turn stabilization**: reusable distance controller holds configured side/rear targets before each leg and before final landing transition
 - All 5 sensor topics publish: optical flow, flow camera, rangefinder, 2D lidar, mono camera
 - HD camera video recorded during flight (1280x720, multi-threaded, MP4 via ffmpeg)
 - Lidar scan diagnostics saved as PDF at each turn
@@ -181,7 +183,7 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 - **Altitude matters**: optical flow needs 2.5m+ for good feature tracking
 - **Never `param set` EKF2 at runtime**: resets the estimator, destroys optical flow fusion
 - **Stock PX4 defaults work**: only GPS disable is needed
-- **Lidar angle mapping must match model**: 270° lidar mapped to 360° angles produces curved walls and wrong SVD results
+- **Unified lidar contract**: simulation and real adapter both use strict 360° scans (`-pi..+pi`, 1440 samples)
 - **Compass + lidar SVD**: compass for coarse turns, lidar SVD for precise wall alignment — compensates for GPS-denied heading drift
 
 ---
@@ -201,7 +203,7 @@ gpu_lidar (1 ray, 50Hz) → gz_bridge → distance_sensor uORB → EKF2 (height 
 
 ### 2D Lidar
 ```
-lidar_2d_v2 (1080 samples, 270°, 30Hz) → Gazebo topic (not used by PX4, for companion computer)
+lidar_2d_v2 (1440 samples, 360°, 30Hz) → Gazebo topic (not used by PX4, for companion computer)
 ```
 
 ### Mono Camera
