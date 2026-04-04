@@ -15,6 +15,7 @@ PX4_SIM_MODEL=${PX4_SIM_MODEL:=holybro_x500}
 param set-default SYS_HAS_GPS 0
 param set-default SIM_GPS_USED 0
 param set-default EKF2_GPS_CTRL 0
+param set-default EKF2_MAG_TYPE 5
 param set-default EKF2_HGT_REF 0
 
 # Allow arming without GPS
