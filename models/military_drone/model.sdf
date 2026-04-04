@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <model name="military_drone">
+    <static>true</static>
+    <link name="body">
+      <!-- Non-uniform scale: wingspan=6m (3m each side), fuselage=9m, height=1.07m -->
+      <!-- roll=+1.5708: STL Y-up → Gazebo Z-up (drone sits flat)                   -->
+      <!-- offset (-3.031, 4.500, 0): centres STL centroid on link origin            -->
+      <visual name="visual">
+        <pose>-3.031 4.500 0 1.5708 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://military_drone/meshes/military_drone.stl</uri>
+            <scale>0.01554 0.01554 0.03965</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.18 0.18 0.18 1</ambient>
+          <diffuse>0.22 0.22 0.22 1</diffuse>
+          <specular>0.05 0.05 0.05 1</specular>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <box><size>6.0 9.0 1.07</size></box>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
