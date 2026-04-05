@@ -25,20 +25,8 @@ import numpy as np
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
 
-# Default model path — search common locations
-def _find_default_model():
-    candidates = [
-        os.path.join(REPO_ROOT, "best_v4.pt"),  # project root
-        os.path.join(REPO_ROOT, "models", "best_v4.pt"),
-        os.path.join(os.path.dirname(REPO_ROOT), "scarecrow_drone", "live_detection", "best_v4.pt"),
-        os.path.join(os.path.expanduser("~"), "scarecrow-drone", "best_v4.pt"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    return os.path.join(REPO_ROOT, "best_v4.pt")  # fallback
-
-DEFAULT_MODEL = _find_default_model()
+# Default model path — bundled in repo
+DEFAULT_MODEL = os.path.join(REPO_ROOT, "models", "yolo", "best_v4.pt")
 
 # Pigeon overlay images for sim testing
 PIGEON_IMAGES_DIR = os.path.join(REPO_ROOT, "models", "pigeon_billboard", "materials", "textures")

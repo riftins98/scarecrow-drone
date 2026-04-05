@@ -14,11 +14,13 @@
       "Bash(wsl -d Ubuntu-22.04 -- bash -c \"ls /home/tomer/scarecrow-drone/output/detections/ | head -5\")",
       "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp /home/tomer/scarecrow-drone/output/detections/frame_0001.png '/mnt/c/projects/finale project/sim/scarecrow-drone/output/'\")",
       "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp /home/tomer/scarecrow-drone/output/detections/detection_0001.png '/mnt/c/projects/finale project/sim/scarecrow-drone/output/'\")",
-      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"GZ_PARTITION=px4 gz model --list 2>&1\")"
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"GZ_PARTITION=px4 gz model --list 2>&1\")",
+      "Read(//c/projects/finale project/scarecrow_drone/live_detection/**)"
     ],
     "additionalDirectories": [
       "c:\\projects\\finale project\\sim\\scarecrow-drone\\models\\pigeon_billboard\\materials",
-      "c:\\projects\\finale project\\scarecrow_drone\\pigeon-detection\\data\\final_dataset\\test\\images"
+      "c:\\projects\\finale project\\scarecrow_drone\\pigeon-detection\\data\\final_dataset\\test\\images",
+      "c:\\projects\\finale project\\scarecrow_drone\\live_detection"
     ]
   }
 }
