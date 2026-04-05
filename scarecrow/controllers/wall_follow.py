@@ -89,7 +89,9 @@ class WallFollowController:
         self._reached_front_wall = False
 
     def update(self, wall_dist: float, front_dist: float,
-               wall_angle_error: float | None = None) -> VelocityCommand:
+               wall_angle_error: float | None = None,
+               front_wall_confirmed: bool = True,
+               front_stop_reached: bool = False) -> VelocityCommand:
         """Compute velocity command from lidar distances and wall alignment.
 
         Args:
@@ -97,6 +99,9 @@ class WallFollowController:
             front_dist: Distance to the front wall (meters).
             wall_angle_error: Signed angle error from being parallel to the
                 followed wall (radians). 0 = parallel. None = skip yaw correction.
+            front_wall_confirmed: If False, ignore front stop threshold for this
+                cycle (useful when nearest front return is likely not the wall).
+            front_stop_reached: External stop confirmation from perception layer.
 
         Returns:
             VelocityCommand for the drone.
@@ -107,7 +112,11 @@ class WallFollowController:
             return VelocityCommand()
 
         # Reached front wall → stop
-        if front_dist <= self.front_stop_distance:
+        if front_dist <= self.front_stop_distance and front_wall_confirmed:
+            self._reached_front_wall = True
+            return VelocityCommand()
+
+        if front_stop_reached:
             self._reached_front_wall = True
             return VelocityCommand()
 

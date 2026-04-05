@@ -28,7 +28,9 @@ scarecrow-drone/
 │   │   └── rplidar.py             ← RPLidarSource (real hardware)
 │   ├── controllers/
 │   │   ├── wall_follow.py         ← WallFollowController (left/right, PD + SVD yaw)
-│   │   └── rotation.py            ← rotate_90() (compass + lidar SVD alignment)
+│   │   ├── rotation.py            ← rotate_90() (compass + lidar SVD alignment)
+│   │   ├── distance_stabilizer.py ← DistanceStabilizerController (optional front/rear/left/right targets)
+│   │   └── front_wall_detector.py ← FrontWallDetector (obstacle-aware front stop, cluster validation)
 │   └── navigation/                ← future: SLAM, path planning
 ├── scripts/
 │   ├── shell/
@@ -46,10 +48,12 @@ scarecrow-drone/
 │   └── server.config              ← Gazebo server plugins (Sensors + OpticalFlowSystem)
 ├── models/
 │   ├── holybro_x500/model.sdf     ← composite model: x500 + all 4 sensors
-│   └── mono_cam/model.sdf         ← camera at 1280x720 for HD video recording
+│   ├── mono_cam/model.sdf         ← camera at 1280x720 for HD video recording
+│   └── military_drone/model.sdf   ← static obstacle model for garage world
 ├── worlds/
 │   ├── default.sdf                ← open world with checkerboard floor
-│   └── indoor_room.sdf            ← 20m clean room: colored walls, full checkerboard floor
+│   ├── indoor_room.sdf            ← 20m clean room: colored walls, full checkerboard floor
+│   └── drone_garage.sdf           ← garage environment with military drone obstacle
 ├── pyproject.toml                 ← package config (pip install -e .)
 ├── px4/                           ← git submodule: riftins98/PX4-Autopilot branch `scarecrow`
 └── .venv-mavsdk/                  ← Python venv with mavsdk package
@@ -144,6 +148,9 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 - **Full 20m x 20m checkerboard floor** (400 tiles, 1m each, wall-to-wall) for optical flow
 - No obstacles (clean for wall-follow navigation testing)
 
+### drone_garage.sdf
+Garage environment with a static military drone model placed as an obstacle. Used to test `FrontWallDetector` obstacle discrimination — the parked drone is in the space but not on the flight path, so the detector should not trigger a wall stop.
+
 ---
 
 ## Files Changed from Upstream PX4
@@ -157,13 +164,15 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 
 ---
 
-## Current Status (2026-04-02)
+## Current Status (2026-04-05)
 
 ### What Works
 - Drone flies to 2.5m and hovers with **optical flow position hold**
 - **Wall following**: follows left or right wall at configurable distance using lidar PD + SVD yaw correction
 - **90° rotation**: compass coarse turn + lidar SVD fine alignment (works in GPS-denied mode)
-- **Room circuit**: full perimeter flight (4 legs + 4 turns), returns to start position
+- **Room circuit**: full perimeter flight (4 legs + 4 turns)
+- **Post-turn stabilization**: reusable distance controller holds configured side/rear targets before each leg
+- **Obstacle-aware front stop**: `FrontWallDetector` validates that the front reading is a real wall (wide cluster, centered, multi-frame confirmed) before triggering stop — avoids false stops from off-axis obstacles or narrow objects not on the flight path
 - All 5 sensor topics publish: optical flow, flow camera, rangefinder, 2D lidar, mono camera
 - HD camera video recorded during flight (1280x720, multi-threaded, MP4 via ffmpeg)
 - Lidar scan diagnostics saved as PDF at each turn
@@ -176,13 +185,15 @@ Open flat world with 10x10 checkerboard floor. Drone flies stably here (no walls
 - **`commander set_heading 0` is automated**: runs via `4022_gz_holybro_x500.post` hook at startup
 - **PX4 compass drift**: GPS-denied heading drifts ~10-15° from physical heading, compensated by lidar SVD alignment
 - **GStreamer broken on macOS**: camera video uses PNG+ffmpeg instead
+- **FrontWallDetector thresholds untested with real obstacles**: cluster width, center tolerance, and confirm cycles were tuned in simulation against clean walls — needs flight data validation with actual obstacles
 
 ### Key Discoveries
 - **Altitude matters**: optical flow needs 2.5m+ for good feature tracking
 - **Never `param set` EKF2 at runtime**: resets the estimator, destroys optical flow fusion
 - **Stock PX4 defaults work**: only GPS disable is needed
-- **Lidar angle mapping must match model**: 270° lidar mapped to 360° angles produces curved walls and wrong SVD results
+- **Unified lidar contract**: simulation and real adapter both use strict 360° scans (`-pi..+pi`, 1440 samples)
 - **Compass + lidar SVD**: compass for coarse turns, lidar SVD for precise wall alignment — compensates for GPS-denied heading drift
+- **Front stop needs perception, not just distance**: raw `front_distance()` triggers false stops from off-axis obstacles; cluster validation + temporal confirmation is required
 
 ---
 
@@ -201,7 +212,7 @@ gpu_lidar (1 ray, 50Hz) → gz_bridge → distance_sensor uORB → EKF2 (height 
 
 ### 2D Lidar
 ```
-lidar_2d_v2 (1080 samples, 270°, 30Hz) → Gazebo topic (not used by PX4, for companion computer)
+lidar_2d_v2 (1440 samples, 360°, 30Hz) → Gazebo topic (not used by PX4, for companion computer)
 ```
 
 ### Mono Camera

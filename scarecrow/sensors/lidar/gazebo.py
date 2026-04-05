@@ -137,20 +137,45 @@ class GazeboLidar(LidarSource):
         Keeps ALL range values to preserve angle-to-index mapping.
         Invalid ranges (0 or inf) are kept as-is — filtering happens
         in LidarScan methods (get_sector_min, get_wall_alignment_error, etc).
+
+        Returns None for malformed/incompatible scan metadata. This project
+        expects full-circle 360° scans.
         """
         ranges = []
+        angle_min = None
+        angle_max = None
         for line in text.split('\n'):
             line = line.strip()
+            if line.startswith('angle_min:'):
+                try:
+                    angle_min = float(line.split(':', 1)[1].strip())
+                except ValueError:
+                    pass
+                continue
+            if line.startswith('angle_max:'):
+                try:
+                    angle_max = float(line.split(':', 1)[1].strip())
+                except ValueError:
+                    pass
+                continue
             if line.startswith('ranges:'):
                 try:
-                    val = float(line.split(':')[1].strip())
+                    val = float(line.split(':', 1)[1].strip())
                     ranges.append(val)
                 except ValueError:
                     ranges.append(float('inf'))
         if not ranges:
             return None
+        if angle_min is None or angle_max is None:
+            return None
+
+        # Strict 360° contract (allow tiny numeric drift from parser/source).
+        angle_span = angle_max - angle_min
+        if not (2.0 * np.pi - 0.05 <= angle_span <= 2.0 * np.pi + 0.05):
+            return None
+
         return LidarScan(
             ranges=np.array(ranges, dtype=np.float32),
-            angle_min=-2.356195,
-            angle_max=2.356195,
+            angle_min=angle_min,
+            angle_max=angle_max,
         )

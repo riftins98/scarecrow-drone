@@ -18,10 +18,14 @@ class LidarScan:
         angle_min: Start angle in radians.
         angle_max: End angle in radians.
         timestamp: Capture time (time.time()).
+
+    Contract:
+        All scans in this project are full-circle 360° with
+        angle_min=-pi and angle_max=+pi.
     """
     ranges: np.ndarray
-    angle_min: float = -2.356195   # -135 deg (RPLidar A1M8 / lidar_2d_v2, 270°)
-    angle_max: float = 2.356195    # +135 deg
+    angle_min: float = -math.pi
+    angle_max: float = math.pi
     timestamp: float = field(default_factory=time.time)
 
     @property
@@ -60,7 +64,7 @@ class LidarScan:
         if self.num_samples == 0:
             return float('inf')
         angles = self.angles
-        mask = (angles >= start_angle) & (angles <= end_angle)
+        mask = self._sector_mask(angles, start_angle, end_angle)
         sector = self.ranges[mask]
         valid = sector[(sector > 0.1) & (sector < 30.0)]
         if len(valid) == 0:
@@ -72,12 +76,19 @@ class LidarScan:
         if self.num_samples == 0:
             return float('inf')
         angles = self.angles
-        mask = (angles >= start_angle) & (angles <= end_angle)
+        mask = self._sector_mask(angles, start_angle, end_angle)
         sector = self.ranges[mask]
         valid = sector[(sector > 0.1) & (sector < 30.0)]
         if len(valid) == 0:
             return float('inf')
         return float(np.mean(valid))
+
+    @staticmethod
+    def _sector_mask(angles: np.ndarray, start_angle: float, end_angle: float) -> np.ndarray:
+        """Build a sector mask, including wrap-around sectors across ±pi."""
+        if start_angle <= end_angle:
+            return (angles >= start_angle) & (angles <= end_angle)
+        return (angles >= start_angle) | (angles <= end_angle)
 
     # Convenience directions (body frame: 0=forward, +90=left, -90=right)
     # Angles in the lidar frame: 0=forward, positive=left (CCW)
@@ -188,6 +199,10 @@ class LidarScan:
     def right_distance(self, half_width: float = 0.15) -> float:
         """Minimum distance to the right."""
         return self.get_sector_min(self.RIGHT - half_width, self.RIGHT + half_width)
+
+    def rear_distance(self, half_width: float = 0.15) -> float:
+        """Minimum distance to the rear (around ±180°)."""
+        return self.get_sector_min(math.pi - half_width, -math.pi + half_width)
 
 
 class LidarSource(ABC):

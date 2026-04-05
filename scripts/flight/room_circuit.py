@@ -6,8 +6,8 @@ GPS-denied indoor flight: fly the full perimeter of the room and land
 at the exact starting position.
 
 Route (4 legs, 4 turns):
-  1. Fly forward along left wall → stop 2m from front wall
-  2. Turn 90° right
+    1. Fly forward along configured side wall → stop near front wall threshold
+    2. Turn 90° (left/right depends on configuration)
   3. Repeat for all 4 walls
   4. Land at starting position
 
@@ -15,7 +15,6 @@ Uses: 2D lidar (wall following) + optical flow (position hold) + rangefinder (al
 
 Prerequisites:
   - Launch: PX4_GZ_MODEL_POSE="-7,7,0,0,0,0" ./scripts/shell/launch.sh
-  - In pxh>: commander set_heading 0
 
 Usage:
   source .venv-mavsdk/bin/activate
@@ -38,6 +37,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import numpy as np
 
 from scarecrow.sensors.lidar.gazebo import GazeboLidar
+from scarecrow.controllers.distance_stabilizer import (
+    DistanceStabilizerController,
+    DistanceTargets,
+)
+from scarecrow.controllers.front_wall_detector import FrontWallDetector
 from scarecrow.controllers.wall_follow import WallFollowController
 from scarecrow.controllers.rotation import rotate_90
 
@@ -49,10 +53,15 @@ SYSTEM_ADDRESS = "udp://:14540"
 TARGET_ALT = 2.5
 WALL_DISTANCE = 2.0
 WALL_SIDE = "right"
-FORWARD_SPEED = 0.4
-FRONT_STOP_DISTANCE = 2.2
+FORWARD_SPEED = 0.6
+FRONT_STOP_DISTANCE = 2.4
 NUM_LEGS = 4
-MIN_SAFE_DISTANCE = 1.5  # emergency override if any wall closer than this
+MIN_SAFE_DISTANCE = 1.8  # emergency override if any wall closer than this
+POST_TURN_SIDE_TARGET = 2.0
+POST_TURN_REAR_TARGET = 2.0
+POST_TURN_TOLERANCE = 0.15
+POST_TURN_STABLE_TIME = 1.0
+POST_TURN_TIMEOUT = 12.0
 
 
 def save_lidar_scan_pdf(label, scan, filename):
@@ -145,6 +154,61 @@ async def do_turn(drone, lidar):
     return result
 
 
+async def stabilize_after_turn(drone, lidar, leg_num):
+    """Stabilize at target side/rear distances before the next wall leg."""
+    print(
+        f"  Stabilizing after turn {leg_num}: "
+        f"{WALL_SIDE}= {POST_TURN_SIDE_TARGET:.1f}m, rear= {POST_TURN_REAR_TARGET:.1f}m"
+    )
+
+    targets = DistanceTargets(
+        rear=POST_TURN_REAR_TARGET,
+        left=POST_TURN_SIDE_TARGET if WALL_SIDE == "left" else None,
+        right=POST_TURN_SIDE_TARGET if WALL_SIDE == "right" else None,
+    )
+    stabilizer = DistanceStabilizerController(
+        targets=targets,
+        kp_front_rear=0.40,
+        kp_left_right=0.45,
+        max_forward_speed=0.25,
+        max_lateral_speed=0.25,
+        tolerance=POST_TURN_TOLERANCE,
+        stable_time=POST_TURN_STABLE_TIME,
+    )
+
+    started = time.time()
+
+    while time.time() - started < POST_TURN_TIMEOUT:
+        scan = lidar.get_scan()
+        if scan is None:
+            await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
+            await asyncio.sleep(0.05)
+            continue
+
+        cmd = stabilizer.update(scan)
+
+        await drone.offboard.set_velocity_body(
+            VelocityBodyYawspeed(cmd.forward_m_s, cmd.right_m_s, 0.0, 0.0)
+        )
+
+        if stabilizer.done:
+            side_dist = scan.right_distance() if WALL_SIDE == "right" else scan.left_distance()
+            rear_dist = scan.rear_distance()
+            print(
+                f"  Stabilized: {WALL_SIDE}={side_dist:.2f}m "
+                f"rear={rear_dist:.2f}m"
+            )
+            break
+
+        await asyncio.sleep(0.05)
+    else:
+        print("  Stabilization timeout — continuing with current pose")
+
+    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
+    await asyncio.sleep(0.5)
+
+
+
 async def fly_leg(drone, lidar, leg_num):
     """Fly one leg of the circuit: forward along wall until front wall."""
     controller = WallFollowController(
@@ -152,6 +216,10 @@ async def fly_leg(drone, lidar, leg_num):
         target_distance=WALL_DISTANCE,
         forward_speed=FORWARD_SPEED,
         front_stop_distance=FRONT_STOP_DISTANCE,
+    )
+    front_detector = FrontWallDetector(
+        stop_distance_m=FRONT_STOP_DISTANCE,
+        confirm_cycles=6,
     )
 
     step = 0
@@ -178,10 +246,23 @@ async def fly_leg(drone, lidar, leg_num):
             wall_dist = left_dist
             wall_err = scan.left_wall_angle_error()
 
-        cmd = controller.update(wall_dist, front_dist, wall_err)
+        front_state = front_detector.update(scan)
+        front_for_stop = front_state.robust_front_m
+        front_wall_visible = front_state.front_wall_visible
+        front_stop_reached = front_state.stop_confirmed
+
+        cmd = controller.update(
+            wall_dist,
+            front_for_stop,
+            wall_err,
+            front_wall_confirmed=front_wall_visible,
+            front_stop_reached=front_stop_reached,
+        )
+
+        target_fwd = cmd.forward_m_s
 
         # --- Safety override: push away from any wall closer than MIN_SAFE_DISTANCE ---
-        safe_fwd = cmd.forward_m_s
+        safe_fwd = target_fwd
         safe_lat = cmd.right_m_s
 
         if front_dist < MIN_SAFE_DISTANCE:
@@ -199,7 +280,12 @@ async def fly_leg(drone, lidar, leg_num):
 
         if step % 10 == 0:
             elapsed = time.time() - start_time
-            print(f"  [Leg {leg_num} {elapsed:5.1f}s] fwd={cmd.forward_m_s:+.2f} lat={cmd.right_m_s:+.2f} | {WALL_SIDE}={wall_dist:.1f}m front={front_dist:.1f}m")
+            print(
+                f"  [Leg {leg_num} {elapsed:5.1f}s] "
+                f"fwd_cmd={cmd.forward_m_s:+.2f} fwd_out={safe_fwd:+.2f} lat={cmd.right_m_s:+.2f} | "
+                f"{WALL_SIDE}={wall_dist:.1f}m front={front_for_stop:.1f}m "
+                f"front_wall={front_wall_visible} stop_ok={front_stop_reached}"
+            )
 
         step += 1
         await asyncio.sleep(0.05)
@@ -238,7 +324,7 @@ async def run():
         print("  EKF origin set")
     except Exception as e:
         print(f"  set_gps_global_origin failed: {e}")
-    print("  (heading must be set manually: commander set_heading 0)")
+    print("  Heading is initialized by launcher startup hook")
 
     # --- Start lidar ---
     print("\n--- Starting Lidar ---")
@@ -250,8 +336,19 @@ async def run():
         await asyncio.sleep(0.5)
         scan = lidar.get_scan()
         if scan is not None:
+            init_front_detector = FrontWallDetector(stop_distance_m=FRONT_STOP_DISTANCE)
+            init_front = init_front_detector.update(scan)
             print(f"  Lidar ready: {scan.num_samples} samples")
-            print(f"  Front: {scan.front_distance():.1f}m  Left: {scan.left_distance():.1f}m  Right: {scan.right_distance():.1f}m")
+            print(
+                f"  Front(raw): {init_front.raw_front_min_m:.1f}m  "
+                f"Front(robust): {init_front.robust_front_m:.1f}m  "
+                f"Front(center): {init_front.center_front_m:.1f}m"
+            )
+            print(
+                f"  Left: {scan.left_distance():.1f}m  "
+                f"Right: {scan.right_distance():.1f}m  "
+                f"front_wall_visible={init_front.front_wall_visible}"
+            )
             break
     else:
         print("  ERROR: No lidar data")
@@ -281,7 +378,10 @@ async def run():
 
     # --- Start offboard ---
     print("\n--- Starting Room Circuit ---")
-    print(f"  {NUM_LEGS} legs, {WALL_DISTANCE}m from wall, {FORWARD_SPEED} m/s")
+    print(
+        f"  {NUM_LEGS} legs, {WALL_DISTANCE}m from wall, {FORWARD_SPEED} m/s, "
+        f"post-turn targets: side={POST_TURN_SIDE_TARGET}m rear={POST_TURN_REAR_TARGET}m"
+    )
 
     await drone.offboard.set_velocity_body(
         VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
@@ -296,7 +396,6 @@ async def run():
 
     # --- Fly the circuit ---
     circuit_start = time.time()
-    scan_log = []
 
     # Capture and save start position
     start_scan = lidar.get_scan()
@@ -320,6 +419,8 @@ async def run():
             turn_scan = lidar.get_scan()
             if turn_scan:
                 save_lidar_scan_pdf(f"After turn {leg}", turn_scan, f"circuit_after_turn_{leg}.pdf")
+
+            await stabilize_after_turn(drone, lidar, leg)
             print()
 
     except Exception as e:
