@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/projects/finale project/scarecrow_drone/pigeon-detection/data/final_dataset/test/images/**)",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c 'source /home/tomer/scarecrow-drone/.venv-mavsdk/bin/activate && python3 -c \":*)",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"timeout 10 gz topic -e -n 1 -t /world/indoor_room/model/holybro_x500_0/link/camera_link/sensor/camera/image 2>&1 | head -5\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"timeout 5 gz topic -l 2>&1 | grep camera\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"GZ_PARTITION=px4 gz topic -l 2>&1 | head -20\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"GZ_PARTITION=px4 gz topic -l 2>&1 | grep -i 'sensor\\\\|camera\\\\|lidar\\\\|flow\\\\|optical'\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c ':*)",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cd /home/tomer/scarecrow-drone && source .venv-mavsdk/bin/activate && python3 /tmp/test_cam.py\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cd /home/tomer/scarecrow-drone && source .venv-mavsdk/bin/activate && python3 /tmp/test_cam2.py\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp /home/tomer/scarecrow-drone/output/test_capture.png '/mnt/c/projects/finale project/sim/scarecrow-drone/output/'\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"ls /home/tomer/scarecrow-drone/output/detections/ | head -5\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp /home/tomer/scarecrow-drone/output/detections/frame_0001.png '/mnt/c/projects/finale project/sim/scarecrow-drone/output/'\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp /home/tomer/scarecrow-drone/output/detections/detection_0001.png '/mnt/c/projects/finale project/sim/scarecrow-drone/output/'\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"GZ_PARTITION=px4 gz model --list 2>&1\")"
+    ],
+    "additionalDirectories": [
+      "c:\\projects\\finale project\\sim\\scarecrow-drone\\models\\pigeon_billboard\\materials",
+      "c:\\projects\\finale project\\scarecrow_drone\\pigeon-detection\\data\\final_dataset\\test\\images"
+    ]
+  }
+}

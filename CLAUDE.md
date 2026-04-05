@@ -211,6 +211,16 @@ camera (1280x720, 30Hz) → Gazebo topic → captured by demo_flight.py → MP4 
 
 ---
 
+## WSL Setup (Tomer's machine)
+
+- **WSL distro**: `Ubuntu-22.04` (NOT the default `Ubuntu`)
+- Always open with: `wsl -d Ubuntu-22.04` from PowerShell
+- Repo location inside WSL: `~/scarecrow-drone`
+- `.wslconfig` at `C:\Users\tomer\.wslconfig` — needs `memory=8GB` minimum (PX4 build fails with less)
+- Build with `make px4_sitl_default -j2` if memory is tight
+
+---
+
 ## Key Rules
 
 1. **NO GPS** — do not enable `SIM_GPS_USED`, `EKF2_GPS_CTRL`
