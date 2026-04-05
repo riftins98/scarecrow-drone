@@ -2,3 +2,4 @@
 mavsdk
 opencv-python-headless
 pillow
+ultralytics
