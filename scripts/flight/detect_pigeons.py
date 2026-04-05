@@ -18,9 +18,13 @@ import subprocess
 import sys
 import time
 import argparse
+import functools
 
 import cv2
 import numpy as np
+
+# Ensure all prints are flushed immediately (for subprocess monitoring)
+print = functools.partial(print, flush=True)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
@@ -178,7 +182,14 @@ def main():
                         help="Show live detection window (requires display)")
     parser.add_argument("--overlay", action="store_true",
                         help="Overlay real pigeon images onto camera frames for sim testing")
+    parser.add_argument("--flight-id", type=str, default=None,
+                        help="Flight ID (used by webapp backend)")
     args = parser.parse_args()
+
+    # Override output dir if set by backend
+    if os.environ.get("DETECTION_OUTPUT_DIR"):
+        global OUTPUT_DIR
+        OUTPUT_DIR = os.environ["DETECTION_OUTPUT_DIR"]
 
     # Check model exists
     if not os.path.exists(args.model):
@@ -300,6 +311,7 @@ def main():
 
                 outpath = os.path.join(detection_dir, f"detection_{frame_count:04d}.png")
                 cv2.imwrite(outpath, annotated)
+                print(f"DETECTION_IMAGE:{outpath}", flush=True)
             else:
                 if frame_count % 5 == 0:
                     print(f"  [{elapsed:6.1f}s] Frame {frame_count}: no detections")
