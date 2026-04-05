@@ -28,7 +28,7 @@ Lidar is unified across simulation and real hardware (RPLidar adapter):
 scarecrow-drone/
 ├── scarecrow/                       — Python package (pip install -e .)
 │   ├── sensors/lidar/               — LidarSource ABC, GazeboLidar, RPLidarSource
-│   ├── controllers/                 — WallFollowController, rotate_90(), DistanceStabilizerController
+│   ├── controllers/                 — WallFollowController, rotate_90(), DistanceStabilizerController, FrontWallDetector
 │   └── navigation/                  — Future: SLAM, path planning
 ├── scripts/
 │   ├── shell/
@@ -43,10 +43,12 @@ scarecrow-drone/
 ├── config/server.config             — Gazebo server plugins (Sensors, OpticalFlow)
 ├── models/
 │   ├── holybro_x500/model.sdf       — Composite drone model (x500 + all 4 sensors)
-│   └── mono_cam/model.sdf           — Camera model (1280x720 HD)
+│   ├── mono_cam/model.sdf           — Camera model (1280x720 HD)
+│   └── military_drone/model.sdf     — Static obstacle model for garage world
 ├── worlds/
 │   ├── default.sdf                  — Open world with checkerboard floor
-│   └── indoor_room.sdf             — 20m clean room with colored walls, full checkerboard
+│   ├── indoor_room.sdf              — 20m clean room with colored walls, full checkerboard
+│   └── drone_garage.sdf             — Garage environment with military drone obstacle
 ├── pyproject.toml                   — Package config
 ├── px4/                             — PX4-Autopilot submodule (branch: scarecrow)
 └── .venv-mavsdk/                    — Python venv (create with: python3 -m venv .venv-mavsdk)
@@ -130,6 +132,7 @@ brew install ffmpeg
 ```bash
 ./scripts/shell/launch.sh                    # GUI + indoor room (default)
 ./scripts/shell/launch.sh default            # GUI + open world
+./scripts/shell/launch.sh drone_garage       # GUI + garage with obstacle
 ./scripts/shell/launch.sh default --headless # headless mode
 ```
 
@@ -194,15 +197,17 @@ PX4_GZ_MODEL_POSE="-7,-7,0,0,0,0" ./scripts/shell/launch.sh
 python3 scripts/flight/room_circuit.py
 ```
 
-Flies the full room perimeter (4 legs + 4 turns) and lands at the starting position. Configurable wall side and distances. Saves lidar scan PDFs at each turn for diagnostics.
+Flies the full room perimeter (4 legs + 4 turns). Configurable wall side and distances. Saves lidar scan PDFs at each turn for diagnostics.
 
-After each turn, the drone runs post-turn stabilization using distance constraints before starting the next leg (and before final landing transition):
+After each turn, the drone runs post-turn stabilization using distance constraints before starting the next leg:
 - Side wall target (`left` or `right` based on `WALL_SIDE`)
 - Rear wall target
 
 Current defaults in `scripts/flight/room_circuit.py`:
-- `POST_TURN_SIDE_TARGET = 3.0`
-- `POST_TURN_REAR_TARGET = 3.0`
+- `POST_TURN_SIDE_TARGET = 2.0`
+- `POST_TURN_REAR_TARGET = 2.0`
+
+Front-wall stopping uses `FrontWallDetector` to validate that the lidar reading is a real wall (wide cluster, centered, multi-frame confirmed) before stopping — avoids false stops from off-axis obstacles not on the flight path.
 
 ### Scarecrow Package
 
@@ -217,6 +222,7 @@ from scarecrow.sensors.lidar.gazebo import GazeboLidar     # simulation
 from scarecrow.sensors.lidar.rplidar import RPLidarSource   # real hardware
 from scarecrow.controllers.distance_stabilizer import DistanceStabilizerController, DistanceTargets
 from scarecrow.controllers.wall_follow import WallFollowController
+from scarecrow.controllers.front_wall_detector import FrontWallDetector
 from scarecrow.controllers.rotation import rotate_90
 ```
 
