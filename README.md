@@ -11,9 +11,9 @@ University final project: proves indoor flight using only optical flow + rangefi
 | Optical flow | MTF-01 | `optical_flow` | Horizontal velocity |
 | Downward rangefinder | TF-Luna | `LW20` / `gpu_lidar` | Height correction |
 | 2D lidar | RPLidar A1M8 | `lidar_2d_v2` | Obstacle avoidance |
-| Mono camera | Pi Camera 3 | `mono_cam` (1280x720) | Visual awareness |
+| Mono camera | Pi Camera 3 | `mono_cam` (640x360) | YOLOv8 pigeon detection |
 
-GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correction.
+GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correction. The camera feeds a live YOLOv8 pigeon detector (`models/yolo/best_v4.pt`).
 
 ## Lidar Contract
 
@@ -36,6 +36,7 @@ scarecrow-drone/
 │   │   └── env.sh                   — Shared environment variables
 │   └── flight/
 │       ├── demo_flight.py           — Hover demo + HD video + sensor capture
+│       ├── detect_pigeons.py        — Live YOLOv8 pigeon detection from Gazebo camera
 │       ├── wall_follow.py           — Single wall follow using lidar
 │       ├── room_circuit.py          — Full room perimeter (4 legs + 4 turns)
 │       └── sensor_check.py          — Ground-only sensor data capture
@@ -43,12 +44,18 @@ scarecrow-drone/
 ├── config/server.config             — Gazebo server plugins (Sensors, OpticalFlow)
 ├── models/
 │   ├── holybro_x500/model.sdf       — Composite drone model (x500 + all 4 sensors)
-│   ├── mono_cam/model.sdf           — Camera model (1280x720 HD)
-│   └── military_drone/model.sdf     — Static obstacle model for garage world
+│   ├── mono_cam/model.sdf           — Camera model (640x360 @ 15fps)
+│   ├── military_drone/model.sdf     — Static obstacle model for garage world
+│   ├── pigeon_billboard/            — Flat panel with pigeon texture (detection target)
+│   └── yolo/best_v4.pt              — Trained YOLOv8 pigeon detector (22MB, bundled)
 ├── worlds/
 │   ├── default.sdf                  — Open world with checkerboard floor
-│   ├── indoor_room.sdf              — 20m clean room with colored walls, full checkerboard
+│   ├── indoor_room.sdf              — 20m clean room + pigeon billboard
 │   └── drone_garage.sdf             — Garage environment with military drone obstacle
+├── webapp/                          — Web UI (one-click launcher)
+│   ├── backend/                     — FastAPI (port 5000)
+│   ├── frontend/                    — React 19 + TypeScript (port 3000)
+│   └── Start Scarecrow.bat          — Windows one-click launcher
 ├── pyproject.toml                   — Package config
 ├── px4/                             — PX4-Autopilot submodule (branch: scarecrow)
 └── .venv-mavsdk/                    — Python venv (create with: python3 -m venv .venv-mavsdk)
@@ -227,6 +234,55 @@ from scarecrow.controllers.rotation import rotate_90
 ```
 
 Same code runs on Gazebo and on the real drone — only the lidar source changes.
+
+## Pigeon Detection (YOLOv8)
+
+The sim includes a live pigeon detection pipeline using a custom-trained YOLOv8 model (`models/yolo/best_v4.pt`). The `indoor_room.sdf` world spawns a `pigeon_billboard` (flat panel with a real pigeon photo) 3m from the drone spawn, which YOLO detects at ~89% confidence.
+
+### Run detection manually
+
+With the sim running:
+
+```bash
+source .venv-mavsdk/bin/activate
+python3 scripts/flight/detect_pigeons.py --confidence 0.3 --duration 30
+```
+
+Annotated frames are saved to `output/detections/`.
+
+## Webapp — One-Click Launcher
+
+Full web UI for running the sim + detection without touching a terminal.
+
+### Start it (Windows)
+
+Double-click:
+
+```
+webapp/Start Scarecrow.bat
+```
+
+It will:
+1. Sync backend files + detection script + YOLO model to WSL
+2. Start the FastAPI backend in WSL on port 5000
+3. Start the React frontend on port 3000
+4. Open `http://localhost:3000` in your browser
+
+### UI Workflow
+
+- **Drone Control** tab:
+  - Click **Connect** → launches PX4 + Gazebo, shows a real-time checklist (cleanup → build → gazebo → sensors → ready)
+  - Click **Start Detection** → runs `detect_pigeons.py`, live counters for frames/pigeons, timer
+  - Click **Stop Detection** → finalizes the flight record
+- **Detection History** tab:
+  - Lists all past sessions with date, duration, pigeon count
+  - Click a session to open a modal with Summary / Detections (image gallery) / Recording tabs
+
+### Stack
+
+- **Backend**: FastAPI (`webapp/backend/app.py`) with SQLite (`webapp/backend/database/scarecrow.db`)
+- **Frontend**: React 19 + TypeScript (`webapp/frontend/src/`)
+- **Detection integration**: backend spawns `detect_pigeons.py` as a subprocess, parses `DETECTION_IMAGE:` lines for the database
 
 ## Real Drone
 

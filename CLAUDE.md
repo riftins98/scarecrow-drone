@@ -48,12 +48,31 @@ scarecrow-drone/
 │   └── server.config              ← Gazebo server plugins (Sensors + OpticalFlowSystem)
 ├── models/
 │   ├── holybro_x500/model.sdf     ← composite model: x500 + all 4 sensors
-│   ├── mono_cam/model.sdf         ← camera at 1280x720 for HD video recording
-│   └── military_drone/model.sdf   ← static obstacle model for garage world
+│   ├── mono_cam/model.sdf         ← camera at 640x360 @ 15fps (reduced for WSL perf)
+│   ├── military_drone/model.sdf   ← static obstacle model for garage world
+│   ├── pigeon_billboard/          ← flat panel with pigeon texture for YOLO detection
+│   └── yolo/best_v4.pt            ← trained YOLOv8 pigeon detector (22MB, bundled)
 ├── worlds/
 │   ├── default.sdf                ← open world with checkerboard floor
-│   ├── indoor_room.sdf            ← 20m clean room: colored walls, full checkerboard floor
+│   ├── indoor_room.sdf            ← 20m clean room + 1 pigeon billboard @ 3m from spawn
 │   └── drone_garage.sdf           ← garage environment with military drone obstacle
+├── webapp/                        ← Web UI for sim + detection
+│   ├── backend/                   ← FastAPI server (port 5000)
+│   │   ├── app.py                 ← API endpoints
+│   │   ├── database/db.py         ← SQLite: flights + detection_images
+│   │   └── services/
+│   │       ├── sim_service.py     ← Launches/monitors PX4+Gazebo, tracks launch stages
+│   │       └── detection_service.py ← Manages detect_pigeons.py subprocess
+│   ├── frontend/                  ← React 19 + TypeScript UI
+│   │   └── src/
+│   │       ├── pages/Dashboard.tsx   ← Tabs: Control / History, polling
+│   │       ├── components/
+│   │       │   ├── SimControl.tsx    ← Connect/Start/Stop + launch checklist + live timer
+│   │       │   ├── FlightHistory.tsx ← Past detection sessions list
+│   │       │   └── FlightModal.tsx   ← Summary / Detections / Recording tabs
+│   │       └── services/api.ts       ← Backend API client
+│   └── Start Scarecrow.bat        ← One-click launcher (syncs to WSL + starts both)
+├── scripts/flight/detect_pigeons.py ← Gazebo camera → YOLOv8 pigeon detection
 ├── pyproject.toml                 ← package config (pip install -e .)
 ├── px4/                           ← git submodule: riftins98/PX4-Autopilot branch `scarecrow`
 └── .venv-mavsdk/                  ← Python venv with mavsdk package
@@ -153,6 +172,55 @@ Garage environment with a static military drone model placed as an obstacle. Use
 
 ---
 
+## Pigeon Detection (YOLOv8)
+
+The sim includes a full pigeon detection pipeline using the `best_v4.pt` model trained in the sibling `scarecrow_drone` project.
+
+### Detection Pipeline
+```
+Gazebo mono_cam (640x360) → gz topic -e → detect_pigeons.py → YOLOv8 best_v4.pt → annotated PNGs
+```
+
+- **Model**: `models/yolo/best_v4.pt` — custom-trained YOLOv8 (single class: `pigeon`)
+- **Target**: `pigeon_billboard` model in `indoor_room.sdf` — flat panel with real pigeon texture, standing 3m from spawn. Detected at ~89% confidence.
+- **Script**: `scripts/flight/detect_pigeons.py` — captures camera frames via `gz topic -e`, runs YOLO inference, saves annotated detections.
+- **Frame rate**: ~0.2 FPS on WSL (capture is the bottleneck, not inference)
+- **Output**: `DETECTION_IMAGE:<path>` stdout lines (parsed by webapp backend), saved to `webapp/output/<flight_id>/detections/`
+
+---
+
+## Webapp (One-Click Launcher)
+
+Full web UI for running the sim and detection without touching the terminal.
+
+### Stack
+- **Backend**: FastAPI on port 5000 (runs inside WSL)
+- **Frontend**: React 19 + TypeScript on port 3000 (runs on Windows)
+- **Database**: SQLite at `webapp/backend/database/scarecrow.db` (flights + detection_images)
+- **Launcher**: `webapp/Start Scarecrow.bat` — syncs files to WSL, starts both servers, opens browser
+
+### Workflow
+1. Double-click `Start Scarecrow.bat`
+2. Click **Connect** → backend runs `launch.sh` in WSL, checklist UI shows real-time stages (cleanup → build → gazebo → sensors → ready)
+3. Click **Start Detection** → backend spawns `detect_pigeons.py`, creates flight in DB, parses `DETECTION_IMAGE:` lines
+4. Click **Stop Detection** → finalizes flight record with pigeon count
+5. **Detection History** tab → click a flight to see summary / detection images / recording
+
+### Key Files
+- `webapp/backend/services/sim_service.py` — parses `launch.sh` stdout to track stages, sends `commander set_ekf_origin 0 0 0` + `set_heading 0` via process stdin
+- `webapp/backend/services/detection_service.py` — spawns `detect_pigeons.py`, parses pigeon counts and `DETECTION_IMAGE:` lines for DB
+- `webapp/backend/app.py` — REST API: `/api/sim/connect`, `/api/flight/start|stop`, `/api/flights`, etc.
+- `webapp/frontend/src/pages/Dashboard.tsx` — polls sim status (3s) and flight status (2s), manages modal state
+- `webapp/frontend/src/components/SimControl.tsx` — launch checklist, live timer, start/stop buttons
+
+### Performance Notes (WSL)
+- PX4 `make px4_sitl` reconfigures cmake every launch (~1-2 min). First launch after code changes is slow.
+- Gazebo camera capture via `gz topic -e -n 1` takes ~5s per frame — limits detection to ~0.2 FPS.
+- `mono_cam` reduced to 640x360 @ 15fps, clip far distance 100m, shadows disabled for WSL GPU performance.
+- `export __GLX_VENDOR_LIBRARY_NAME=nvidia` + `LIBGL_ALWAYS_SOFTWARE=1` help on NVIDIA laptops with WSLg.
+
+---
+
 ## Files Changed from Upstream PX4
 
 | File | Change |
@@ -164,7 +232,7 @@ Garage environment with a static military drone model placed as an obstacle. Use
 
 ---
 
-## Current Status (2026-04-05)
+## Current Status (2026-04-08)
 
 ### What Works
 - Drone flies to 2.5m and hovers with **optical flow position hold**
@@ -172,10 +240,10 @@ Garage environment with a static military drone model placed as an obstacle. Use
 - **90° rotation**: compass coarse turn + lidar SVD fine alignment (works in GPS-denied mode)
 - **Room circuit**: full perimeter flight (4 legs + 4 turns)
 - **Post-turn stabilization**: reusable distance controller holds configured side/rear targets before each leg
-- **Obstacle-aware front stop**: `FrontWallDetector` validates that the front reading is a real wall (wide cluster, centered, multi-frame confirmed) before triggering stop — avoids false stops from off-axis obstacles or narrow objects not on the flight path
+- **Obstacle-aware front stop**: `FrontWallDetector` validates front reading is a real wall before triggering stop
+- **YOLOv8 pigeon detection**: `best_v4.pt` detects pigeon billboards live from Gazebo camera at ~89% confidence
+- **Webapp**: one-click `Start Scarecrow.bat` launches FastAPI backend + React UI. Connect button shows launch checklist; Start Detection runs YOLO on camera feed; History tab shows past sessions with detection images and video recording
 - All 5 sensor topics publish: optical flow, flow camera, rangefinder, 2D lidar, mono camera
-- HD camera video recorded during flight (1280x720, multi-threaded, MP4 via ffmpeg)
-- Lidar scan diagnostics saved as PDF at each turn
 - `scarecrow` Python package: reusable sensor interfaces + controllers (pip installable)
 - Same package runs on Gazebo (sim) and real drone (RPLidar A1M8 via USB)
 - Multiple flights per session without PX4 restart
@@ -185,7 +253,10 @@ Garage environment with a static military drone model placed as an obstacle. Use
 - **`commander set_heading 0` is automated**: runs via `4022_gz_holybro_x500.post` hook at startup
 - **PX4 compass drift**: GPS-denied heading drifts ~10-15° from physical heading, compensated by lidar SVD alignment
 - **GStreamer broken on macOS**: camera video uses PNG+ffmpeg instead
-- **FrontWallDetector thresholds untested with real obstacles**: cluster width, center tolerance, and confirm cycles were tuned in simulation against clean walls — needs flight data validation with actual obstacles
+- **FrontWallDetector thresholds untested with real obstacles**: tuned in simulation against clean walls — needs flight data validation
+- **WSL detection FPS is slow**: ~0.2 FPS because `gz topic -e -n 1` takes ~5s per frame capture. Inference itself is fast. First pigeon detection after clicking Start usually shows up after 20-25s.
+- **Flat billboard vs 3D mesh**: `pigeon_billboard` is a flat panel with a real pigeon photo texture. YOLO detects it because the texture itself is a real photo. A 3D pigeon mesh would render differently and might not trigger the detector trained on photos.
+- **MAVSDK server crashes on WSL2**: `mavsdk_server` binary segfaults under WSL2. The webapp does not use MAVSDK — it manages detection as a subprocess and sends PX4 commands via process stdin. Flight code that needs MAVSDK (`demo_flight.py` etc.) still works on macOS/native Linux.
 
 ### Key Discoveries
 - **Altitude matters**: optical flow needs 2.5m+ for good feature tracking
