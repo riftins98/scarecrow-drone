@@ -47,9 +47,11 @@ class SimService:
         env = os.environ.copy()
         env.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
         env.setdefault("__NV_PRIME_RENDER_OFFLOAD", "1")
+        # Spawn drone 5m in front of pigeon billboard, facing north wall (+x, heading=0)
+        env["PX4_GZ_MODEL_POSE"] = "5,-4.5,0,0,0,0"
 
         self.process = subprocess.Popen(
-            ["bash", launch_script],
+            ["bash", launch_script, "drone_garage"],
             cwd=REPO_ROOT,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

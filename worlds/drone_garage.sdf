@@ -556,6 +556,13 @@
       </attenuation>
     </light>
 
+    <!-- Pigeon billboard on north wall (drone faces +x) — 3m from west wall, 2.5m high -->
+    <include>
+      <uri>model://pigeon_billboard</uri>
+      <name>pigeon_1</name>
+      <pose>10 -4.5 2.5 0 0 0</pose>
+    </include>
+
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
       <latitude_deg>0</latitude_deg>

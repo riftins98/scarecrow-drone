@@ -1,5 +1,10 @@
 -r px4/Tools/setup/requirements.txt
-mavsdk
-opencv-python-headless
-pillow
-ultralytics
+mavsdk==3.15.3
+numpy==2.4.4
+opencv-python-headless==4.13.0.92
+pillow==12.2.0
+matplotlib==3.10.8
+torch==2.11.0
+torchvision==0.26.0
+ultralytics==8.4.36
+rplidar-roboticia==0.9.5

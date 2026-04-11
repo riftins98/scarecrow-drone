@@ -32,8 +32,7 @@ class DetectionService:
         self.detection_images = []
         self._on_detection = on_detection
 
-        detect_script = os.path.join(REPO_ROOT, "scripts", "flight", "detect_pigeons.py")
-        model_path = os.path.join(REPO_ROOT, "models", "yolo", "best_v4.pt")
+        flight_script = os.path.join(REPO_ROOT, "scripts", "flight", "demo_flight.py")
 
         # Output dir per flight
         output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
@@ -41,23 +40,10 @@ class DetectionService:
 
         env = os.environ.copy()
         env["GZ_PARTITION"] = "px4"
-        try:
-            result = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3)
-            ip = result.stdout.strip().split()[0]
-            if ip:
-                env["GZ_IP"] = ip
-        except Exception:
-            pass
-
-        # Override output dir in detection script via env
-        env["DETECTION_OUTPUT_DIR"] = output_dir
 
         self.process = subprocess.Popen(
             [
-                "python3", detect_script,
-                "--model", model_path,
-                "--confidence", "0.3",
-                "--duration", "0",  # unlimited
+                "python3", flight_script,
                 "--flight-id", flight_id,
             ],
             stdout=subprocess.PIPE,
@@ -84,35 +70,32 @@ class DetectionService:
                 if len(self._output_lines) > 200:
                     self._output_lines = self._output_lines[-100:]
 
-                # Parse detection lines
-                if "pigeon(s) detected" in line:
-                    # e.g. "  [  48.6s] Frame 5: 1 pigeon(s) detected!"
-                    match = re.search(r"Frame (\d+): (\d+) pigeon", line)
-                    if match:
-                        self.frames_processed = int(match.group(1))
-                        self.pigeons_detected += int(match.group(2))
-
-                elif "no detections" in line:
-                    match = re.search(r"Frame (\d+):", line)
-                    if match:
-                        self.frames_processed = int(match.group(1))
-
-                elif "DETECTION_IMAGE:" in line:
-                    # Custom output from detect_pigeons.py
+                # Parse output lines from demo_flight.py
+                if "DETECTION_IMAGE:" in line:
                     img_path = line.split("DETECTION_IMAGE:")[-1].strip()
                     self.detection_images.append(img_path)
                     if self._on_detection:
                         self._on_detection(self.flight_id, img_path)
 
+                elif "pigeon(s) detected" in line:
+                    match = re.search(r"(\d+) pigeon", line)
+                    if match:
+                        self.pigeons_detected += int(match.group(1))
+
+                elif "no detections" in line or "Frame " in line:
+                    match = re.search(r"Frame (\d+)", line)
+                    if match:
+                        self.frames_processed = max(self.frames_processed, int(match.group(1)))
+
+                elif "Pigeons detected:" in line:
+                    match = re.search(r"Pigeons detected: (\d+)", line)
+                    if match:
+                        self.pigeons_detected = int(match.group(1))
+
                 elif "Frames processed:" in line:
                     match = re.search(r"Frames processed: (\d+)", line)
                     if match:
                         self.frames_processed = int(match.group(1))
-
-                elif "Total pigeons detected:" in line:
-                    match = re.search(r"Total pigeons detected: (\d+)", line)
-                    if match:
-                        self.pigeons_detected = int(match.group(1))
 
         except Exception as e:
             self._last_error = str(e)
@@ -120,22 +103,18 @@ class DetectionService:
             self.running = False
 
     def stop(self) -> dict:
-        """Stop detection and return results."""
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-
+        """Detach from the flight process — let it land and finish on its own.
+        The auto-finalize in flight_status() will update the DB when it exits."""
+        # Do NOT kill the process — demo_flight.py handles its own landing
         self.running = False
+
         result = {
             "pigeons_detected": self.pigeons_detected,
             "frames_processed": self.frames_processed,
             "detection_images": self.detection_images,
         }
 
-        # Find video if created
+        # Find video if already created
         if self.flight_id:
             output_dir = os.path.join(REPO_ROOT, "webapp", "output", self.flight_id)
             video = os.path.join(output_dir, "flight_camera.mp4")
