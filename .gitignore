@@ -9,3 +9,8 @@ logs/
 *.log
 .DS_Store
 output/
+node_modules/
+webapp/frontend/node_modules/
+webapp/output/
+webapp/backend/database/*.db
+*.sqlite

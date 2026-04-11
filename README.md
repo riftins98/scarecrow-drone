@@ -4,166 +4,102 @@ Autonomous GPS-denied indoor drone simulation — Holybro X500 V2 with full sens
 
 University final project: proves indoor flight using only optical flow + rangefinder for state estimation, with no GPS dependency. The same flight code runs on the real drone.
 
+---
+
+## What It Does
+
+The drone takes off to 2.5m, holds position using optical flow (no GPS), and runs a live YOLOv8 pigeon detector against the camera feed during hover. A web UI provides one-click control: launch the simulation, start a detection flight, and browse past sessions with detection images and recorded video.
+
+---
+
 ## Sensor Stack
 
-| Sensor | Hardware | Gazebo Model | Role |
+| Sensor | Hardware | Simulation Model | Role |
 |---|---|---|---|
-| Optical flow | MTF-01 | `optical_flow` | Horizontal velocity |
+| Optical flow | MTF-01 | `optical_flow` | Horizontal velocity estimation |
 | Downward rangefinder | TF-Luna | `LW20` / `gpu_lidar` | Height correction |
 | 2D lidar | RPLidar A1M8 | `lidar_2d_v2` | Obstacle avoidance |
-| Mono camera | Pi Camera 3 | `mono_cam` (1280x720) | Visual awareness |
+| Mono camera | Pi Camera 3 | `mono_cam` (640x360) | YOLOv8 pigeon detection |
 
 GPS is disabled. Height uses barometer (Pixhawk built-in) + rangefinder correction.
 
-## Lidar Contract
+---
 
-Lidar is unified across simulation and real hardware (RPLidar adapter):
-- Full-circle scan: `-pi .. +pi` (360°)
-- Sample count: `1440`
-- Direction mapping: `0°=front`, `+90°=left`, `-90°/270°=right`, `±180°=rear`
+## Setup
 
-## Repository Structure
+**Requires Python 3.11** — do not use 3.12 or later (torch/ultralytics compatibility).
 
-```
-scarecrow-drone/
-├── scarecrow/                       — Python package (pip install -e .)
-│   ├── sensors/lidar/               — LidarSource ABC, GazeboLidar, RPLidarSource
-│   ├── controllers/                 — WallFollowController, rotate_90(), DistanceStabilizerController, FrontWallDetector
-│   └── navigation/                  — Future: SLAM, path planning
-├── scripts/
-│   ├── shell/
-│   │   ├── launch.sh                — One-command launcher (GUI or headless)
-│   │   └── env.sh                   — Shared environment variables
-│   └── flight/
-│       ├── demo_flight.py           — Hover demo + HD video + sensor capture
-│       ├── wall_follow.py           — Single wall follow using lidar
-│       ├── room_circuit.py          — Full room perimeter (4 legs + 4 turns)
-│       └── sensor_check.py          — Ground-only sensor data capture
-├── airframes/4022_gz_holybro_x500   — PX4 airframe (GPS disabled, stock defaults)
-├── config/server.config             — Gazebo server plugins (Sensors, OpticalFlow)
-├── models/
-│   ├── holybro_x500/model.sdf       — Composite drone model (x500 + all 4 sensors)
-│   ├── mono_cam/model.sdf           — Camera model (1280x720 HD)
-│   └── military_drone/model.sdf     — Static obstacle model for garage world
-├── worlds/
-│   ├── default.sdf                  — Open world with checkerboard floor
-│   ├── indoor_room.sdf              — 20m clean room with colored walls, full checkerboard
-│   └── drone_garage.sdf             — Garage environment with military drone obstacle
-├── pyproject.toml                   — Package config
-├── px4/                             — PX4-Autopilot submodule (branch: scarecrow)
-└── .venv-mavsdk/                    — Python venv (create with: python3 -m venv .venv-mavsdk)
-```
-
-## Supported Platforms
-
-| Platform | Status | Notes |
-|---|---|---|
-| Ubuntu 22.04 / 24.04 | Fully supported | Easiest setup, PX4's primary platform |
-| macOS (Apple Silicon) | Tested, works | Needs SDK workaround (auto-detected) |
-| macOS (Intel) | Should work | Untested |
-| Windows | Not supported | Use WSL2 with Ubuntu |
-
-## Setup — Ubuntu 22.04 / 24.04
-
-### 1. Clone
+### Ubuntu 22.04 / 24.04
 
 ```bash
 git clone --recurse-submodules https://github.com/riftins98/scarecrow-drone.git
 cd scarecrow-drone
-```
 
-### 2. Install PX4 Dependencies + Gazebo Harmonic
+# Install PX4 build tools + Gazebo Harmonic
+cd px4 && bash Tools/setup/ubuntu.sh && cd ..
 
-PX4's setup script installs everything: build tools, Gazebo Harmonic, Python packages, GStreamer.
-
-```bash
-cd px4
-bash Tools/setup/ubuntu.sh
-cd ..
-```
-
-### 3. Install Flight Test Dependencies
-
-```bash
-python3 -m venv .venv-mavsdk
+# Install Python dependencies
+python3.11 -m venv .venv-mavsdk
 source .venv-mavsdk/bin/activate
 pip install -r requirements.txt
-```
+pip install -e .
 
-### 4. Install ffmpeg (for video output)
-
-```bash
+# Install ffmpeg (for video output)
 sudo apt install ffmpeg
 ```
 
-## Setup — macOS (Apple Silicon)
-
-### 1. Clone
+### macOS (Apple Silicon / Intel)
 
 ```bash
 git clone --recurse-submodules https://github.com/riftins98/scarecrow-drone.git
 cd scarecrow-drone
-```
 
-### 2. Install Gazebo + Dependencies via Homebrew
+# Install Gazebo + dependencies
+brew install gz-sim8 opencv qt@5 ffmpeg
 
-```bash
-brew install gz-sim8 opencv qt@5
-```
-
-### 3. Install Flight Test Dependencies
-
-```bash
-python3 -m venv .venv-mavsdk
+# Install Python dependencies
+python3.11 -m venv .venv-mavsdk
 source .venv-mavsdk/bin/activate
 pip install -r requirements.txt
+pip install -e .
 ```
 
-### 4. Install ffmpeg
+---
 
+## Running the Web UI
+
+The primary interface is a one-click launcher that opens a browser-based control panel.
+
+**macOS:**
 ```bash
-brew install ffmpeg
+bash "webapp/Start Scarecrow Mac.sh"
 ```
 
-## Running the Simulation
-
-### 1. Launch
-
-```bash
-./scripts/shell/launch.sh                    # GUI + indoor room (default)
-./scripts/shell/launch.sh default            # GUI + open world
-./scripts/shell/launch.sh drone_garage       # GUI + garage with obstacle
-./scripts/shell/launch.sh default --headless # headless mode
+**Windows (WSL2):**
+```
+Double-click: webapp/Start Scarecrow.bat
 ```
 
-### 2. Configure PX4
+Both launchers start the FastAPI backend (port 8000) and the React frontend (port 3000), then open `http://localhost:3000` in the browser.
 
-`commander set_heading 0` is now applied automatically during launch.
+### UI Workflow
 
-If you want to disable that behavior for a run:
-```bash
-SCARECROW_AUTO_SET_HEADING=0 ./scripts/shell/launch.sh
-```
+1. **Connect** — launches PX4 + Gazebo with a live checklist (cleanup → build → Gazebo → sensors → ready)
+2. **Start Detection** — drone takes off to 2.5m, hovers, runs YOLOv8 pigeon detection, records full flight video
+3. **Stop Detection** — detaches from the flight; drone finishes landing on its own
+4. **Detection History** tab — browse past sessions with pigeon count, detection image gallery, and MP4 recording
 
-(`set_ekf_origin` is handled automatically by the flight script)
+---
 
-### 3. Run Flight Demo
+## Sensor Verification
 
-In a second terminal:
-```bash
-source .venv-mavsdk/bin/activate
-python3 scripts/flight/demo_flight.py
-```
-
-The drone takes off to 2.5m, hovers with optical flow position hold, captures sensor data and HD video, then lands. You can run this multiple times without restarting PX4.
-
-## Flight Demo Output
+On every flight, the system confirms all sensors are active before arming:
 
 ```
   SENSOR VERIFICATION — GPS-Denied Navigation
-  [OK] EKF2_GPS_CTRL = 0 -- GPS disabled
-  [OK] EKF2_OF_CTRL = 1 -- Optical flow enabled
-  [OK] SYS_HAS_GPS = 0 -- GPS hardware disabled
+  [OK] EKF2_GPS_CTRL = 0   — GPS disabled
+  [OK] EKF2_OF_CTRL  = 1   — Optical flow enabled
+  [OK] SYS_HAS_GPS   = 0   — GPS hardware disabled
 
   Gazebo Sensor Topics
   [OK] Optical flow (MTF-01)
@@ -173,76 +109,32 @@ The drone takes off to 2.5m, hovers with optical flow position hold, captures se
   [OK] Mono camera (Pi Cam)
 ```
 
-Output files saved to `output/`:
-- `flight_camera.mp4` — HD camera video during flight (real-time speed)
-- `lidar_scan.pdf` — 2D lidar top-down scan of room
-- `optical_flow.pdf` — optical flow quality chart
-- `camera_ground.png` / `camera_flight.png` — camera snapshots
+---
 
-## Wall Follow & Room Circuit
+## Pigeon Detection
 
-### Wall Follow
+A custom YOLOv8 model (`models/yolo/best_v4.pt`) detects pigeons live from the drone's camera during hover. The simulation world includes a pigeon billboard at hover height (2.5m), detected at ~89% confidence.
 
-```bash
-PX4_GZ_MODEL_POSE="-7,7,0,0,0,0" ./scripts/shell/launch.sh
-python3 scripts/flight/wall_follow.py
-```
+Detection images and a full flight video (takeoff → hover → landing) are saved per session and viewable in the web UI.
 
-Follows the left wall at 2m distance, stops 2m from the front wall.
-
-### Room Circuit
-
-```bash
-PX4_GZ_MODEL_POSE="-7,-7,0,0,0,0" ./scripts/shell/launch.sh
-python3 scripts/flight/room_circuit.py
-```
-
-Flies the full room perimeter (4 legs + 4 turns). Configurable wall side and distances. Saves lidar scan PDFs at each turn for diagnostics.
-
-After each turn, the drone runs post-turn stabilization using distance constraints before starting the next leg:
-- Side wall target (`left` or `right` based on `WALL_SIDE`)
-- Rear wall target
-
-Current defaults in `scripts/flight/room_circuit.py`:
-- `POST_TURN_SIDE_TARGET = 2.0`
-- `POST_TURN_REAR_TARGET = 2.0`
-
-Front-wall stopping uses `FrontWallDetector` to validate that the lidar reading is a real wall (wide cluster, centered, multi-frame confirmed) before stopping — avoids false stops from off-axis obstacles not on the flight path.
-
-### Scarecrow Package
-
-The navigation logic lives in a reusable Python package:
-
-```bash
-pip install -e .  # install in dev mode
-```
-
-```python
-from scarecrow.sensors.lidar.gazebo import GazeboLidar     # simulation
-from scarecrow.sensors.lidar.rplidar import RPLidarSource   # real hardware
-from scarecrow.controllers.distance_stabilizer import DistanceStabilizerController, DistanceTargets
-from scarecrow.controllers.wall_follow import WallFollowController
-from scarecrow.controllers.front_wall_detector import FrontWallDetector
-from scarecrow.controllers.rotation import rotate_90
-```
-
-Same code runs on Gazebo and on the real drone — only the lidar source changes.
+---
 
 ## Real Drone
 
-The flight demo uses MAVSDK — same code runs on real hardware. Only the connection changes:
+The flight code uses MAVSDK — the same code runs on real hardware. Only the connection address changes:
 
 ```python
 # Simulation
 SYSTEM_ADDRESS = "udp://:14540"
 
-# Real drone (companion computer -> Pixhawk via USB)
+# Real drone (companion computer → Pixhawk via USB)
 SYSTEM_ADDRESS = "serial:///dev/ttyACM0:921600"
 ```
 
-## Kill Everything
+---
+
+## Stopping the Simulation
 
 ```bash
 pkill -f "gz sim"; pkill -x px4
-rm -f /tmp/px4_lock-0 /tmp/px4-sock-0
 ```

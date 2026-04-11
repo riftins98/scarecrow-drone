@@ -18,9 +18,13 @@ import subprocess
 import sys
 import time
 import argparse
+import functools
 
 import cv2
 import numpy as np
+
+# Ensure all prints are flushed immediately (for subprocess monitoring)
+print = functools.partial(print, flush=True)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
@@ -36,44 +40,90 @@ PIGEON_IMAGES_DIR = os.path.join(REPO_ROOT, "models", "pigeon_billboard", "mater
 
 def get_gz_env():
     env = os.environ.copy()
-    env["GZ_PARTITION"] = "px4"
+
+    # Try without GZ_IP first (works in non-standalone/GUI mode — macOS + Linux)
+    print("[env] Trying gz topic -l without GZ_IP...")
     try:
         result = subprocess.run(
-            ["hostname", "-I"], capture_output=True, text=True, timeout=3
+            ["gz", "topic", "-l"],
+            capture_output=True, text=True, timeout=3, env=env,
         )
-        ip = result.stdout.strip().split()[0]
-        if ip:
+        topic_count = len([l for l in result.stdout.split('\n') if l.strip()])
+        print(f"[env] Got {topic_count} topics (no GZ_IP)")
+        if "holybro_x500" in result.stdout:
+            print("[env] holybro_x500 found — using env without GZ_IP")
+            return env
+        else:
+            print("[env] holybro_x500 NOT found in topic list")
+            if result.stderr:
+                print(f"[env] stderr: {result.stderr.strip()}")
+    except Exception as e:
+        print(f"[env] gz topic -l failed: {e}")
+
+    # Try with GZ_IP (needed in standalone mode with GZ_PARTITION)
+    print("[env] Falling back to GZ_IP + GZ_PARTITION=px4...")
+    try:
+        result = subprocess.run(
+            ["ipconfig", "getifaddr", "en0"],
+            capture_output=True, text=True, timeout=3,
+        )
+        ip = result.stdout.strip()
+        print(f"[env] ipconfig en0 -> {ip!r}")
+        env["GZ_IP"] = ip
+    except Exception as e:
+        print(f"[env] ipconfig failed: {e}, trying hostname -I...")
+        try:
+            result = subprocess.run(
+                ["hostname", "-I"],
+                capture_output=True, text=True, timeout=3,
+            )
+            ip = result.stdout.strip().split()[0]
+            print(f"[env] hostname -I -> {ip!r}")
             env["GZ_IP"] = ip
-    except Exception:
-        pass
+        except Exception as e2:
+            print(f"[env] hostname -I also failed: {e2}")
+    env["GZ_PARTITION"] = "px4"
+    print(f"[env] GZ_IP={env.get('GZ_IP', '(not set)')}  GZ_PARTITION=px4")
     return env
 
 
 def find_camera_topic(env):
+    print("[topic] Listing gz topics...")
     try:
         result = subprocess.run(
             ["gz", "topic", "-l"], capture_output=True, text=True, timeout=5, env=env
         )
-        for line in result.stdout.split('\n'):
+        topics = [l.strip() for l in result.stdout.split('\n') if l.strip()]
+        print(f"[topic] {len(topics)} topics found")
+        for line in topics:
             if "camera_link/sensor/camera/image" in line:
-                return line.strip()
-    except Exception:
-        pass
+                print(f"[topic] Camera topic found: {line}")
+                return line
+        print("[topic] No camera topic matched 'camera_link/sensor/camera/image'")
+        if result.stderr:
+            print(f"[topic] stderr: {result.stderr.strip()}")
+    except Exception as e:
+        print(f"[topic] gz topic -l failed: {e}")
     return None
 
 
 def capture_frame(topic, env):
     """Capture one camera frame from Gazebo and return as BGR numpy array."""
+    t0 = time.time()
     try:
         result = subprocess.run(
             ["gz", "topic", "-e", "-n", "1", "-t", topic],
             capture_output=True, timeout=30, env=env
         )
         raw = result.stdout
-    except Exception:
+        elapsed = time.time() - t0
+        print(f"[capture] gz topic returned {len(raw)} bytes in {elapsed:.1f}s")
+    except Exception as e:
+        print(f"[capture] gz topic capture failed: {e}")
         return None
 
     if len(raw) < 100:
+        print(f"[capture] Response too small ({len(raw)} bytes), skipping")
         return None
 
     text = raw.decode('latin-1', errors='replace')
@@ -178,7 +228,14 @@ def main():
                         help="Show live detection window (requires display)")
     parser.add_argument("--overlay", action="store_true",
                         help="Overlay real pigeon images onto camera frames for sim testing")
+    parser.add_argument("--flight-id", type=str, default=None,
+                        help="Flight ID (used by webapp backend)")
     args = parser.parse_args()
+
+    # Override output dir if set by backend
+    if os.environ.get("DETECTION_OUTPUT_DIR"):
+        global OUTPUT_DIR
+        OUTPUT_DIR = os.environ["DETECTION_OUTPUT_DIR"]
 
     # Check model exists
     if not os.path.exists(args.model):
@@ -186,7 +243,8 @@ def main():
         print("  Provide --model /path/to/best_v4.pt")
         sys.exit(1)
 
-    # Import YOLO
+    # Import YOLO (torch takes ~30s to load on first run — please wait)
+    print("Loading YOLO/torch (this can take 30-60s on first run)...")
     try:
         from ultralytics import YOLO
     except ImportError:
@@ -300,6 +358,7 @@ def main():
 
                 outpath = os.path.join(detection_dir, f"detection_{frame_count:04d}.png")
                 cv2.imwrite(outpath, annotated)
+                print(f"DETECTION_IMAGE:{outpath}", flush=True)
             else:
                 if frame_count % 5 == 0:
                     print(f"  [{elapsed:6.1f}s] Frame {frame_count}: no detections")
