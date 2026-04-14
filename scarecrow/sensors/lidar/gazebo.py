@@ -9,6 +9,7 @@ import time
 import numpy as np
 
 from .base import LidarScan, LidarSource
+from ..gz_utils import get_gz_env
 
 
 class GazeboLidar(LidarSource):
@@ -31,7 +32,7 @@ class GazeboLidar(LidarSource):
         num_threads: int = 2,
     ):
         self._topic = topic
-        self._env = env or self._detect_gz_env()
+        self._env = env or get_gz_env()
         self._num_threads = num_threads
         self._latest_scan: LidarScan | None = None
         self._lock = threading.Lock()
@@ -80,41 +81,6 @@ class GazeboLidar(LidarSource):
                         self._latest_scan = scan
             except Exception:
                 pass
-
-    @staticmethod
-    def _detect_gz_env() -> dict:
-        """Auto-detect Gazebo environment (GZ_IP, GZ_PARTITION)."""
-        env = os.environ.copy()
-
-        # Try without GZ_IP first (works in non-standalone/GUI mode)
-        try:
-            result = subprocess.run(
-                ["gz", "topic", "-l"],
-                capture_output=True, text=True, timeout=3, env=env,
-            )
-            if "holybro_x500" in result.stdout:
-                return env
-        except Exception:
-            pass
-
-        # Try with GZ_IP (needed in standalone mode with GZ_PARTITION)
-        try:
-            result = subprocess.run(
-                ["ipconfig", "getifaddr", "en0"],
-                capture_output=True, text=True, timeout=3,
-            )
-            env["GZ_IP"] = result.stdout.strip()
-        except Exception:
-            try:
-                result = subprocess.run(
-                    ["hostname", "-I"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                env["GZ_IP"] = result.stdout.strip().split()[0]
-            except Exception:
-                pass
-        env["GZ_PARTITION"] = "px4"
-        return env
 
     def _discover_topic(self) -> str | None:
         """Find the lidar_2d_v2 scan topic from Gazebo."""
