@@ -8,9 +8,10 @@ GPS-denied indoor flight using ONLY:
   - 2D lidar (RPLidar A1M8) for obstacle avoidance
   - Mono camera (Pi Camera 3) for visual awareness
 
-Sequence: arm -> takeoff to 1m -> hover 5s -> land
+Sequence: arm -> takeoff to 2.5m -> stabilize -> hover (with YOLO detection) -> stabilize -> land
 Records camera video throughout flight.
 Captures lidar scan + optical flow snapshot at hover.
+Creates a flight record in the webapp DB — visible in the UI.
 
 This script runs identically on simulation and real hardware.
 Only the connection string changes:
@@ -23,21 +24,52 @@ os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
 
 import asyncio
-import re
+import logging
 import subprocess
 import sys
 import threading
 import time
 
+import argparse
 import cv2
 import numpy as np
 from mavsdk import System
+from mavsdk.offboard import OffboardError, VelocityBodyYawspeed
 
 # --- Configuration ---
 SYSTEM_ADDRESS = "udp://:14540"
-TARGET_ALT = 2.5  # meters above ground
+TARGET_ALT = 2.5        # meters above ground
+HOVER_DURATION = 5      # seconds to hover for detection
+YOLO_CONFIDENCE = 0.3
+
+# Lidar stabilization targets — distances from spawn position (5, -4.5) in drone_garage
+# Drone faces north (+x, yaw=0): rear=south wall, right=west wall
+# NOTE: front wall blocked by pigeon billboard — use rear instead
+LIDAR_TARGET_REAR = 17.0   # meters to south wall
+LIDAR_TARGET_RIGHT = 3.0   # meters to west wall
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
+
+# Webapp DB path
+sys.path.insert(0, os.path.join(REPO_ROOT, "webapp", "backend"))
+from database.db import create_flight, end_flight, add_detection_image
+
+# YOLO model
+YOLO_MODEL_PATH = os.path.join(REPO_ROOT, "models", "yolo", "best_v4.pt")
+
+# Lidar-based stabilization (same as room_circuit.py)
+from scarecrow.sensors.lidar.gazebo import GazeboLidar
+from scarecrow.controllers.distance_stabilizer import (
+    DistanceStabilizerController,
+    DistanceTargets,
+)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--flight-id", type=str, default=None,
+                        help="Flight ID from webapp (if omitted, a new one is created)")
+    return parser.parse_args()
 
 
 def get_gz_env():
@@ -62,50 +94,23 @@ def get_gz_env():
         )
         env["GZ_IP"] = result.stdout.strip()
     except Exception:
-        pass
+        try:
+            result = subprocess.run(
+                ["hostname", "-I"], capture_output=True, text=True, timeout=3
+            )
+            env["GZ_IP"] = result.stdout.strip().split()[0]
+        except Exception:
+            pass
     env["GZ_PARTITION"] = "px4"
     return env
 
 
-def get_gz_topics():
-    """Get all Gazebo topics."""
-    env = get_gz_env()
-    try:
-        result = subprocess.run(
-            ["gz", "topic", "-l"],
-            capture_output=True, text=True, timeout=5, env=env
-        )
-        return result.stdout
-    except Exception:
-        return ""
-
-
-def find_topic(pattern):
-    """Find a Gazebo topic matching the pattern."""
-    for line in get_gz_topics().split('\n'):
-        if pattern in line:
-            return line.strip()
-    return None
-
-
-def find_camera_topic():
-    """Find the camera image topic."""
-    return find_topic("camera_link/sensor/camera/image")
-
-
-def capture_camera_frame(topic, env):
-    """Capture one camera frame and return as numpy array."""
-    try:
-        # Use raw bytes mode to avoid text encoding issues
-        result = subprocess.run(
-            ["gz", "topic", "-e", "-n", "1", "-t", topic],
-            capture_output=True, timeout=10, env=env
-        )
-        raw = result.stdout
-    except Exception:
+def _parse_gz_frame(raw):
+    """Parse raw gz topic output into a BGR numpy array.
+    Uses rfind for the closing quote to avoid stopping at embedded quote bytes."""
+    if len(raw) < 100:
         return None
 
-    # Parse width/height from the text portion
     text = raw.decode('latin-1', errors='replace')
     width = height = 0
     for line in text.split('\n'):
@@ -120,92 +125,58 @@ def capture_camera_frame(topic, env):
     if width == 0 or height == 0:
         return None
 
-    # Find raw pixel data: look for the RGB data by size
     expected = width * height * 3
-    # The pixel data starts after 'data: "' and is the bulk of the output
-    # Find it by looking for the largest contiguous block
-    idx = raw.find(b'data: "')
-    if idx < 0:
+
+    data_start = raw.find(b'data: "') + 7
+    data_end = raw.rfind(b'"')
+    if data_start <= 7 or data_end <= data_start:
         return None
 
-    # Skip past 'data: "'
-    start = idx + 7
-    # Find closing quote — but the data may contain quotes, so use expected size
-    # Extract expected bytes worth of data
-    pixel_data = raw[start:start + expected + 1000]  # grab extra for escape overhead
+    chunk = raw[data_start:data_end]
 
-    # Unescape the protobuf text encoding
     try:
-        # Simple unescape: handle \n, \\, \", \ooo (octal), \xNN
-        unescaped = bytearray()
-        i = 0
-        while i < len(pixel_data) and len(unescaped) < expected:
-            b = pixel_data[i]
-            if b == ord('\\') and i + 1 < len(pixel_data):
-                nb = pixel_data[i + 1]
-                if nb == ord('n'):
-                    unescaped.append(10)
-                    i += 2
-                elif nb == ord('\\'):
-                    unescaped.append(92)
-                    i += 2
-                elif nb == ord('"'):
-                    unescaped.append(34)
-                    i += 2
-                elif nb == ord('t'):
-                    unescaped.append(9)
-                    i += 2
-                elif nb == ord('r'):
-                    unescaped.append(13)
-                    i += 2
-                elif nb == ord('x') and i + 3 < len(pixel_data):
-                    try:
-                        val = int(pixel_data[i+2:i+4], 16)
-                        unescaped.append(val)
-                        i += 4
-                    except ValueError:
-                        unescaped.append(b)
-                        i += 1
-                elif ord('0') <= nb <= ord('7'):
-                    # Octal escape: up to 3 digits
-                    end = i + 2
-                    while end < min(i + 5, len(pixel_data)) and ord('0') <= pixel_data[end] <= ord('7'):
-                        end += 1
-                    try:
-                        val = int(pixel_data[i+1:end], 8)
-                        unescaped.append(val & 0xFF)
-                    except ValueError:
-                        unescaped.append(b)
-                    i = end
-                else:
-                    unescaped.append(b)
-                    i += 1
-            elif b == ord('"'):
-                break  # end of data field
-            else:
-                unescaped.append(b)
-                i += 1
+        frame_bytes = chunk.decode('unicode_escape').encode('latin-1')
+    except UnicodeDecodeError:
+        result_bytes = bytearray()
+        pos = 0
+        while pos < len(chunk):
+            try:
+                part = chunk[pos:].decode('unicode_escape').encode('latin-1')
+                result_bytes.extend(part)
+                break
+            except UnicodeDecodeError as e:
+                good = chunk[pos:pos+e.start].decode('unicode_escape').encode('latin-1')
+                result_bytes.extend(good)
+                result_bytes.append(chunk[pos+e.start])
+                pos += e.start + 1
+        frame_bytes = bytes(result_bytes)
 
-        if len(unescaped) < expected:
-            return None
+    if len(frame_bytes) < expected:
+        return None
 
-        pixels = np.frombuffer(bytes(unescaped[:expected]), dtype=np.uint8).reshape((height, width, 3))
+    try:
+        pixels = np.frombuffer(frame_bytes[:expected], dtype=np.uint8).reshape((height, width, 3))
         return cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
     except Exception:
         return None
 
 
 class CameraRecorder:
-    """Saves raw gz topic dumps during flight, builds video with ffmpeg after landing."""
+    """Saves raw gz topic dumps during flight, builds video with ffmpeg after landing.
+    Shares parsed frames with HoverDetector via on_frame callback."""
 
-    def __init__(self):
+    def __init__(self, output_dir):
         self.running = False
         self.thread = None
         self.topic = None
         self.env = None
-        self.tmp_dir = os.path.join(OUTPUT_DIR, ".camera_raw")
+        self.output_dir = output_dir
+        self.tmp_dir = os.path.join(output_dir, ".camera_raw")
         self.start_time = None
         self.stop_time = None
+        self._frame_count = 0
+        self._lock = threading.Lock()
+        self.on_frame = None   # callback(frame: np.ndarray) — set before start()
 
     def start(self):
         self.running = True
@@ -219,15 +190,12 @@ class CameraRecorder:
             self.thread.join(timeout=10)
 
     def _capture(self):
-        """Save raw gz topic output to files. No parsing — just bytes to disk."""
         if not self.topic:
             print("  [camera] Topic not found")
             return
 
         print(f"  [camera] Recording...")
         self.start_time = time.time()
-        self._frame_count = 0
-        self._lock = threading.Lock()
 
         def grab_frames():
             while self.running:
@@ -243,21 +211,23 @@ class CameraRecorder:
                         outfile = os.path.join(self.tmp_dir, f"raw_{n:04d}.bin")
                         with open(outfile, 'wb') as f:
                             f.write(result.stdout)
+                        # Share parsed frame with detector callback
+                        if self.on_frame is not None:
+                            frame = _parse_gz_frame(result.stdout)
+                            if frame is not None:
+                                self.on_frame(frame)
                 except Exception:
                     pass
 
-        # Run 4 capture threads in parallel for higher frame rate
         workers = []
         for _ in range(4):
             t = threading.Thread(target=grab_frames, daemon=True)
             t.start()
             workers.append(t)
 
-        # Wait until recording stops
         while self.running:
             time.sleep(0.1)
 
-        # Wait for workers to finish current frame
         for t in workers:
             t.join(timeout=3)
 
@@ -272,10 +242,9 @@ class CameraRecorder:
         raw_files = sorted(glob.glob(os.path.join(self.tmp_dir, "raw_*.bin")))
         if not raw_files:
             print("  [camera] No frames captured")
-            return
+            return None
 
-        # Parse each raw dump into a PNG
-        png_dir = os.path.join(OUTPUT_DIR, ".camera_png")
+        png_dir = os.path.join(self.output_dir, ".camera_png")
         os.makedirs(png_dir, exist_ok=True)
         good = 0
 
@@ -296,21 +265,23 @@ class CameraRecorder:
             print("  [camera] No valid frames")
             shutil.rmtree(self.tmp_dir, ignore_errors=True)
             shutil.rmtree(png_dir, ignore_errors=True)
-            return
+            return None
 
-        # Save first and last as standalone PNGs
-        first_png = os.path.join(png_dir, "frame_0000.png")
-        last_png = os.path.join(png_dir, f"frame_{good-1:04d}.png")
-        shutil.copy2(first_png, os.path.join(OUTPUT_DIR, "camera_ground.png"))
-        shutil.copy2(last_png, os.path.join(OUTPUT_DIR, "camera_flight.png"))
+        shutil.copy2(
+            os.path.join(png_dir, "frame_0000.png"),
+            os.path.join(self.output_dir, "camera_ground.png")
+        )
+        shutil.copy2(
+            os.path.join(png_dir, f"frame_{good-1:04d}.png"),
+            os.path.join(self.output_dir, "camera_flight.png")
+        )
         print("  [camera] Saved camera_ground.png + camera_flight.png")
 
-        # Stitch into MP4 with ffmpeg at real-time framerate
         duration = (self.stop_time - self.start_time) if (self.start_time and self.stop_time) else 14
         real_fps = max(1, good / max(duration, 1))
         print(f"  [camera] Real framerate: {real_fps:.1f} fps ({good} frames / {duration:.1f}s)")
 
-        outpath = os.path.join(OUTPUT_DIR, "flight_camera.mp4")
+        outpath = os.path.join(self.output_dir, "flight_camera.mp4")
         try:
             subprocess.run([
                 "ffmpeg", "-y", "-framerate", str(round(real_fps, 1)),
@@ -322,68 +293,305 @@ class CameraRecorder:
             if os.path.exists(outpath):
                 size = os.path.getsize(outpath)
                 print(f"  [camera] Video: {outpath} ({size // 1024}KB)")
+                shutil.rmtree(self.tmp_dir, ignore_errors=True)
+                shutil.rmtree(png_dir, ignore_errors=True)
+                return outpath
             else:
                 print("  [camera] ffmpeg failed to create video")
         except Exception as e:
             print(f"  [camera] ffmpeg error: {e}")
 
-        # Cleanup
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
         shutil.rmtree(png_dir, ignore_errors=True)
+        return None
 
     def _parse_frame(self, raw):
-        """Parse raw gz topic dump into BGR numpy array."""
-        text = raw.decode('latin-1', errors='replace')
-        width = height = 0
-        for line in text.split('\n'):
-            line = line.strip()
-            if line.startswith('width:'):
-                try: width = int(line.split(':')[1].strip())
-                except: pass
-            elif line.startswith('height:'):
-                try: height = int(line.split(':')[1].strip())
-                except: pass
+        return _parse_gz_frame(raw)
 
-        if width == 0 or height == 0:
-            return None
 
-        expected = width * height * 3
-        match = re.search(rb'data: "(.*?)"', raw, re.DOTALL)
-        if not match:
-            return None
+class HoverDetector:
+    """Runs YOLO pigeon detection during hover via on_frame callback from CameraRecorder."""
 
+    def __init__(self, flight_id, output_dir):
+        self.flight_id = flight_id
+        self.output_dir = output_dir
+        self.detection_dir = os.path.join(output_dir, "detections")
+        self.running = False
+        self.pigeons_detected = 0
+        self.frames_processed = 0
+        self._model = None
+        self._detect_lock = threading.Lock()
+        self._last_process_time = 0.0
+
+    def load_model(self):
+        """Pre-load YOLO before flight so there's no delay at hover."""
+        print("Loading YOLO model...")
         try:
-            decoded = match.group(1).decode('unicode_escape').encode('latin-1')
-            if len(decoded) < expected:
-                return None
-            pixels = np.frombuffer(decoded[:expected], dtype=np.uint8).reshape((height, width, 3))
-            return cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
-        except Exception:
-            return None
+            logging.getLogger("ultralytics").setLevel(logging.WARNING)
+            from ultralytics import YOLO
+            self._model = YOLO(YOLO_MODEL_PATH, verbose=False)
+            print("  YOLO model loaded.")
+            return True
+        except Exception as e:
+            print(f"  YOLO load failed: {e}")
+            return False
+
+    def start(self):
+        os.makedirs(self.detection_dir, exist_ok=True)
+        self.running = True
+
+    def stop(self):
+        self.running = False
+
+    def process_frame(self, frame):
+        """Called by CameraRecorder workers. Rate-limited to 1 inference/second."""
+        if not self.running or self._model is None:
+            return
+
+        now = time.time()
+        if not self._detect_lock.acquire(blocking=False):
+            return
+        try:
+            if now - self._last_process_time < 1.0:
+                return
+            self._last_process_time = now
+            self.frames_processed += 1
+        finally:
+            self._detect_lock.release()
+
+        results = self._model(
+            frame,
+            conf=YOLO_CONFIDENCE,
+            iou=0.45,
+            imgsz=640,
+            verbose=False
+        )
+
+        detections = []
+        for result in results:
+            if result.boxes is None:
+                continue
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                conf = float(box.conf[0])
+                cls_name = self._model.names[int(box.cls[0])]
+                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                detections.append({'class': cls_name, 'conf': conf,
+                                   'bbox': (x1, y1, x2, y2), 'center': (cx, cy)})
+
+        if detections:
+            self.pigeons_detected += len(detections)
+            print(f"  [detection] Frame {self.frames_processed}: "
+                  f"{len(detections)} pigeon(s) at {detections[0]['conf']:.0%}")
+
+            annotated = frame.copy()
+            for d in detections:
+                x1, y1, x2, y2 = d['bbox']
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(annotated, f"Pigeon: {d['conf']:.2f}",
+                            (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.circle(annotated, d['center'], 5, (0, 0, 255), -1)
+
+            img_path = os.path.join(self.detection_dir,
+                                    f"detection_{self.frames_processed:04d}.png")
+            cv2.imwrite(img_path, annotated)
+            add_detection_image(self.flight_id, img_path)
+            print(f"DETECTION_IMAGE:{img_path}", flush=True)
+        else:
+            print(f"  [detection] Frame {self.frames_processed}: no detections")
+
+
+async def lidar_stabilize(drone, lidar, targets, label="stabilize", timeout=12.0):
+    """Hold position using lidar wall distances until stable."""
+    stabilizer = DistanceStabilizerController(
+        targets=targets,
+        kp_front_rear=0.40,
+        kp_left_right=0.45,
+        max_forward_speed=0.25,
+        max_lateral_speed=0.25,
+        tolerance=0.15,
+        stable_time=1.5,
+    )
+
+    # Log initial state vs targets
+    scan = lidar.get_scan()
+    if scan:
+        rear_now = scan.rear_distance()
+        right_now = scan.right_distance()
+        rear_t = targets.rear if targets.rear else 0
+        right_t = targets.right if targets.right else 0
+        print(f"  [{label}] Start:  rear={rear_now:.2f}m (target {rear_t}m, err={rear_now - rear_t:+.2f}m)  "
+              f"right={right_now:.2f}m (target {right_t}m, err={right_now - right_t:+.2f}m)")
+
+    start = time.time()
+    step = 0
+    while time.time() - start < timeout:
+        scan = lidar.get_scan()
+        if scan is None:
+            await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
+            await asyncio.sleep(0.05)
+            continue
+
+        cmd = stabilizer.update(scan)
+        await drone.offboard.set_velocity_body(
+            VelocityBodyYawspeed(cmd.forward_m_s, cmd.right_m_s, 0.0, 0.0)
+        )
+
+        step += 1
+        if step % 20 == 0:  # log every ~1s
+            rear_now = scan.rear_distance()
+            right_now = scan.right_distance()
+            rear_t = targets.rear if targets.rear else 0
+            right_t = targets.right if targets.right else 0
+            print(f"  [{label}] {time.time() - start:.1f}s  rear={rear_now:.2f}m (err={rear_now - rear_t:+.2f})  "
+                  f"right={right_now:.2f}m (err={right_now - right_t:+.2f})  "
+                  f"cmd: fwd={cmd.forward_m_s:+.2f} lat={cmd.right_m_s:+.2f}")
+
+        if stabilizer.done:
+            rear_now = scan.rear_distance()
+            right_now = scan.right_distance()
+            print(f"  [{label}] LOCKED: rear={rear_now:.2f}m  right={right_now:.2f}m  ({time.time() - start:.1f}s)")
+            break
+
+        await asyncio.sleep(0.05)
+    else:
+        scan = lidar.get_scan()
+        if scan:
+            print(f"  [{label}] TIMEOUT: rear={scan.rear_distance():.2f}m  right={scan.right_distance():.2f}m")
+
+    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
+    await asyncio.sleep(0.5)
 
 
 async def get_position(drone):
-    """Read current NED position once."""
     async for pos in drone.telemetry.position_velocity_ned():
         return pos
 
 
+async def wait_for_altitude(drone, target_alt, ground_z, timeout=30):
+    """Wait until drone reaches target altitude."""
+    for i in range(int(timeout / 0.5)):
+        await asyncio.sleep(0.5)
+        async for pos in drone.telemetry.position_velocity_ned():
+            agl = -(pos.position.down_m - ground_z)
+            print(f"  Climbing... {agl:.1f}m / {target_alt}m")
+            if agl >= target_alt - 0.3:
+                return True
+            break
+    return False
+
+
+async def wait_for_stable(drone, ground_z, tolerance=0.15, stable_secs=2.0, timeout=15.0):
+    """Wait until altitude is stable within tolerance for stable_secs consecutive seconds."""
+    stable_since = None
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        async for pos in drone.telemetry.position_velocity_ned():
+            agl = -(pos.position.down_m - ground_z)
+            vz = abs(pos.velocity.down_m_s)
+            break
+
+        if vz < tolerance:
+            if stable_since is None:
+                stable_since = time.time()
+            elif time.time() - stable_since >= stable_secs:
+                print(f"  Stable at {agl:.2f}m (vz={vz:.3f} m/s)")
+                return True
+        else:
+            stable_since = None
+
+        await asyncio.sleep(0.2)
+
+    print(f"  Stability timeout — continuing")
+    return False
+
+
+async def log_position(drone, phase, ground_z):
+    pos = await get_position(drone)
+    agl = -(pos.position.down_m - ground_z)
+    vz = pos.velocity.down_m_s
+    n = pos.position.north_m
+    e = pos.position.east_m
+    print(f"  [{phase:12s}] agl={agl:6.3f}m  vz={vz:+.3f}  n={n:+.3f} e={e:+.3f}")
+
+
 async def run():
+    args = parse_args()
+
+    # --- Kill leftover mavsdk_server from previous runs ---
+    subprocess.run(["pkill", "-f", "mavsdk_server"], capture_output=True)
+
+    # --- Flight record in DB ---
+    if args.flight_id:
+        flight_id = args.flight_id
+        print(f"\nFlight ID: {flight_id} (from webapp)")
+    else:
+        flight_id = create_flight()
+        print(f"\nFlight ID: {flight_id} (new)")
+    output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"Output:    {output_dir}")
+
+    # --- Launch background tasks in parallel while connecting ---
+    detector = HoverDetector(flight_id, output_dir)
+    gz_topics_cache = [None]
+    gz_env_cache = [None]
+
+    def prefetch_gz():
+        gz_env_cache[0] = get_gz_env()
+        try:
+            result = subprocess.run(
+                ["gz", "topic", "-l"],
+                capture_output=True, text=True, timeout=5, env=gz_env_cache[0]
+            )
+            gz_topics_cache[0] = result.stdout
+        except Exception:
+            gz_topics_cache[0] = ""
+
+    yolo_thread = threading.Thread(target=detector.load_model, daemon=True)
+    gz_thread = threading.Thread(target=prefetch_gz, daemon=True)
+    yolo_thread.start()
+    gz_thread.start()
+
+    # --- Connect to drone ---
     drone = System()
-    print("Connecting to drone...")
+    print("\nConnecting to drone...")
     await drone.connect(system_address=SYSTEM_ADDRESS)
 
-    print("Waiting for connection...")
-    async for state in drone.core.connection_state():
-        if state.is_connected:
-            print("Connected!")
-            break
+    print("Waiting for connection (timeout 30s)...")
+    try:
+        async with asyncio.timeout(30):
+            async for state in drone.core.connection_state():
+                if state.is_connected:
+                    print("Connected!")
+                    break
+    except asyncio.TimeoutError:
+        print("ERROR: Could not connect to drone. Is PX4 running?")
+        end_flight(flight_id, pigeons=0, frames=0)
+        return
 
-    print("Waiting for position estimate...")
-    async for health in drone.telemetry.health():
-        if health.is_local_position_ok:
-            print("Position estimate OK")
-            break
+    print("Waiting for position estimate (timeout 60s)...")
+    try:
+        async with asyncio.timeout(60):
+            async for health in drone.telemetry.health():
+                if health.is_local_position_ok:
+                    print("Position estimate OK")
+                    break
+    except asyncio.TimeoutError:
+        print("ERROR: Position estimate timed out. Check optical flow + EKF2.")
+        end_flight(flight_id, pigeons=0, frames=0)
+        return
+
+    # Wait for background tasks if still running
+    if yolo_thread.is_alive():
+        print("Waiting for YOLO model...")
+        yolo_thread.join()
+    if gz_thread.is_alive():
+        gz_thread.join()
+
+    topics = gz_topics_cache[0] or ""
+    gz_env = gz_env_cache[0] or get_gz_env()
 
     # --- Verify sensor configuration ---
     print("\n" + "=" * 55)
@@ -404,44 +612,70 @@ async def run():
 
     if not all_ok:
         print("\nSensor config mismatch! Aborting.")
+        end_flight(flight_id, pigeons=0, frames=0)
         return
 
     print("\n  All params OK: optical flow + rangefinder navigation")
     print("=" * 55)
 
-    # --- Verify Gazebo sensor topics ---
+    # --- Verify Gazebo sensor topics (using cached result) ---
     print("\n--- Gazebo Sensor Topics ---")
-    await verify_gz_sensors()
+    sensors = {
+        "Optical flow (MTF-01)":  "optical_flow/optical_flow",
+        "Flow camera":            "flow_camera/image",
+        "Downward rangefinder":   "lidar_sensor_link/sensor/lidar/scan",
+        "2D lidar (RPLidar)":     "lidar_2d_v2",
+        "Mono camera (Pi Cam)":   "camera_link/sensor/camera",
+    }
+    for name, pattern in sensors.items():
+        print(f"  [{'OK' if pattern in topics else 'MISSING'}] {name}")
 
     # --- Pre-flight Setup ---
-    # NOTE: Before running, set heading in pxh>: commander set_heading 0
     print("\n--- Pre-flight Setup ---")
     try:
         await drone.action.set_gps_global_origin(0.0, 0.0, 0.0)
         print("  EKF origin set (0, 0, 0)")
     except Exception as e:
         print(f"  set_gps_global_origin failed: {e}")
-    print("  (heading must be set manually: commander set_heading 0)")
+
+    # --- Start lidar (use cached topic) ---
+    print("\nStarting lidar...")
+    lidar_topic = next((l.strip() for l in topics.split('\n') if "lidar_2d_v2/scan" in l and "points" not in l), None)
+    lidar = GazeboLidar(topic=lidar_topic, env=gz_env, num_threads=3)
+    lidar.start()
+    print(f"  Topic: {lidar.topic}")
+
+    for _ in range(30):
+        await asyncio.sleep(0.1)
+        scan = lidar.get_scan()
+        if scan is not None:
+            print(f"  Lidar ready: {scan.num_samples} samples")
+            print(f"  Rear: {scan.rear_distance():.1f}m  Right: {scan.right_distance():.1f}m  "
+                  f"Front: {scan.front_distance():.1f}m  Left: {scan.left_distance():.1f}m")
+            print(f"  Stabilization targets: rear={LIDAR_TARGET_REAR}m  right={LIDAR_TARGET_RIGHT}m")
+            break
+    else:
+        print("  ERROR: No lidar data — aborting")
+        lidar.stop()
+        end_flight(flight_id, pigeons=0, frames=0)
+        return
 
     # --- Read ground position ---
-    await asyncio.sleep(2)
     ground = await get_position(drone)
     ground_z = ground.position.down_m
-    print("\n--- Flight Sequence ---")
+    print(f"\n--- Flight Sequence ---")
     print(f"  Ground reference: z={ground_z:.3f} (NED)")
-    await log_position(drone, "GROUND", ground_z)
 
-    # --- Start camera recording (runs throughout flight) ---
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    camera = CameraRecorder()
-    # Pre-resolve topic and env on main thread (background thread may not have GZ_IP)
-    camera.topic = find_camera_topic()
-    camera.env = get_gz_env()
+    # --- Start camera (use cached topic) ---
+    camera = CameraRecorder(output_dir)
+    camera.topic = next((l.strip() for l in topics.split('\n') if "camera_link/sensor/camera/image" in l), None)
+    camera.env = gz_env
     if camera.topic:
         print(f"  Camera topic: {camera.topic}")
+    camera.on_frame = detector.process_frame
     camera.start()
 
-    # --- Set takeoff altitude and arm ---
+    # --- Takeoff ---
     print(f"\nSetting takeoff altitude to {TARGET_ALT}m...")
     await drone.action.set_takeoff_altitude(TARGET_ALT)
 
@@ -449,88 +683,191 @@ async def run():
     await drone.action.arm()
     print("Armed!")
 
-    # --- Takeoff ---
     print(f"Taking off to {TARGET_ALT}m...")
     await drone.action.takeoff()
 
-    for i in range(20):
-        await asyncio.sleep(0.5)
-        await log_position(drone, f"TAKEOFF {i*0.5:.1f}s", ground_z)
+    if not await wait_for_altitude(drone, TARGET_ALT, ground_z, timeout=30):
+        print("ERROR: Failed to reach target altitude. Aborting.")
+        camera.stop()
+        lidar.stop()
+        end_flight(flight_id, pigeons=0, frames=0)
+        return
 
-    # --- Hover + lidar/flow snapshot ---
-    print(f"\nHovering at {TARGET_ALT}m...")
+    print(f"\nReached {TARGET_ALT}m — waiting for stable hover...")
+    await wait_for_stable(drone, ground_z)
 
-    # Capture lidar + flow in background thread
-    sensor_thread = threading.Thread(target=capture_lidar_and_flow, daemon=True)
+    # --- Enter offboard mode ---
+    targets = DistanceTargets(rear=LIDAR_TARGET_REAR, right=LIDAR_TARGET_RIGHT)
+
+    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
+    try:
+        await drone.offboard.start()
+        print("  Offboard mode active")
+    except OffboardError as e:
+        print(f"  Offboard start failed: {e} — aborting")
+        camera.stop()
+        lidar.stop()
+        end_flight(flight_id, pigeons=0, frames=0)
+        return
+
+    # --- Phase 1: Lidar stabilize to spawn position ---
+    print(f"\n--- Phase 1: Lidar Stabilization (rear={LIDAR_TARGET_REAR}m, right={LIDAR_TARGET_RIGHT}m) ---")
+    await lidar_stabilize(drone, lidar, targets, label="pre-hover")
+
+    # --- Phase 2: Hover with YOLO detection + lidar hold ---
+    print(f"\nHovering at {TARGET_ALT}m for {HOVER_DURATION}s — running pigeon detection...")
+
+    # Start lidar/flow capture in background
+    sensor_thread = threading.Thread(target=capture_lidar_and_flow,
+                                     args=(output_dir,), daemon=True)
     sensor_thread.start()
 
-    for i in range(10):
-        await asyncio.sleep(0.5)
-        await log_position(drone, f"HOVER  {i*0.5:.1f}s", ground_z)
+    # Detection runs via camera.on_frame callback
+    detector.start()
 
+    # Continuous lidar hold during hover
+    stabilizer = DistanceStabilizerController(
+        targets=targets,
+        kp_front_rear=0.40,
+        kp_left_right=0.45,
+        max_forward_speed=0.25,
+        max_lateral_speed=0.25,
+        tolerance=0.15,
+        stable_time=1.0,
+    )
+
+    hover_start = time.time()
+    step = 0
+    while time.time() - hover_start < HOVER_DURATION:
+        scan = lidar.get_scan()
+        if scan is not None:
+            cmd = stabilizer.update(scan)
+            await drone.offboard.set_velocity_body(
+                VelocityBodyYawspeed(cmd.forward_m_s, cmd.right_m_s, 0.0, 0.0)
+            )
+            if stabilizer.done:
+                stabilizer.reset()
+        else:
+            await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
+
+        await asyncio.sleep(0.05)
+        step += 1
+        if step % 20 == 0:
+            await log_position(drone, f"HOVER  {time.time() - hover_start:.1f}s", ground_z)
+
+    detector.stop()
     sensor_thread.join(timeout=3)
 
-    # --- Land ---
-    print("\nLanding...")
-    await drone.action.land()
+    print(f"\n  Hover complete. Pigeons detected: {detector.pigeons_detected} "
+          f"(frames: {detector.frames_processed})")
 
-    for i in range(30):
-        await asyncio.sleep(0.5)
-        await log_position(drone, f"LAND   {i*0.5:.1f}s", ground_z)
+    # --- Phase 3: Re-stabilize before landing ---
+    print("\n--- Phase 3: Re-stabilize to landing position ---")
+    await lidar_stabilize(drone, lidar, targets, label="pre-land")
 
-    # Wait for disarm (PX4 auto-disarms after landing)
-    print("\nWaiting for disarm...")
+    # --- Phase 4: Lidar-locked descent ---
+    print("\nLanding with lidar position hold...")
+    DESCENT_SPEED = 0.3   # m/s downward
+    LAND_AGL = 0.35       # meters AGL — disarm below this
+    LAND_TIMEOUT = 30     # seconds
+
+    stabilizer.reset()
+    land_start = time.time()
+    step = 0
+
+    while time.time() - land_start < LAND_TIMEOUT:
+        scan = lidar.get_scan()
+        if scan is not None:
+            cmd = stabilizer.update(scan)
+            await drone.offboard.set_velocity_body(
+                VelocityBodyYawspeed(cmd.forward_m_s, cmd.right_m_s, DESCENT_SPEED, 0.0)
+            )
+            if stabilizer.done:
+                stabilizer.reset()
+        else:
+            await drone.offboard.set_velocity_body(
+                VelocityBodyYawspeed(0.0, 0.0, DESCENT_SPEED, 0.0)
+            )
+
+        await asyncio.sleep(0.05)
+        step += 1
+
+        if step % 10 == 0:
+            pos = await get_position(drone)
+            agl = -(pos.position.down_m - ground_z)
+            scan_now = lidar.get_scan()
+            if scan_now:
+                print(f"  [descent] agl={agl:.2f}m  rear={scan_now.rear_distance():.2f}m  "
+                      f"right={scan_now.right_distance():.2f}m  "
+                      f"cmd: fwd={cmd.forward_m_s:+.2f} lat={cmd.right_m_s:+.2f}")
+            else:
+                print(f"  [descent] agl={agl:.2f}m  (no lidar)")
+            if agl < LAND_AGL:
+                print(f"  [descent] Near ground ({agl:.2f}m) — touching down")
+                break
+
+    # Stop offboard and disarm
     try:
-        disarm_timeout = asyncio.get_event_loop().time() + 15
-        async for armed in drone.telemetry.armed():
-            if not armed:
-                print("  Disarmed!")
-                break
-            if asyncio.get_event_loop().time() > disarm_timeout:
-                print("  Timeout — disarming")
-                await drone.action.disarm()
-                break
-    except Exception:
+        await drone.offboard.stop()
+    except OffboardError:
         pass
 
-    # --- Stop camera recording and build video ---
+    print("  Disarming...")
+    try:
+        await drone.action.disarm()
+        print("  Disarmed!")
+    except Exception:
+        try:
+            await drone.action.kill()
+            print("  Killed motors")
+        except Exception:
+            pass
+
+    lidar.stop()
+
+    # --- Stop camera + build video ---
     camera.stop()
-    print("\nBuilding outputs...")
-    camera.save_video()
+    print("\nBuilding video...")
+    video_path = camera.save_video()
+
+    # --- Finalize flight record ---
+    end_flight(
+        flight_id,
+        pigeons=detector.pigeons_detected,
+        frames=detector.frames_processed,
+        video_path=video_path,
+    )
+    print(f"\nFlight record saved (ID: {flight_id})")
 
     print("\n" + "=" * 55)
     print("  FLIGHT COMPLETE")
     print("  Navigation: optical flow + rangefinder (NO GPS)")
-    print(f"  Outputs in: {OUTPUT_DIR}/")
-    print("    - flight_camera.mp4 (camera video)")
-    print("    - lidar_scan.pdf    (2D lidar)")
-    print("    - optical_flow.pdf  (flow quality)")
+    print(f"  Pigeons detected: {detector.pigeons_detected}")
+    print(f"  Frames processed: {detector.frames_processed}")
+    print(f"  Flight ID: {flight_id} (visible in UI history)")
+    print(f"  Outputs in: {output_dir}/")
     print("=" * 55)
 
 
-async def log_position(drone, phase, ground_z):
-    """Log height above ground and velocity."""
-    pos = await get_position(drone)
-    agl = -(pos.position.down_m - ground_z)
-    vz = pos.velocity.down_m_s
-    n = pos.position.north_m
-    e = pos.position.east_m
-    print(f"  [{phase:12s}] agl={agl:6.3f}m  vz={vz:+.3f}  n={n:+.3f} e={e:+.3f}")
-
-
-def capture_lidar_and_flow():
-    """Capture lidar scan and optical flow data (fast, no camera — camera is already recording video)."""
+def capture_lidar_and_flow(output_dir):
+    """Capture lidar scan and optical flow data."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.patches as patches
 
     env = get_gz_env()
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     # --- Lidar scan ---
     try:
-        lidar_topic = find_topic("lidar_2d_v2/scan")
+        result_topics = subprocess.run(
+            ["gz", "topic", "-l"], capture_output=True, text=True, timeout=5, env=env
+        )
+        lidar_topic = next(
+            (l.strip() for l in result_topics.stdout.split('\n') if "lidar_2d_v2/scan" in l and "points" not in l),
+            None
+        )
         if not lidar_topic:
             print("  Lidar topic not found")
             return
@@ -564,10 +901,6 @@ def capture_lidar_and_flow():
             room = patches.Rectangle((-10, -10), 20, 20, linewidth=2,
                                      edgecolor='gray', facecolor='none', linestyle='--', label='Room')
             ax.add_patch(room)
-            ax.text(0, 10.5, 'RED wall (North)', color='red', fontsize=11, ha='center', fontweight='bold')
-            ax.text(0, -11, 'BLUE wall (South)', color='blue', fontsize=11, ha='center', fontweight='bold')
-            ax.text(-11.5, 0, 'GREEN\nwall', color='green', fontsize=10, va='center')
-            ax.text(10.5, 0, 'YELLOW\nwall', color='#B8860B', fontsize=10, va='center')
             ax.annotate('', xy=(0, 1.2), xytext=(0, 0.3),
                         arrowprops=dict(arrowstyle='->', color='red', lw=2))
             ax.text(0.15, 0.8, 'FWD', color='red', fontsize=9, fontweight='bold')
@@ -578,7 +911,7 @@ def capture_lidar_and_flow():
             ax.grid(True, alpha=0.3)
             ax.set_xlim(-12, 12)
             ax.set_ylim(-12, 12)
-            outpath = os.path.join(OUTPUT_DIR, "lidar_scan.pdf")
+            outpath = os.path.join(output_dir, "lidar_scan.pdf")
             fig.savefig(outpath, bbox_inches='tight', dpi=150)
             plt.close(fig)
             print(f"  Saved: {outpath}")
@@ -587,8 +920,7 @@ def capture_lidar_and_flow():
 
     # --- Optical flow ---
     try:
-        px4_bin = os.path.join(os.environ.get("PX4_DIR", "px4"),
-                               "build/px4_sitl_default/bin")
+        px4_bin = os.path.join(REPO_ROOT, "px4", "build/px4_sitl_default/bin")
         result = subprocess.run(
             [f"{px4_bin}/px4-listener", "vehicle_optical_flow", "-n", "1"],
             capture_output=True, text=True, timeout=5
@@ -605,7 +937,7 @@ def capture_lidar_and_flow():
         ax.set_xlabel('Quality (0-255)')
         ax.set_title('Optical Flow — MTF-01 (in-flight)', fontsize=14)
         ax.text(min(quality + 5, 240), 0, f'{quality}', va='center', fontsize=14, fontweight='bold')
-        outpath = os.path.join(OUTPUT_DIR, "optical_flow.pdf")
+        outpath = os.path.join(output_dir, "optical_flow.pdf")
         fig.savefig(outpath, bbox_inches='tight', dpi=150)
         plt.close(fig)
         print(f"  Saved: {outpath}")
@@ -613,31 +945,7 @@ def capture_lidar_and_flow():
         print(f"  Flow capture error: {e}")
 
 
-async def verify_gz_sensors():
-    """Check that all sensor topics exist in Gazebo."""
-    env = get_gz_env()
-    try:
-        result = subprocess.run(
-            ["gz", "topic", "-l"],
-            capture_output=True, text=True, timeout=5, env=env
-        )
-        topics = result.stdout
-    except Exception as e:
-        print(f"  Could not query Gazebo topics: {e}")
-        return
-
-    sensors = {
-        "Optical flow (MTF-01)":  "optical_flow/optical_flow",
-        "Flow camera":            "flow_camera/image",
-        "Downward rangefinder":   "lidar_sensor_link/sensor/lidar/scan",
-        "2D lidar (RPLidar)":     "lidar_2d_v2",
-        "Mono camera (Pi Cam)":   "camera_link/sensor/camera",
-    }
-
-    for name, pattern in sensors.items():
-        found = pattern in topics
-        print(f"  [{'OK' if found else 'MISSING'}] {name}")
-
-
 if __name__ == "__main__":
     asyncio.run(run())
+    subprocess.run(["pkill", "-f", "mavsdk_server"], capture_output=True)
+    os._exit(0)

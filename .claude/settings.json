@@ -15,12 +15,27 @@
       "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp /home/tomer/scarecrow-drone/output/detections/frame_0001.png '/mnt/c/projects/finale project/sim/scarecrow-drone/output/'\")",
       "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp /home/tomer/scarecrow-drone/output/detections/detection_0001.png '/mnt/c/projects/finale project/sim/scarecrow-drone/output/'\")",
       "Bash(wsl -d Ubuntu-22.04 -- bash -c \"GZ_PARTITION=px4 gz model --list 2>&1\")",
-      "Read(//c/projects/finale project/scarecrow_drone/live_detection/**)"
+      "Read(//c/projects/finale project/scarecrow_drone/live_detection/**)",
+      "Read(//c/projects/finale project/scarecrow_drone/scarecrow-drone/frontend/**)",
+      "Read(//c/projects/finale project/scarecrow_drone/scarecrow-drone/backend/**)",
+      "Bash(npm install:*)",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cd /home/tomer/scarecrow-drone && source .venv-mavsdk/bin/activate && pip install fastapi uvicorn 2>&1 | tail -3\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"ls /home/tomer/scarecrow-drone/webapp/backend/app.py && echo exists\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"ls /home/tomer/scarecrow-drone/webapp/ 2>/dev/null || echo 'no webapp dir'\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"mkdir -p /home/tomer/scarecrow-drone/webapp/backend/database /home/tomer/scarecrow-drone/webapp/backend/services /home/tomer/scarecrow-drone/webapp/output && cp '/mnt/c/projects/finale project/sim/scarecrow-drone/webapp/backend/app.py' /home/tomer/scarecrow-drone/webapp/backend/ && cp '/mnt/c/projects/finale project/sim/scarecrow-drone/webapp/backend/requirements.txt' /home/tomer/scarecrow-drone/webapp/backend/ && cp '/mnt/c/projects/finale project/sim/scarecrow-drone/webapp/backend/database/db.py' /home/tomer/scarecrow-drone/webapp/backend/database/ && cp '/mnt/c/projects/finale project/sim/scarecrow-drone/webapp/backend/services/sim_service.py' /home/tomer/scarecrow-drone/webapp/backend/services/ && cp '/mnt/c/projects/finale project/sim/scarecrow-drone/webapp/backend/services/detection_service.py' /home/tomer/scarecrow-drone/webapp/backend/services/ && echo done\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cp '/mnt/c/projects/finale project/sim/scarecrow-drone/scripts/flight/detect_pigeons.py' /home/tomer/scarecrow-drone/scripts/flight/ && echo done\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"cd /home/tomer/scarecrow-drone/webapp/backend && source /home/tomer/scarecrow-drone/.venv-mavsdk/bin/activate && python3 -m uvicorn app:app --host 0.0.0.0 --port 5000 &\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c 'python3 -c \":*)",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"ps aux | grep -E 'uvicorn|px4|gz sim' | grep -v grep\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"ps aux | grep -E 'cmake|ninja|px4|gz sim' | grep -v grep\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"ls /home/tomer/scarecrow-drone/models/yolo/ 2>/dev/null || echo 'no yolo dir'\")",
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c \"mkdir -p /home/tomer/scarecrow-drone/models/yolo && cp '/mnt/c/projects/finale project/sim/scarecrow-drone/models/yolo/best_v4.pt' /home/tomer/scarecrow-drone/models/yolo/ && echo copied\")"
     ],
     "additionalDirectories": [
       "c:\\projects\\finale project\\sim\\scarecrow-drone\\models\\pigeon_billboard\\materials",
       "c:\\projects\\finale project\\scarecrow_drone\\pigeon-detection\\data\\final_dataset\\test\\images",
-      "c:\\projects\\finale project\\scarecrow_drone\\live_detection"
+      "c:\\projects\\finale project\\scarecrow_drone\\live_detection",
+      "c:\\projects\\finale project\\scarecrow_drone\\scarecrow-drone\\frontend\\src"
     ]
   }
 }
