@@ -11,6 +11,9 @@ logs/
 output/
 node_modules/
 webapp/frontend/node_modules/
+package-lock.json
+webapp/frontend/package-lock.json
 webapp/output/
 webapp/backend/database/*.db
 *.sqlite
+*.db

@@ -119,9 +119,13 @@ class SimService:
                 if self.process.poll() is not None:
                     self.launching = False
                     return
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[sim_service] Launch thread error: {e}", flush=True)
         finally:
+            if not self.connected:
+                print(f"[sim_service] Launch failed. Last 20 lines:", flush=True)
+                for line in self._log_lines[-20:]:
+                    print(f"  {line}", flush=True)
             self.launching = False
 
     def _send_pxh_command(self, cmd: str):
