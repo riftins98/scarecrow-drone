@@ -1,10 +1,11 @@
 # models
 
-Gazebo SDF simulation models for drone, sensors, and test targets.
+Gazebo SDF simulation models for drone, sensors, and test targets. These are copied into `px4/Tools/simulation/gz/models/` by `launch.sh` before each build.
 
 ## Subdirectories
-- `holybro_x500/` — Holybro X500 quadcopter frame (4-rotor, model.sdf + model.config)
-- `lidar_2d_v2/` — 2D scanning lidar sensor (1440 samples, 360°)
-- `mono_cam/` — Mono camera sensor (Pi Camera 3 equivalent)
-- `military_drone/` — Alternative drone model for testing
-- `pigeon_billboard/` — Visual billboard target for pigeon detection testing
+- `holybro_x500/` — Holybro X500 quadcopter frame with all sensors attached (optical flow, rangefinder, 2D lidar, mono camera). model.sdf defines the full drone including sensor plugins.
+- `lidar_2d_v2/` — 2D scanning lidar sensor plugin (1440 samples, 360 degrees, ~10Hz). Simulates RPLidar A1M8.
+- `mono_cam/` — Mono camera sensor plugin (1280x720, Pi Camera 3 equivalent). Topic: `camera_link/sensor/camera/image`.
+- `military_drone/` — Alternative drone model for visual variety in testing
+- `pigeon_billboard/` — Visual billboard target with pigeon image. Used in drone_garage world for YOLO detection testing. Placed 5m in front of spawn.
+- `yolo/` — YOLOv8 trained model weights: `best_v4.pt` (pigeon detection, trained on custom dataset)

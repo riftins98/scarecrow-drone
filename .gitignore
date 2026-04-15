@@ -17,3 +17,5 @@ webapp/output/
 webapp/backend/database/*.db
 *.sqlite
 *.db
+.claude/settings.json
+.claude/settings.local.json

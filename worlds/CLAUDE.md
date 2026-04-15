@@ -1,8 +1,8 @@
 # worlds
 
-Gazebo world SDF files defining simulation environments.
+Gazebo world SDF files defining simulation environments. Copied into `px4/Tools/simulation/gz/worlds/` by `launch.sh`.
 
 ## Files
-- `default.sdf` — Minimal test world
-- `indoor_room.sdf` — Indoor room with walls, floor, and obstacles (primary development world)
-- `drone_garage.sdf` — Garage environment with pigeon billboard target (spawn: 5m in front)
+- `default.sdf` — PX4 default open world. Drone hovers stably here. Good for basic flight testing.
+- `indoor_room.sdf` — Indoor room with walls, floor, and obstacles. Known issue: drone crashes after ~4s due to wall drift (no stable optical flow position hold in tight space). Needs larger room or better tuning.
+- `drone_garage.sdf` — Garage environment (~20m) with pigeon billboard target at 5m in front of spawn. Best world for detection + chase testing. Drone is stable here.
