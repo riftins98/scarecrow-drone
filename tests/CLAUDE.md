@@ -1,24 +1,63 @@
 # tests
 
-Pytest test suite. Runs via `pytest` from project root (config in `pyproject.toml`). Test files mirror source structure in `tests/unit/`.
+Pytest test suite. Runs via `pytest` from project root (config in `pyproject.toml`).
 
-## Strategy
-- **Unit tests** (`tests/unit/`): Test individual classes in isolation. DB tests use in-memory SQLite via `repo_db` fixture (NOT the real `scarecrow.db` file). External services (MAVSDK, YOLO, Gazebo subprocesses) are mocked.
-- **Integration tests** (`tests/integration/`): Added in Phase 8. Will test full API flows via FastAPI TestClient.
+## Testing Philosophy
+
+This project has three distinct testing layers because "100% automated coverage" isn't feasible for drone/subprocess code.
+
+### Layer 1: Unit tests (automated, fast)
+**Scope**: Pure computation — controllers, algorithms, repositories, services, DTOs.
+**Mocked**: External dependencies (MAVSDK, YOLO, Gazebo subprocesses).
+**DB**: In-memory SQLite via `repo_db` fixture.
+**Speed**: Under 2 seconds for full suite.
+**Coverage target**: 90%+ of the code in this layer.
+
+### Layer 2: Integration tests (automated, fast)
+**Scope**: Full HTTP request → Controller → Service → Repository → DB flow.
+**Tool**: FastAPI TestClient via `httpx.AsyncClient`.
+**Mocked**: Subprocess spawning (SimService.launch, DetectionService.start). The services themselves run real code; only the `subprocess.Popen` call is stubbed.
+**DB**: In-memory SQLite, fully populated via migrations.
+**Speed**: Under 5 seconds.
+**Coverage target**: 100% of controller routes and service orchestration logic.
+
+### Layer 3: Manual sim verification (human, slow)
+**Scope**: Actual drone behavior in Gazebo — takeoff, wall-following, detection, landing.
+**Not automated** because:
+- Gazebo startup: 30-60s per test
+- Flaky (world loading, race conditions, GUI)
+- Can't run on CI without GPU/display
+- Real flight crashes require recovery
+See `docs/implementation/MANUAL_SIM_CHECKLIST.md` for the verification checklist used after drone code changes.
+
+### What NOT to try to automate
+These are intentionally left at low unit-test coverage:
+- `webapp/backend/services/sim_service.py` — spawns PX4 process
+- `webapp/backend/services/detection_service.py` — spawns flight script, parses stdout
+- `scarecrow/sensors/lidar/gazebo.py`, `scarecrow/sensors/camera/gazebo.py` — require Gazebo running
+- `scarecrow/flight/helpers.py`, `scarecrow/flight/stabilization.py` — require MAVSDK connection
+- `scarecrow/controllers/rotation.py` (async parts) — require MAVSDK drone
+
+Coverage numbers here mean "code we trust because we run it in sim manually," not "untested code."
 
 ## Running
+
 ```bash
-pytest                              # all tests
-pytest tests/unit/test_wall_follow.py -v   # specific file
-pytest -k "test_create"             # by name pattern
+pytest                                         # all tests
+pytest tests/unit/                              # unit only
+pytest tests/integration/                       # integration only
+pytest tests/unit/test_wall_follow.py -v        # specific file
+pytest -k "test_create"                         # by name pattern
+pytest --cov=webapp/backend --cov=scarecrow     # with coverage report
 ```
 
 ## Files
-- `conftest.py` — Shared fixtures. `in_memory_db` (raw connection), `repo_db` (patches `get_db()` so repositories hit an in-memory connection), `mock_lidar_scan` (factory for LidarScan with configurable sector distances).
+- `conftest.py` — Shared fixtures for unit tests: `in_memory_db` (raw connection), `repo_db` (patches `get_db()`), `mock_lidar_scan` (LidarScan factory).
 - `__init__.py` — Empty, makes tests a package.
 
 ## Subdirectories
-- `unit/` — Unit tests, one file per source module. Currently: WallFollowController, DistanceStabilizerController, FrontWallDetector, LidarScan, YoloDetector, all 5 repositories. Covers ADD UT-01 through UT-15.
+- `unit/` — One file per source module. Covers ADD UT-01 through UT-21.
+- `integration/` — One file per controller + IT-01..05 flow tests. Covers full HTTP stack with mocked subprocesses.
 
-## Key Fixture Detail
-`repo_db` wraps the SQLite connection in `_NonClosingConn` so repository code (which calls `conn.close()` after each query in production) doesn't tear down the test's shared in-memory DB between repo calls. The real connection closes at test teardown.
+## Key Fixture Detail (repo_db)
+`repo_db` wraps the SQLite connection in `_NonClosingConn` so repository code (which calls `conn.close()` after each query) doesn't tear down the test's shared connection between repo calls. The real connection closes at test teardown.
