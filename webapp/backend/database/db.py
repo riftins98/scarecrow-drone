@@ -16,27 +16,11 @@ def get_db():
 
 
 def init_db():
+    from .migrate import run_migrations
     conn = get_db()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS flights (
-            id TEXT PRIMARY KEY,
-            start_time TEXT NOT NULL,
-            end_time TEXT,
-            duration REAL DEFAULT 0,
-            pigeons_detected INTEGER DEFAULT 0,
-            frames_processed INTEGER DEFAULT 0,
-            status TEXT DEFAULT 'in_progress',
-            video_path TEXT
-        );
-        CREATE TABLE IF NOT EXISTS detection_images (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            flight_id TEXT NOT NULL,
-            image_path TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            FOREIGN KEY (flight_id) REFERENCES flights(id)
-        );
-    """)
-    conn.commit()
+    applied = run_migrations(conn)
+    if applied:
+        print(f"Applied migrations: {applied}")
     conn.close()
 
 
