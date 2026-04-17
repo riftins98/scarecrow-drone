@@ -55,6 +55,7 @@ For each new directory without a CLAUDE.md:
   - Brief (one line, under 72 chars)
   - Describe what was done, not how
   - Examples: `add area_maps migration and repository`, `refactor backend into layered architecture`
+- **NEVER** reference phase numbers from the implementation plan ("phase 0", "phase 1", etc.). Commits should describe the actual work, not internal planning artifacts. Git history must be independently understandable.
 - **NEVER** add Co-Authored-By lines
 - **NEVER** add emojis
 - **NEVER** add Signed-off-by or other attribution
