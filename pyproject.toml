@@ -18,3 +18,8 @@ hardware = ["rplidar-roboticia"]
 
 [tool.setuptools.packages.find]
 include = ["scarecrow*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "webapp/backend"]
+asyncio_mode = "auto"

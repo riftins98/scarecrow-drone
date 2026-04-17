@@ -22,10 +22,22 @@ For each CLAUDE.md file found via `find . -name "CLAUDE.md" -not -path "./px4/*"
 4. Keep descriptions that explain non-obvious things (algorithms, gotchas, constraints)
 5. Don't add filler — if a file's purpose is obvious from its name, a short description is fine
 
+### Handling New Directories
+
+After updating existing CLAUDE.md files, check for **new directories** that were added since the last commit (via `git status` — look for `??` untracked directory entries, or subdirectories mentioned in updated parent CLAUDE.md files that don't have their own CLAUDE.md yet).
+
+For each new directory without a CLAUDE.md:
+
+1. **Ask the user** whether to create a CLAUDE.md for it. Present the directory path and a brief summary of what it contains (file list).
+2. If the user approves:
+   - Create the CLAUDE.md with accurate content describing the files and purpose of the directory
+   - Update the parent directory's CLAUDE.md to reference the new sub-CLAUDE.md (e.g., "see `subdir/CLAUDE.md`")
+3. If the user declines or skips, move on without creating the file. Do not create CLAUDE.md files the user hasn't approved.
+
 **Do NOT**:
-- Create new CLAUDE.md files in directories that don't have one
 - Add boilerplate or padding
 - Change descriptions that are already accurate
+- Create CLAUDE.md files without user approval
 
 ## Step 2: Stage and Commit
 

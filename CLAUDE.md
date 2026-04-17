@@ -30,6 +30,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - `webapp/` — Full-stack web application for flight monitoring (see `webapp/CLAUDE.md`)
 - `models/` — Gazebo simulation models: drone, sensors, targets, YOLO weights (see `models/CLAUDE.md`)
 - `worlds/` — Gazebo world SDF files (see `worlds/CLAUDE.md`)
+- `tests/` — Pytest unit tests for controllers and repositories (see `tests/CLAUDE.md`)
 - `airframes/` — PX4 airframe configurations
 - `config/` — Gazebo server configuration
 - `docs/` — Implementation plan and specs (see `docs/implementation/README.md`)
