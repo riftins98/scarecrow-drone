@@ -1,4 +1,5 @@
 """Manages pigeon detection subprocess."""
+import json
 import os
 import re
 import subprocess
@@ -17,6 +18,8 @@ class DetectionService:
         self.pigeons_detected = 0
         self.frames_processed = 0
         self.detection_images = []
+        self.video_path: Optional[str] = None
+        self.latest_telemetry: dict = {}
         self._on_detection: Optional[Callable] = None
         self._last_error: Optional[str] = None
         self._output_lines: list = []
@@ -30,9 +33,11 @@ class DetectionService:
         self.pigeons_detected = 0
         self.frames_processed = 0
         self.detection_images = []
+        self.video_path = None
+        self.latest_telemetry = {}
         self._on_detection = on_detection
 
-        flight_script = os.path.join(REPO_ROOT, "scripts", "flight", "demo_flight.py")
+        flight_script = os.path.join(REPO_ROOT, "scripts", "flight", "demo_flight_v2.py")
 
         # Output dir per flight
         output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
@@ -60,7 +65,15 @@ class DetectionService:
         return True
 
     def _monitor(self):
-        """Monitor detection output and parse results."""
+        """Monitor detection subprocess stdout for protocol lines.
+
+        Flight scripts emit these lines for webapp state:
+          DETECTION_IMAGE:/path/to/img.png       -- a bird was detected
+          TELEMETRY:{"battery":...,"distance":...,"detections":N}
+          VIDEO_PATH:/path/to/flight_camera.mp4  -- video built after landing
+
+        Also tolerant of older v1-style lines for backwards compat.
+        """
         try:
             for line in self.process.stdout:
                 line = line.strip()
@@ -70,23 +83,32 @@ class DetectionService:
                 if len(self._output_lines) > 200:
                     self._output_lines = self._output_lines[-100:]
 
-                # Parse output lines from demo_flight.py
+                # v2 stdout protocol
                 if "DETECTION_IMAGE:" in line:
-                    img_path = line.split("DETECTION_IMAGE:")[-1].strip()
+                    img_path = line.split("DETECTION_IMAGE:", 1)[-1].strip()
                     self.detection_images.append(img_path)
                     if self._on_detection:
                         self._on_detection(self.flight_id, img_path)
 
-                elif "pigeon(s) detected" in line:
-                    match = re.search(r"(\d+) pigeon", line)
-                    if match:
-                        self.pigeons_detected += int(match.group(1))
+                elif line.startswith("TELEMETRY:"):
+                    try:
+                        payload = json.loads(line.split("TELEMETRY:", 1)[1].strip())
+                        self.latest_telemetry = payload
+                        if "detections" in payload:
+                            self.pigeons_detected = int(payload["detections"])
+                    except (ValueError, KeyError):
+                        pass
 
-                elif "no detections" in line or "Frame " in line:
+                elif line.startswith("VIDEO_PATH:"):
+                    self.video_path = line.split("VIDEO_PATH:", 1)[1].strip()
+
+                # Shared: both v1 and v2 print "[detection] Frame N: ..."
+                elif "Frame " in line:
                     match = re.search(r"Frame (\d+)", line)
                     if match:
                         self.frames_processed = max(self.frames_processed, int(match.group(1)))
 
+                # v1 legacy summary lines
                 elif "Pigeons detected:" in line:
                     match = re.search(r"Pigeons detected: (\d+)", line)
                     if match:
@@ -103,23 +125,30 @@ class DetectionService:
             self.running = False
 
     def stop(self) -> dict:
-        """Detach from the flight process — let it land and finish on its own.
-        The auto-finalize in flight_status() will update the DB when it exits."""
-        # Do NOT kill the process — demo_flight.py handles its own landing
+        """Detach from the flight process -- let it land and finish on its own.
+        The flight script still needs to execute its landing sequence, build the
+        video, and exit. The auto-finalize in /api/flight/status picks up the
+        final state once the subprocess exits.
+        """
+        # Do NOT kill the process -- the flight script handles its own landing.
         self.running = False
 
         result = {
             "pigeons_detected": self.pigeons_detected,
             "frames_processed": self.frames_processed,
-            "detection_images": self.detection_images,
+            "detection_images": list(self.detection_images),
+            "video_path": self.video_path,
         }
 
-        # Find video if already created
-        if self.flight_id:
+        # Fallback: if the subprocess already built the video and printed
+        # VIDEO_PATH: before the monitor got a chance to parse it, look for
+        # the file on disk.
+        if not result["video_path"] and self.flight_id:
             output_dir = os.path.join(REPO_ROOT, "webapp", "output", self.flight_id)
             video = os.path.join(output_dir, "flight_camera.mp4")
             if os.path.exists(video):
                 result["video_path"] = video
+                self.video_path = video
 
         return result
 

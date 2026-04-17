@@ -8,7 +8,7 @@ Business logic layer. Services coordinate repositories and external resources (s
 ## Files
 - `__init__.py` — Re-exports all services for `from services import *`
 - `sim_service.py` — `SimService`: manages PX4+Gazebo lifecycle. `launch()` spawns PX4 SITL build as subprocess, tracks 11-stage launch progress (clean, copy models, build, launch, etc.), `stop()` kills process tree.
-- `detection_service.py` — `DetectionService`: spawns `scripts/flight/demo_flight.py` as subprocess with `--flight-id`. Background thread monitors stdout, parses `DETECTION_IMAGE:` lines for image paths. `stop()` detaches rather than kills (flight script handles its own landing).
+- `detection_service.py` — `DetectionService`: spawns `scripts/flight/demo_flight_v2.py` as subprocess with `--flight-id`. Background thread monitors stdout for the v2 protocol: `DETECTION_IMAGE:` (tracks image path + triggers on_detection callback), `TELEMETRY:{json}` (updates pigeons_detected + latest_telemetry), `VIDEO_PATH:` (tracks post-landing video). `stop()` detaches rather than kills -- flight script handles its own landing sequence (stop_offboard → land → wait-for-touchdown → disarm-with-kill-fallback).
 - `flight_service.py` — `FlightService`: flight lifecycle (create_flight, start_detection, stop_flight, abort_flight, get_flight_summary, delete_flight). Coordinates FlightRepository + TelemetryRepository + DetectionService.
 - `drone_service.py` — `DroneService`: wraps DetectionService with drone-specific API (get_status, start_flight, stop_flight, abort, return_home, get_telemetry). Phase 6 (UC7) will extend with SIGTERM handling.
 - `area_map_service.py` — `AreaMapService`: CRUD for area maps + mapping session state (start_mapping is stubbed for Phase 3 UC1).

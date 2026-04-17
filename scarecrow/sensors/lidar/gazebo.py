@@ -82,15 +82,25 @@ class GazeboLidar(LidarSource):
             except Exception:
                 pass
 
-    def _discover_topic(self) -> str | None:
-        """Find the lidar_2d_v2 scan topic from Gazebo."""
+    def _discover_topic(self, topic_list: str | None = None) -> str | None:
+        """Find the lidar_2d_v2 scan topic from Gazebo.
+
+        Args:
+            topic_list: Pre-fetched `gz topic -l` output. If None, runs it now.
+                Passing a cached value avoids a slow subprocess call during startup.
+
+        Filters out '/points' variant -- we want the 2D range scan, not the
+        point cloud.
+        """
         try:
-            result = subprocess.run(
-                ["gz", "topic", "-l"],
-                capture_output=True, text=True, timeout=5, env=self._env,
-            )
-            for line in result.stdout.split('\n'):
-                if "lidar_2d_v2/scan" in line:
+            if topic_list is None:
+                result = subprocess.run(
+                    ["gz", "topic", "-l"],
+                    capture_output=True, text=True, timeout=5, env=self._env,
+                )
+                topic_list = result.stdout
+            for line in topic_list.split('\n'):
+                if "lidar_2d_v2/scan" in line and "points" not in line:
                     return line.strip()
         except Exception:
             pass

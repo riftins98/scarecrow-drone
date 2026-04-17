@@ -84,3 +84,15 @@ class TestYoloDetector:
         assert det.running
         det.stop()
         assert not det.running
+
+    def test_preload_async_returns_daemon_thread(self, tmp_path):
+        """preload_async starts load_model in a background thread."""
+        det = YoloDetector(model_path="fake.pt", output_dir=str(tmp_path))
+        # Stub load_model so we don't import ultralytics (slow)
+        det.load_model = MagicMock(return_value=False)
+        thread = det.preload_async()
+        assert thread is not None
+        assert thread.daemon is True
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        det.load_model.assert_called_once()

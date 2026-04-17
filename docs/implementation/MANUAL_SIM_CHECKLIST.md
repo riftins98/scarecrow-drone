@@ -14,8 +14,8 @@ Use this after any change to:
 ```bash
 source scripts/shell/env.sh
 ./scripts/shell/launch.sh drone_garage
-# In pxh> console:
-commander set_gps_global_origin 0 0 0
+# In pxh> console (PX4 subcommand is `set_ekf_origin`, NOT `set_gps_global_origin`):
+commander set_ekf_origin 0 0 0
 ```
 
 Verify PX4 logs show:

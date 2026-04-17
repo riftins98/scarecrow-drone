@@ -60,16 +60,40 @@ async def stop_flight_legacy():
 
 @router.get("/api/flight/status")
 async def flight_status():
-    """Current detection status. Auto-finalizes if subprocess exited."""
-    # Auto-finalize flight if detection stopped but flight is still "in_progress"
+    """Current detection status. Auto-finalizes if subprocess exited, and
+    patches the video_path onto the flight record once it becomes available
+    (the subprocess may build the video AFTER stop_flight() already wrote
+    the DB, so we keep checking while polling)."""
     if not detection_service.running and detection_service.flight_id:
         flight = flight_service.get_flight(detection_service.flight_id)
-        if flight and flight.status == "in_progress":
-            flight_service.flight_repo.end_flight(
-                detection_service.flight_id,
-                pigeons=detection_service.pigeons_detected,
-                frames=detection_service.frames_processed,
-            )
+        if flight:
+            # Resolve the video path from the service tracker OR disk fallback.
+            video_path = detection_service.video_path
+            if not video_path:
+                import os
+                video_file = os.path.realpath(os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "..", "..", "output",
+                    detection_service.flight_id, "flight_camera.mp4",
+                ))
+                if os.path.exists(video_file):
+                    video_path = video_file
+                    detection_service.video_path = video_path  # cache
+
+            if flight.status == "in_progress":
+                # Subprocess exited without explicit stop -- finalize now.
+                flight_service.flight_repo.end_flight(
+                    detection_service.flight_id,
+                    pigeons=detection_service.pigeons_detected,
+                    frames=detection_service.frames_processed,
+                    video_path=video_path,
+                )
+            elif video_path and not flight.video_path:
+                # Flight already finalized (user clicked stop) but video
+                # finished building afterward. Patch it onto the record.
+                flight_service.flight_repo.update(
+                    detection_service.flight_id, video_path=video_path
+                )
     return {
         "isFlying": detection_service.running,
         "isConnected": sim_service.is_connected,

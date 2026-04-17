@@ -42,26 +42,26 @@ Phase 9 (Documentation) ──── last
 ## Phases
 
 ### Infrastructure (no sim needed)
-| Phase | File | Summary | Size |
-|-------|------|---------|------|
-| 0 | `phases/phase-0-database.md` | SQLite migrations: area_maps, telemetry, chase_events | Small |
-| 1 | `phases/phase-1-backend-architecture.md` | DTOs, Repositories, Services, Controllers | Large |
-| 2 | `phases/phase-2-oo-classes.md` | Drone, Flight, NavigationUnit, MapUnit classes | Large |
+| Phase | File | Status | Summary |
+|-------|------|--------|---------|
+| 0 | `phases/phase-0-database.md` | **DONE** | SQLite migrations: area_maps, telemetry, chase_events |
+| 1 | `phases/phase-1-backend-architecture.md` | **DONE** | DTOs, Repositories, Services, Controllers (40 API routes) |
+| 2 | `phases/phase-2-oo-classes.md` | **DONE** | Drone, Flight, NavigationUnit, MapUnit + demo_flight_v2.py |
 
 ### Drone Use Cases (sim required, deep detailed docs)
-| Phase | File | Summary | Size |
-|-------|------|---------|------|
-| 3 | `phases/phase-3-uc1-map-area.md` | Mapping flight, MapUnit, area_maps CRUD | Medium |
-| 4 | `phases/phase-4-uc4-uc3-detection-video.md` | Patrol detection, YOLO, video recording, telemetry | Medium |
-| 5 | `phases/phase-5-uc5-chase-birds.md` | ChaseController, pursuit, counter-measures, state machine | Large |
-| 6 | `phases/phase-6-uc7-abort-mission.md` | SIGTERM handling, emergency landing, abort API | Small |
+| Phase | File | Status | Summary |
+|-------|------|--------|---------|
+| 3 | `phases/phase-3-uc1-map-area.md` | Not started | Mapping flight, MapUnit integration, area_maps CRUD |
+| 4 | `phases/phase-4-uc4-uc3-detection-video.md` | **Partly done via Phase 2** | Detection + video works end-to-end; only patrol-over-area-map needs Phase 3 |
+| 5 | `phases/phase-5-uc5-chase-birds.md` | Not started | ChaseController, pursuit, counter-measures, state machine |
+| 6 | `phases/phase-6-uc7-abort-mission.md` | Not started | SIGTERM handling, emergency landing, abort API |
 
 ### Polish (no sim needed)
-| Phase | File | Summary | Size |
-|-------|------|---------|------|
-| 7 | `phases/phase-7-frontend.md` | New pages, telemetry, routing, abort button | Medium |
-| 8 | `phases/phase-8-testing.md` | 21 unit + 5 integration tests | Large |
-| 9 | `phases/phase-9-documentation.md` | CLAUDE.md, README, ADD coverage matrix | Small |
+| Phase | File | Status | Summary |
+|-------|------|--------|---------|
+| 7 | `phases/phase-7-frontend.md` | Not started | New pages, telemetry, routing, abort button |
+| 8 | `phases/phase-8-testing.md` | **UT-01..21 + IT done via Phase 0-2 (217 tests)**; IT-03..05 need Phases 3-6 | 21 unit + 5 integration tests |
+| 9 | `phases/phase-9-documentation.md` | Not started | CLAUDE.md, README, ADD coverage matrix |
 
 ## Specs (apply to ALL phases)
 
@@ -75,9 +75,23 @@ Phase 9 (Documentation) ──── last
 
 ## Current State Summary
 
-**Working**: PX4+Gazebo sim, YOLO detection, wall-follow/stabilize/rotate controllers, lidar+camera sensors, flight scripts, basic webapp (flat FastAPI + React)
+**Working end-to-end (Phases 0-2 complete)**:
+- PX4+Gazebo sim with optical-flow navigation
+- YOLO detection wired to webapp (detection images + count visible in UI)
+- Layered FastAPI backend: Controllers -> Services -> Repositories -> DTOs -> SQLite
+- 40 API routes (all ADD A.1-A.7 endpoints exposed)
+- 6 DB tables with idempotent migrations
+- Drone / Flight / NavigationUnit / MapUnit OO classes
+- `demo_flight_v2.py` uses the OO layer; webapp spawns it as subprocess
+- Video recording via PNG+ffmpeg workaround
+- 217 automated tests (109 unit + 62 integration + 46 Phase 2 additions), ~2.5s run time
 
-**Missing**: Layered backend, area mapping, chase birds, abort mission, telemetry, 3 DB tables, all tests, frontend pages
+**Still missing**:
+- UC1 Map Area flight script (MapUnit class exists but no mapping flight wired)
+- UC5 Chase Birds (ChaseController does not exist)
+- UC7 Abort Mission (SIGTERM handler + webapp abort button)
+- Frontend expansion (Area Mapping page, Telemetry panel, Detection Gallery, Chase Event Log, abort button)
+- Documentation polish
 
 ## Key Constraints (from project history)
 

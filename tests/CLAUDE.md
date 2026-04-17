@@ -56,8 +56,16 @@ pytest --cov=webapp/backend --cov=scarecrow     # with coverage report
 - `__init__.py` — Empty, makes tests a package.
 
 ## Subdirectories
-- `unit/` — One file per source module. Covers ADD UT-01 through UT-21.
-- `integration/` — One file per controller + IT-01..05 flow tests. Covers full HTTP stack with mocked subprocesses.
+- `unit/` — Test files organized by source package to mirror the codebase:
+  - `unit/scarecrow/controllers/` — WallFollow, DistanceStabilizer, FrontWallDetector
+  - `unit/scarecrow/sensors/` — LidarScan, GazeboLidar topic discovery, gz_utils prefetch
+  - `unit/scarecrow/detection/` — YoloDetector (rate limiting, callback, preload_async)
+  - `unit/scarecrow/navigation/` — NavigationUnit, MapUnit
+  - `unit/scarecrow/flight/` — Flight orchestrator
+  - `unit/scarecrow/drone/` — Drone class (with mocked mavsdk.System)
+  - `unit/webapp/repositories/` — all 5 repository classes (UT-12..15 + DetectionImage)
+  - `unit/webapp/services/` — all 6 business services
+- `integration/` — One file per controller + flow tests (flight lifecycle, chase, area map, drone, detection, connection, sim, static, health). Covers full HTTP stack with mocked subprocesses.
 
 ## Key Fixture Detail (repo_db)
 `repo_db` wraps the SQLite connection in `_NonClosingConn` so repository code (which calls `conn.close()` after each query) doesn't tear down the test's shared connection between repo calls. The real connection closes at test teardown.

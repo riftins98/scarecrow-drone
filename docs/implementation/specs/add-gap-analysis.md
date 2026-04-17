@@ -3,98 +3,119 @@
 Full comparison between the ADD specification and current implementation.
 Reference: `add_scarecrow_drone.pdf` (78 pages)
 
+**Last updated after Phases 0-2 completion.**
+
 ## Use Cases Status
 
-| UC | Name | Status | Gap |
-|----|------|--------|-----|
-| UC1 | Map Area | NOT STARTED | No area_maps table, no mapping UI, no /api/areas endpoints |
-| UC2 | Start Detection Flight | PARTIAL | Works from dashboard, but no area map prerequisite |
-| UC3 | Record Flight Video | PARTIAL | video_path in DB, GStreamer broken, PNG+ffmpeg workaround planned |
-| UC4 | Detect Birds | DONE | YoloDetector works, saves annotated frames, stores in DB |
-| UC5 | Chase Birds | NOT STARTED | No chase logic, no chase_events table, no counter-measures |
-| UC6 | Store Flight Data | PARTIAL | flights + detection_images stored. Missing: telemetry, chase_events, area_map link |
-| UC7 | Abort Mission | NOT STARTED | No abort endpoint, no return-to-home from webapp |
-| UC8 | View Flight Results | PARTIAL | Flight history + images. Missing: chase events, telemetry, video, filtering |
+| UC | Name | Status | Notes |
+|----|------|--------|-------|
+| UC1 | Map Area | NOT STARTED | `area_maps` table + CRUD endpoints DONE; mapping flight script + MapUnit integration pending |
+| UC2 | Start Detection Flight | DONE | Webapp flow works end-to-end with `demo_flight_v2.py` subprocess |
+| UC3 | Record Flight Video | DONE | PNG+ffmpeg pipeline in GazeboCamera; video path tracked via `VIDEO_PATH:` stdout protocol |
+| UC4 | Detect Birds | DONE | YoloDetector + camera on_frame callback; detection count via TELEMETRY: protocol |
+| UC5 | Chase Birds | NOT STARTED | `chase_events` table + endpoints DONE; ChaseController class pending |
+| UC6 | Store Flight Data | DONE | flights + detection_images + telemetry + chase_events tables all exist; repositories working |
+| UC7 | Abort Mission | NOT STARTED | `/api/drone/abort` endpoint exists; SIGTERM handler in flight script pending |
+| UC8 | View Flight Results | PARTIAL | Flight history + images + video work. Missing: filtering, chase events UI |
 
 ## Database Tables
 
-| ADD Table | Exists? | Gap |
-|-----------|---------|-----|
-| flights | PARTIAL | Missing area_map_id FK. Has extra cols (pigeons_detected, frames_processed, duration). Uses TEXT id |
-| detection_images | YES | Matches ADD |
-| area_maps | NO | Entire table missing |
-| telemetry | NO | Entire table missing (battery_level, distance, detections) |
-| chase_events | NO | Entire table missing |
+| ADD Table | Status |
+|-----------|--------|
+| flights | DONE (has area_map_id FK; keeps extra practical cols) |
+| detection_images | DONE |
+| area_maps | DONE |
+| telemetry | DONE |
+| chase_events | DONE |
+
+All created via idempotent migrations in `webapp/backend/database/migrations/`.
 
 ## Backend Architecture
 
 **ADD requires**: Controllers -> Services -> Repositories -> DTOs -> Database (layered)
 
-**Current**: flat app.py (all routes) + db.py (plain functions) + 2 services
+**Current**: DONE. 40 API routes across 8 controllers. Services share singletons via `dependencies.py`.
 
 ### Missing Backend Components
 
 | Layer | ADD Planned | Exists? |
 |-------|-----------|---------|
-| DTOs | FlightDTO, AreaMapDTO, TelemetryDTO, ChaseEventDTO, DetectionDTO | NO (0/5) |
-| Repositories | Flight, AreaMap, Telemetry, ChaseEvent, DetectionImage, Drone | NO (0/6) |
-| Services | Flight, Drone, AreaMap, ChaseEvent, Telemetry, Recording, Connection | PARTIAL (2/9: SimService, DetectionService) |
-| Controllers | Flight, Drone, AreaMap, Detection, ChaseEvent, Connection, Telemetry | NO (0/7, everything in app.py) |
+| DTOs | FlightDTO, AreaMapDTO, TelemetryDTO, ChaseEventDTO, DetectionDTO | DONE (5/5) in `webapp/backend/dtos/` |
+| Repositories | Flight, AreaMap, Telemetry, ChaseEvent, DetectionImage | DONE (5/5) in `webapp/backend/repositories/` |
+| Services | Flight, Drone, AreaMap, ChaseEvent, Telemetry, Recording, Connection | DONE (8/8) in `webapp/backend/services/` |
+| Controllers | Flight, Drone, AreaMap, Detection, ChaseEvent, Connection, Sim, Static | DONE (8/8) in `webapp/backend/controllers/` |
 
 ## API Endpoints
 
-### Implemented (A.1 current sim endpoints)
-- POST/DELETE /api/sim/connect, GET /api/sim/status
-- POST /api/flight/start, POST /api/flight/stop, GET /api/flight/status
-- GET /api/flights, GET /api/flights/{id}, GET /api/flights/{id}/images, GET /api/flights/{id}/recording
-- GET /api/health
+DONE: 40 routes across all ADD sections A.1-A.7 plus static file serving.
 
-### NOT Implemented (A.2-A.7 target endpoints)
-- A.2 Connection: /api/connection/wifi, /api/connection/ssh, /api/connection/video/*, /api/connection/status
-- A.3 Drone Control: /api/drone/status, start, stop, abort, return-home, telemetry, WS telemetry/stream
-- A.4 Flight History: /api/flights/{id}/summary, /api/flights/{id}/telemetry, DELETE /api/flights/{id}
-- A.5 Area Map: /api/areas (full CRUD), /api/areas/{id}/flights, /api/areas/mapping/start|status
-- A.6 Detection: /api/detection/status, /api/detection/config
-- A.7 Chase Event: /api/flights/{id}/chases, /api/chases/{id}
+- A.1 Sim: /api/sim/connect, /api/sim/status (3 routes)
+- A.2 Connection: /api/connection/wifi, /ssh, /status, /video/* (6 routes, wifi/ssh mocked for sim)
+- A.3 Drone Control: /api/drone/status, /start, /stop, /abort, /return-home, /telemetry (6 routes)
+- A.4 Flight History: /api/flights, /{id}, /summary, /telemetry, /images, /recording, DELETE /{id} + legacy /api/flight/start|stop|status (9+3 routes)
+- A.5 Area Map: /api/areas CRUD, /{id}/flights, /mapping/start|status (8 routes)
+- A.6 Detection: /api/detection/status, /config GET/PUT (3 routes)
+- A.7 Chase Event: /api/flights/{id}/chases, /api/chases/{id} (2 routes)
+
+Missing: WebSocket `/api/drone/telemetry/stream` (Phase 7 frontend task).
 
 ## OO Classes (Section 5 of ADD)
 
-| ADD Class | Current | Gap |
-|-----------|---------|-----|
-| Drone (takeoff, land, return_home, emergency_stop, telemetry) | Scattered across flight scripts | No wrapper class |
-| Flight (orchestrator coordinating all units) | Procedural in scripts | No orchestrator class |
-| DetectionUnit | YoloDetector in scarecrow/detection/yolo.py | GOOD MATCH |
-| NavigationUnit (patrol, chase trajectory, waypoints) | scarecrow/controllers/ (WallFollow, DistanceStabilizer, FrontWallDetector, rotate_90) | Algorithms exist, no unified class |
-| MapUnit (create/validate/manage area maps) | None | NOT STARTED |
+| ADD Class | Status | Location |
+|-----------|--------|----------|
+| Drone | DONE | `scarecrow/drone.py` |
+| Flight | DONE | `scarecrow/flight/flight.py` (optional -- existing scripts don't use it) |
+| DetectionUnit | DONE | YoloDetector in `scarecrow/detection/yolo.py` |
+| NavigationUnit | DONE | `scarecrow/navigation/navigation_unit.py` (facade over existing controllers) |
+| MapUnit | DONE (stub) | `scarecrow/navigation/map_unit.py` -- bounding-box recorder, not full SLAM |
 
 ## Frontend
 
-| ADD UI | Exists? | Gap |
-|--------|---------|-----|
-| Flight Control Dashboard | PARTIAL | No abort button, no live feed, no telemetry |
-| Flight History | PARTIAL | No date/status filtering, no search, no delete |
-| Area Mapping Interface | NO | Not implemented |
-| Flight Telemetry View | NO | Not implemented |
-| Detection Image Gallery | PARTIAL | In modal only, no separate page |
-| Chase Event Log | NO | Not implemented |
+| ADD UI | Status |
+|--------|--------|
+| Flight Control Dashboard | PARTIAL -- no abort button, no live telemetry panel |
+| Flight History | PARTIAL -- no date/status filtering, no delete button |
+| Area Mapping Interface | NOT STARTED |
+| Flight Telemetry View | NOT STARTED |
+| Detection Image Gallery (separate page) | NOT STARTED -- only modal view exists |
+| Chase Event Log | NOT STARTED |
+
+All remaining frontend work lives in Phase 7.
 
 ## Testing
 
-**ADD specifies**: 21 unit tests (UT-01 through UT-21), 5 integration tests (IT-01 through IT-05)
-**Current**: ZERO tests. No tests/ directory.
+**ADD specifies**: 21 unit tests (UT-01..21), 5 integration tests (IT-01..05)
 
-## scarecrow Package (what DOES exist and is solid)
+**Current**: 217 tests passing, ~2.5s run time. All UT-01..21 covered plus substantially more.
 
-These components are well-implemented and tested manually:
+- 131 unit tests in `tests/unit/` (controllers, repositories, services, OO classes)
+- 62 integration tests in `tests/integration/` (all 40 API routes + end-to-end flow)
+- Missing: IT-03, IT-04, IT-05 blocked on Phase 3-6 (need mapping/chase flight scripts to integrate with)
+
+## scarecrow Package Components
+
+All preserved from the original working code; wrapped where needed:
+
+- `scarecrow/drone.py` -- Drone class (NEW in Phase 2; 62% coverage because async MAVSDK streams require sim to test)
 - `scarecrow/controllers/wall_follow.py` -- WallFollowController (PD, SVD yaw)
 - `scarecrow/controllers/distance_stabilizer.py` -- DistanceStabilizerController (multi-axis)
 - `scarecrow/controllers/front_wall_detector.py` -- FrontWallDetector (clustering, temporal)
 - `scarecrow/controllers/rotation.py` -- rotate_90 (compass + lidar SVD)
-- `scarecrow/sensors/lidar/base.py` -- LidarScan (360 range data, geometry methods)
-- `scarecrow/sensors/lidar/gazebo.py` -- GazeboLidar (gz topic CLI, background thread)
+- `scarecrow/detection/yolo.py` -- YoloDetector + preload_async
+- `scarecrow/flight/helpers.py` -- get_position, wait_for_altitude, wait_for_stable
+- `scarecrow/flight/stabilization.py` -- lidar_stabilize (async offboard wrapper)
+- `scarecrow/flight/flight.py` -- Flight orchestrator (NEW)
+- `scarecrow/navigation/navigation_unit.py` -- NavigationUnit facade (NEW)
+- `scarecrow/navigation/map_unit.py` -- MapUnit area recorder (NEW)
+- `scarecrow/sensors/gz_utils.py` -- get_gz_env + prefetch_gz_env_async (NEW helper)
+- `scarecrow/sensors/lidar/base.py` -- LidarScan (360 range data)
+- `scarecrow/sensors/lidar/gazebo.py` -- GazeboLidar (fixed topic filter in Phase 2)
 - `scarecrow/sensors/lidar/rplidar.py` -- RPLidar (USB serial, resampling)
 - `scarecrow/sensors/camera/base.py` -- CameraSource ABC
 - `scarecrow/sensors/camera/gazebo.py` -- GazeboCamera (gz topic, PNG parsing, ffmpeg)
-- `scarecrow/detection/yolo.py` -- YoloDetector (rate-limited, thread-safe, callbacks)
-- `scarecrow/flight/helpers.py` -- get_position, wait_for_altitude, wait_for_stable
-- `scarecrow/flight/stabilization.py` -- lidar_stabilize (async offboard wrapper)
+
+## Flight scripts
+
+- `scripts/flight/demo_flight.py` -- v1, kept as fallback
+- `scripts/flight/demo_flight_v2.py` -- uses OO layer, spawned by webapp via DetectionService
+- `scripts/flight/room_circuit.py`, `wall_follow.py`, `detect_pigeons.py`, `sensor_check.py` -- unchanged

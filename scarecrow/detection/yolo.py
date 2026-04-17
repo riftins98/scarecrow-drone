@@ -66,6 +66,16 @@ class YoloDetector:
             print(f"  YOLO load failed: {e}")
             return False
 
+    def preload_async(self) -> threading.Thread:
+        """Start `load_model()` in a background thread. Returns the thread.
+
+        Use during MAVSDK connect to warm up the model in parallel. The caller
+        must `thread.join()` before using the detector.
+        """
+        t = threading.Thread(target=self.load_model, daemon=True)
+        t.start()
+        return t
+
     def start(self) -> None:
         os.makedirs(self.detection_dir, exist_ok=True)
         self.running = True

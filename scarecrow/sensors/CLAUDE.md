@@ -8,4 +8,4 @@ Sensor interface abstractions for sim and hardware. Each sensor type has a base 
 
 ## Files
 - `__init__.py` — Package init
-- `gz_utils.py` — Gazebo environment detection: finds gz binary path, sets GZ_PARTITION for topic access
+- `gz_utils.py` — Gazebo CLI helpers: `get_gz_env()` auto-detects env/partition; `prefetch_gz_env_async()` + `GzPrefetchResult` runs env detection + `gz topic -l` in a background thread so flight scripts can overlap ~2s of Gazebo setup with MAVSDK handshake
