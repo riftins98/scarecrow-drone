@@ -19,6 +19,9 @@ elif command -v hostname &>/dev/null; then
 fi
 export GZ_PARTITION=px4
 
+# Disable PX4's automatic camera follow — keeps Gazebo view controls (scroll, orbit, pan) active
+export PX4_GZ_NO_FOLLOW=1
+
 # macOS SDK workaround (needed if system SDK symlink is broken)
 if [[ "$(uname)" == "Darwin" ]]; then
     # Find the latest macOS SDK automatically

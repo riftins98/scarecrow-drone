@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <model name="pigeon_3d">
+    <static>true</static>
+    <link name="body">
+      <!-- GLB (Sketchfab Y_UP) → Gazebo Z_UP: roll=+1.5708; yaw=3.14159 faces -X toward drone -->
+      <!-- Scale 1.0 to start — adjust after first launch -->
+      <visual name="visual">
+        <pose>0 0 0 1.5708 0 3.14159</pose>
+        <geometry>
+          <mesh>
+            <uri>model://pigeon_3d/meshes/pigeon.glb</uri>
+            <scale>0.16 0.16 0.16</scale>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <box><size>0.32 0.12 0.12</size></box>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
