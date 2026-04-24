@@ -5,7 +5,7 @@ Python package for drone flight controllers, sensor interfaces, detection, and n
 ## Subdirectories
 - `controllers/` — GPS-denied flight control algorithms: wall follow (PD+SVD), rotation (compass+lidar), distance stabilization, front wall detection (see `controllers/CLAUDE.md`)
 - `sensors/` — Sensor abstractions for lidar and camera, both sim and hardware drivers (see `sensors/CLAUDE.md`)
-- `detection/` — YOLOv8 pigeon detection: `yolo.py` has YoloDetector with rate-limited inference, callbacks, and `preload_async()` for parallel model loading during MAVSDK connect
+- `detection/` — YOLOv8 pigeon detection with rate-limited inference and async preload (see `detection/CLAUDE.md`)
 - `flight/` — Async MAVSDK helpers + Flight orchestrator (see `flight/CLAUDE.md`)
 - `navigation/` — NavigationUnit and MapUnit domain classes (see `navigation/CLAUDE.md`)
 

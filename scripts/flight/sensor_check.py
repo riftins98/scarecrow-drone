@@ -145,43 +145,27 @@ def capture_camera_frame():
     topic = "/world/indoor_room/model/holybro_x500_0/link/camera_link/sensor/camera/image"
     print(f"  Capturing frame from: {topic}")
 
-    data = capture_gz_topic(topic, timeout=15)
-    if not data:
-        print("  ERROR: No camera data received")
+    env = get_gz_env()
+    try:
+        result = subprocess.run(
+            ["gz", "topic", "-e", "-n", "1", "-t", topic],
+            capture_output=True, timeout=15, env=env
+        )
+    except subprocess.TimeoutExpired:
+        print("  ERROR: Timeout capturing camera")
         return False
 
-    # Parse image dimensions
-    width = height = 0
-    for line in data.split('\n'):
-        line = line.strip()
-        if line.startswith('width:'):
-            width = int(line.split(':')[1].strip())
-        elif line.startswith('height:'):
-            height = int(line.split(':')[1].strip())
-
-    if width == 0 or height == 0:
-        print("  ERROR: Could not parse image dimensions")
+    from scarecrow.sensors.camera.gazebo import parse_gz_frame
+    pixels_bgr = parse_gz_frame(result.stdout)
+    if pixels_bgr is None:
+        print("  ERROR: Could not parse camera frame")
         return False
 
-    # Extract raw pixel data from protobuf escaped string
-    import re
-    match = re.search(r'data: "(.*?)"', data, re.DOTALL)
-    if not match:
-        print("  ERROR: Could not find pixel data")
-        return False
+    height, width = pixels_bgr.shape[:2]
+    pixels_rgb = pixels_bgr[:, :, ::-1]
+    print(f"  Image: {width}x{height}, RGB")
 
-    raw_escaped = match.group(1)
-    raw_bytes = raw_escaped.encode('utf-8').decode('unicode_escape').encode('latin-1')
-    expected = width * height * 3
-
-    print(f"  Image: {width}x{height}, RGB, {len(raw_bytes)} bytes")
-
-    if len(raw_bytes) < expected:
-        print(f"  ERROR: Not enough pixel data ({len(raw_bytes)} < {expected})")
-        return False
-
-    pixels = np.frombuffer(raw_bytes[:expected], dtype=np.uint8).reshape((height, width, 3))
-    img = Image.fromarray(pixels)
+    img = Image.fromarray(pixels_rgb)
     outpath = os.path.join(OUTPUT_DIR, "camera_frame.png")
     img.save(outpath)
     print(f"  Saved: {outpath}")

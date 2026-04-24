@@ -12,11 +12,17 @@ source "$SCRIPT_DIR/env.sh"
 
 WORLD="${1:-indoor_room}"
 HEADLESS_FLAG=""
-if [[ "$2" == "--headless" ]] || [[ "$1" == "--headless" ]]; then
-    HEADLESS_FLAG="HEADLESS=1"
-    if [[ "$1" == "--headless" ]]; then
-        WORLD="indoor_room"
-    fi
+PX4_BUILD_TARGET="px4_sitl"
+# Parse flags from any position
+for arg in "$@"; do
+    case "$arg" in
+        --headless) HEADLESS_FLAG="HEADLESS=1" ;;
+        --nolockstep) PX4_BUILD_TARGET="px4_sitl_nolockstep" ;;
+    esac
+done
+# If first arg is a flag, fall back to default world
+if [[ "$1" == "--headless" ]] || [[ "$1" == "--nolockstep" ]]; then
+    WORLD="indoor_room"
 fi
 
 echo "============================================"
@@ -24,6 +30,7 @@ echo "  Scarecrow Drone — Simulation Launcher"
 echo "  World: $WORLD"
 echo "  Spawn: ${PX4_GZ_MODEL_POSE:-0,0,0,0,0,0}"
 echo "  GUI: $([ -z "$HEADLESS_FLAG" ] && echo 'YES' || echo 'NO')"
+echo "  Build: $PX4_BUILD_TARGET"
 echo "============================================"
 echo ""
 
@@ -51,14 +58,14 @@ cp -r "$SCARECROW_DIR/models/pigeon_billboard" "$PX4_DIR/Tools/simulation/gz/mod
 cp "$SCARECROW_DIR/worlds/"*.sdf "$PX4_DIR/Tools/simulation/gz/worlds/" 2>/dev/null || true
 
 # --- Build PX4 first (creates rootfs with airframe) ---
-echo "[launch] Building PX4 (this may take a few minutes on first run)..."
-make px4_sitl
+echo "[launch] Building PX4 ($PX4_BUILD_TARGET, may take a few minutes on first run)..."
+make $PX4_BUILD_TARGET
 
 # --- Copy airframe to rootfs (in case build didn't pick it up from ROMFS) ---
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/px4_sitl_default/rootfs/etc/init.d-posix/airframes/ 2>/dev/null || true
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/px4_sitl_default/etc/init.d-posix/airframes/ 2>/dev/null || true
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" build/px4_sitl_default/rootfs/etc/init.d-posix/airframes/ 2>/dev/null || true
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" build/px4_sitl_default/etc/init.d-posix/airframes/ 2>/dev/null || true
+cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/$PX4_BUILD_TARGET/rootfs/etc/init.d-posix/airframes/ 2>/dev/null || true
+cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" build/$PX4_BUILD_TARGET/etc/init.d-posix/airframes/ 2>/dev/null || true
+cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" build/$PX4_BUILD_TARGET/rootfs/etc/init.d-posix/airframes/ 2>/dev/null || true
+cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" build/$PX4_BUILD_TARGET/etc/init.d-posix/airframes/ 2>/dev/null || true
 
 # --- Launch PX4 + Gazebo ---
 echo "[launch] Starting PX4 + Gazebo..."
@@ -67,4 +74,4 @@ POSE_FLAG=""
 if [ -n "${PX4_GZ_MODEL_POSE}" ]; then
     POSE_FLAG="PX4_GZ_MODEL_POSE=${PX4_GZ_MODEL_POSE}"
 fi
-eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make px4_sitl gz_holybro_x500
+eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make $PX4_BUILD_TARGET gz_holybro_x500

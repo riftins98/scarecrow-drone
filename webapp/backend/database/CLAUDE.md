@@ -7,7 +7,7 @@ SQLite persistence layer for flight history, detection results, area maps, telem
 - `migrate.py` — Idempotent migration runner. Discovers files in `migrations/`, tracks applied ones in `_migrations` table, runs pending ones in sorted order. Safe to run repeatedly on both empty and existing databases.
 
 ## Subdirectories
-- `migrations/` — Numbered migration files (`NNN_description.py`). Each exports an `up(conn)` function. Run in sorted filename order.
+- `migrations/` — Numbered migration files (`NNN_description.py`). Each exports an `up(conn)` function. Run in sorted filename order (see `migrations/CLAUDE.md`).
 
 ## Current Schema (6 tables)
 - `flights` — id TEXT PK, area_map_id FK (nullable), start_time, end_time, duration, pigeons_detected, frames_processed, status, video_path

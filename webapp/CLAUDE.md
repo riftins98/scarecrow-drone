@@ -4,7 +4,7 @@ Full-stack web application for flight monitoring and pigeon detection. Backend s
 
 ## Subdirectories
 - `backend/` — FastAPI REST API server on port 8000 (see `backend/CLAUDE.md`)
-- `frontend/` — React TypeScript UI on port 3000. Components: SimControl (sim connect/disconnect, flight start/stop), FlightHistory (past flights list), FlightModal (flight detail with detection images). Pages: Dashboard. Services: api.ts. Types: flight.ts.
+- `frontend/` — React TypeScript UI on port 3000 (see `frontend/CLAUDE.md`)
 - `output/` — Generated flight videos and detection frames, organized by flight_id (gitignored)
 
 ## Files

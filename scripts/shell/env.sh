@@ -19,6 +19,9 @@ elif command -v hostname &>/dev/null; then
 fi
 export GZ_PARTITION=px4
 
+# WSL GPU routing — force NVIDIA discrete GPU (was defaulting to Intel iGPU, tanked RTF)
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+
 # macOS SDK workaround (needed if system SDK symlink is broken)
 if [[ "$(uname)" == "Darwin" ]]; then
     # Find the latest macOS SDK automatically
