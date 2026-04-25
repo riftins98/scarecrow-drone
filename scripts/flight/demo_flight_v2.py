@@ -61,8 +61,8 @@ YOLO_MODEL_PATH = os.path.join(REPO_ROOT, "models", "yolo", "best_v4.pt")
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--flight-id", type=str, required=True,
-                        help="Flight ID from webapp (required -- webapp creates the flight record)")
+    parser.add_argument("--flight-id", type=str, default=f"manual_{int(time.time())}",
+                        help="Flight ID (auto-generated if not provided)")
     return parser.parse_args()
 
 
