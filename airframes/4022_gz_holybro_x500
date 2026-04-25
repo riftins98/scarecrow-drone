@@ -17,6 +17,16 @@ param set-default SIM_GPS_USED 0
 param set-default EKF2_GPS_CTRL 0
 param set-default EKF2_HGT_REF 0
 
+# External vision (ground-truth odometry from Gazebo) for GPS-denied position hold
+# EKF2_EV_CTRL bitmask: 1=horizontal position, 2=vertical position, 4=velocity, 8=yaw (15=all)
+param set EKF2_EV_CTRL 15
+param set EKF2_HGT_REF 3
+# Use noise from the message itself (covariance) — 1 = use MSG values
+param set EKF2_EV_NOISE_MD 1
+# Optical flow + rangefinder kept as secondary aiding
+param set-default EKF2_OF_CTRL 1
+param set-default EKF2_RNG_CTRL 1
+
 # Allow arming without GPS
 param set-default COM_ARM_WO_GPS 1
 param set-default COM_RC_IN_MODE 1

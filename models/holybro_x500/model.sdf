@@ -8,6 +8,13 @@
       <uri>x500</uri>
     </include>
 
+    <!-- Ground-truth odometry publisher (feeds PX4 vehicle_visual_odometry for GPS-denied EKF) -->
+    <plugin
+      filename="gz-sim-odometry-publisher-system"
+      name="gz::sim::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+    </plugin>
+
     <!-- Optical flow sensor -->
     <include merge='true'>
       <uri>model://optical_flow</uri>
@@ -36,6 +43,7 @@
     <joint name="optical_flow_joint" type="fixed">
       <parent>base_link</parent>
       <child>flow_link</child>
+      <pose relative_to="base_link">0 0 -0.1 0 1.5707 0</pose>
     </joint>
 
     <joint name="lw20_joint" type="fixed">
