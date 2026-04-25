@@ -8,4 +8,5 @@ Gazebo SDF simulation models for drone, sensors, and test targets. These are cop
 - `mono_cam/` — Mono camera sensor plugin (1280x720, Pi Camera 3 equivalent). Topic: `camera_link/sensor/camera/image`.
 - `military_drone/` — Alternative drone model for visual variety in testing
 - `pigeon_billboard/` — Visual billboard target with pigeon image. Used in drone_garage world for YOLO detection testing. Placed 5m in front of spawn.
+- `pigeon_3d/` — 3D pigeon target model used by the alternate garage world for more realistic detection testing.
 - `yolo/` — YOLOv8 trained model weights: `best_v4.pt` (pigeon detection, trained on custom dataset)
