@@ -42,6 +42,7 @@ class YoloDetector:
         self._model_path = model_path
         self.output_dir = output_dir
         self.detection_dir = os.path.join(output_dir, "detections")
+        self.frames_dir = os.path.join(output_dir, "frames")
         self._confidence = confidence
         self._min_interval = min_interval
         self._on_detection = on_detection
@@ -57,8 +58,10 @@ class YoloDetector:
         """Pre-load YOLO model. Safe to call from a background thread."""
         print("Loading YOLO model...")
         try:
+            os.environ.setdefault("YOLO_VERBOSE", "False")
+            os.environ.setdefault("ULTRALYTICS_DISABLE_VERSION_CHECK", "1")
             logging.getLogger("ultralytics").setLevel(logging.WARNING)
-            from ultralytics import YOLO
+            from ultralytics.models.yolo.model import YOLO
             self._model = YOLO(self._model_path, verbose=False)
             print("  YOLO model loaded.")
             return True
@@ -78,6 +81,7 @@ class YoloDetector:
 
     def start(self) -> None:
         os.makedirs(self.detection_dir, exist_ok=True)
+        os.makedirs(self.frames_dir, exist_ok=True)
         self.running = True
 
     def stop(self) -> None:
@@ -106,7 +110,7 @@ class YoloDetector:
             frame,
             conf=self._confidence,
             iou=0.45,
-            imgsz=640,
+            imgsz=1280,
             verbose=False
         )
 
@@ -143,4 +147,6 @@ class YoloDetector:
             if self._on_detection is not None:
                 self._on_detection(img_path)
         else:
+            img_path = os.path.join(self.frames_dir, f"frame_{self.frames_processed:04d}.png")
+            cv2.imwrite(img_path, frame)
             print(f"  [detection] Frame {self.frames_processed}: no detections")
