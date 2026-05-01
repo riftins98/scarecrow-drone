@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sdf version="1.9">
-  <world name="drone_garage">
+  <world name="drone_garage_pigeon_3d">
     <physics type="ode">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
@@ -560,6 +560,14 @@
       <uri>model://pigeon_3d</uri>
       <name>pigeon_1</name>
       <pose>8 -4.5 2.5 0 0 0</pose>
+    </include>
+
+    <!-- Fixed external HD camera: 5m behind spawn, 2m high, facing +X -->
+    <include>
+      <uri>model://mono_cam_hd</uri>
+      <name>fixed_cam</name>
+      <pose>0 -4.5 2 0 0 0</pose>
+      <static>true</static>
     </include>
 
     <spherical_coordinates>

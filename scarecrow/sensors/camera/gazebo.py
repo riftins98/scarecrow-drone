@@ -207,9 +207,20 @@ class GazeboCamera(CameraSource):
                 ["gz", "topic", "-l"],
                 capture_output=True, text=True, timeout=5, env=self._env,
             )
-            for line in result.stdout.split('\n'):
-                if "camera_link/sensor/camera/image" in line:
-                    return line.strip()
+            topics = [line.strip() for line in result.stdout.split('\n') if line.strip()]
+
+            # Prefer the drone-mounted camera explicitly.
+            for line in topics:
+                if "camera_link/sensor/camera/image" in line and "/model/holybro_x500" in line:
+                    return line
+
+            # Fallback: any camera topic, but avoid fixed monitoring cameras if possible.
+            for line in topics:
+                if "camera_link/sensor/camera/image" not in line:
+                    continue
+                if "/model/fixed_cam" in line or "/model/mono_cam_hd" in line:
+                    continue
+                return line
         except Exception:
             pass
         return None

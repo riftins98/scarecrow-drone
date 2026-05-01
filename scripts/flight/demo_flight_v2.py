@@ -61,8 +61,8 @@ YOLO_MODEL_PATH = os.path.join(REPO_ROOT, "models", "yolo", "best_v4.pt")
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--flight-id", type=str, default=f"manual_{int(time.time())}",
-                        help="Flight ID (auto-generated if not provided)")
+    parser.add_argument("--flight-id", type=str, default=None,
+                        help="Flight ID from webapp (optional; auto-generated if omitted)")
     return parser.parse_args()
 
 
@@ -78,11 +78,16 @@ def emit_telemetry(detector: YoloDetector, distance: float, battery: float = 100
 
 async def run():
     args = parse_args()
-    flight_id = args.flight_id
+    if args.flight_id:
+        flight_id = args.flight_id
+        print(f"\nFlight ID: {flight_id} (from webapp)")
+    else:
+        flight_id = f"local_{int(time.time())}"
+        print(f"\nFlight ID: {flight_id} (auto)")
     output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"\nFlight ID: {flight_id}")
+
     print(f"Output:    {output_dir}")
 
     # Kill stale MAVSDK servers from previous runs
@@ -151,9 +156,16 @@ async def run():
 
     # --- Start camera (wired to YOLO via on_frame callback) ---
     cam_topic = next(
-        (l.strip() for l in topics.split('\n') if "camera_link/sensor/camera/image" in l),
+        (
+            l.strip() for l in topics.split('\n')
+            if "camera_link/sensor/camera/image" in l and "/model/holybro_x500" in l
+        ),
         None,
     )
+    if cam_topic is None:
+        print("ERROR: drone camera topic not found (expected /model/holybro_x500.../camera/image)")
+        lidar.stop()
+        return
     camera = GazeboCamera(topic=cam_topic, env=gz_env)
     camera.on_frame = detector.process_frame
     camera.start()
@@ -297,6 +309,7 @@ async def run():
             print("  WARNING: drone did not disarm cleanly -- rotors may still be spinning")
 
     finally:
+
         # Safety: ensure motors are off even if the flight phase raised.
         # If disarm already succeeded in the try-block, this is a no-op.
         if drone.is_armed:

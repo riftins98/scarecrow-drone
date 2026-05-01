@@ -45,6 +45,7 @@ cp "$SCARECROW_DIR/config/server.config" src/modules/simulation/gz_bridge/
 # Copy custom models and world to PX4 dirs
 cp -r "$SCARECROW_DIR/models/holybro_x500" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
 cp -r "$SCARECROW_DIR/models/mono_cam" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
+cp -r "$SCARECROW_DIR/models/mono_cam_hd" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
 cp -r "$SCARECROW_DIR/models/lidar_2d_v2" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
 cp -r "$SCARECROW_DIR/models/military_drone" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
 cp -r "$SCARECROW_DIR/models/pigeon_billboard" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
