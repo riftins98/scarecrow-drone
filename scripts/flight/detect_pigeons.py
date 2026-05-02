@@ -96,10 +96,10 @@ def find_camera_topic(env):
         topics = [l.strip() for l in result.stdout.split('\n') if l.strip()]
         print(f"[topic] {len(topics)} topics found")
         for line in topics:
-            if "camera_link/sensor/camera/image" in line:
-                print(f"[topic] Camera topic found: {line}")
+            if "camera_link/sensor/camera/image" in line and "/model/holybro_x500" in line:
+                print(f"[topic] Drone camera topic found: {line}")
                 return line
-        print("[topic] No camera topic matched 'camera_link/sensor/camera/image'")
+        print("[topic] No drone camera topic matched '/model/holybro_x500.../camera/image'")
         if result.stderr:
             print(f"[topic] stderr: {result.stderr.strip()}")
     except Exception as e:

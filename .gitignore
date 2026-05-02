@@ -19,6 +19,7 @@ webapp/backend/database/*.db
 *.db
 .claude/settings.json
 .claude/settings.local.json
+.vscode/
 .coverage
 .pytest_cache/
 htmlcov/

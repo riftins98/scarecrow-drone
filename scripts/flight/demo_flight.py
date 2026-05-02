@@ -231,7 +231,18 @@ async def run():
     print(f"  Ground reference: z={ground_z:.3f} (NED)")
 
     # --- Start camera (use cached topic) ---
-    cam_topic = next((l.strip() for l in topics.split('\n') if "camera_link/sensor/camera/image" in l), None)
+    cam_topic = next(
+        (
+            l.strip() for l in topics.split('\n')
+            if "camera_link/sensor/camera/image" in l and "/model/holybro_x500" in l
+        ),
+        None,
+    )
+    if cam_topic is None:
+        print("  ERROR: Drone camera topic not found (expected /model/holybro_x500.../camera/image)")
+        lidar.stop()
+        end_flight(flight_id, pigeons=0, frames=0)
+        return
     camera = GazeboCamera(topic=cam_topic, env=gz_env)
     camera.on_frame = detector.process_frame
     camera.start()
