@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the scarecrow drone simulation + start camera stream.
 # Usage:
-#   ./scripts/shell/launch_with_stream.sh [world_name] [--headless] [--port 8080] [--no-open]
+#   ./scripts/shell/launch_with_stream.sh [world_name] [--headless] [--port 8080] [--no-open] [--background]
 # Default world: drone_garage_pigeon_3d
 set -e
 trap 'echo "[launch_with_stream] ERROR at line $LINENO — exit code $?"' ERR
@@ -24,6 +24,7 @@ HEADLESS_FLAG=""
 STREAM_PORT="8080"
 DEFAULT_POSE="5,-4.5,0,0,0,0"
 OPEN_BROWSER=1
+INTERACTIVE_PXH=1
 STREAM_FPS="${STREAM_FPS:-24}"
 STREAM_QUALITY="${STREAM_QUALITY:-68}"
 STREAM_THREADS="${STREAM_THREADS:-2}"
@@ -49,12 +50,19 @@ fi
 if [[ "$1" == "--no-open" ]] || [[ "$2" == "--no-open" ]] || [[ "$3" == "--no-open" ]] || [[ "$4" == "--no-open" ]]; then
     OPEN_BROWSER=0
 fi
+for arg in "$@"; do
+    if [[ "$arg" == "--background" ]]; then
+        INTERACTIVE_PXH=0
+        break
+    fi
+done
 
 echo "============================================"
 echo "  Scarecrow Drone — Sim + Live Stream"
 echo "  World: $WORLD"
 echo "  Stream: http://localhost:${STREAM_PORT}/"
 echo "  Open Browser: $([ "$OPEN_BROWSER" -eq 1 ] && echo 'YES' || echo 'NO')"
+echo "  Interactive PXH: $([ "$INTERACTIVE_PXH" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Stream Mode: $STREAM_MODE"
 echo "  Stream FPS: $STREAM_FPS | JPEG Quality: $STREAM_QUALITY | Camera Threads: $STREAM_THREADS"
 echo "============================================"
@@ -68,82 +76,82 @@ fi
 # Ensure output directory exists for logs
 mkdir -p "$REPO_ROOT/output"
 
+start_stream_worker() {
+    echo "[launch_with_stream] Step 2/4: create the drone"
+    DRONE_READY=0
+    for _ in {1..90}; do
+        if gz topic -l 2>/dev/null | grep -q -E "/model/holybro_x500"; then
+            DRONE_READY=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "$DRONE_READY" -eq 0 ]; then
+        echo "[launch_with_stream] WARNING: drone model topic not detected yet"
+    fi
+
+    echo "[launch_with_stream] Step 3/4: set the camera"
+    CAMERA_TOPIC=""
+    for _ in {1..90}; do
+        CAMERA_TOPIC=$(gz topic -l 2>/dev/null | grep -m 1 -E "/model/(fixed_cam|fixed_cam_[0-9]+|mono_cam_hd|mono_cam_hd_[0-9]+)/link/camera_link/sensor/camera/image$" || true)
+        if [ -n "$CAMERA_TOPIC" ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    echo "[launch_with_stream] Step 4/4: run camera stream"
+    OPEN_FLAG=""
+    if [ "$OPEN_BROWSER" -eq 1 ]; then
+        OPEN_FLAG="--open"
+    fi
+    if [ "$STREAM_MODE" = "webrtc" ]; then
+        if ! "$PYTHON_BIN" -c "import aiortc, aiohttp, av" >/dev/null 2>&1; then
+            echo "[launch_with_stream] WARNING: WebRTC dependencies missing in $PYTHON_BIN"
+            echo "[launch_with_stream] Falling back to MJPEG stream mode"
+            STREAM_MODE="mjpeg"
+        fi
+    fi
+
+    if [ -z "$CAMERA_TOPIC" ]; then
+        echo "[launch_with_stream] ERROR: fixed camera topic not found; refusing to start stream on the drone camera"
+        echo "[launch_with_stream] Check world/model setup for model names: fixed_cam / mono_cam_hd"
+        echo "[launch_with_stream] Available camera topics:"
+        gz topic -l 2>/dev/null | grep -E "camera_link/sensor/camera/image$|sensor/camera/image$" || true
+        exit 1
+    else
+        echo "[launch_with_stream] Camera topic:   $CAMERA_TOPIC"
+    fi
+
+    if [ "$STREAM_MODE" = "webrtc" ]; then
+        exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera_webrtc.py" \
+            --port "$STREAM_PORT" --fps "$STREAM_FPS" --threads "$STREAM_THREADS" \
+            $OPEN_FLAG ${CAMERA_TOPIC:+--topic "$CAMERA_TOPIC"}
+    else
+        exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera.py" \
+            --port "$STREAM_PORT" --fps "$STREAM_FPS" --quality "$STREAM_QUALITY" --threads "$STREAM_THREADS" \
+            $OPEN_FLAG ${CAMERA_TOPIC:+--topic "$CAMERA_TOPIC"}
+    fi
+}
+
 echo "[launch_with_stream] Step 1/4: create the sim"
-# Start the simulator (background, log to file to avoid pxh> prompt)
-"$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" \
-    > "$REPO_ROOT/output/launch_sim.log" 2>&1 &
-SIM_PID=$!
-echo "[launch_with_stream] Simulator PID:  $SIM_PID"
-echo "[launch_with_stream] Sim log:        $REPO_ROOT/output/launch_sim.log"
-
-echo "[launch_with_stream] Step 2/4: create the drone"
-# Wait for PX4 sitl instance/drone topics to appear (up to 90s)
-DRONE_READY=0
-for _ in {1..90}; do
-    if gz topic -l 2>/dev/null | grep -q -E "/model/holybro_x500"; then
-        DRONE_READY=1
-        break
-    fi
-    sleep 1
-done
-if [ "$DRONE_READY" -eq 0 ]; then
-    echo "[launch_with_stream] WARNING: drone model topic not detected yet"
-fi
-
-echo "[launch_with_stream] Step 3/4: set the camera"
-# Wait specifically for the fixed external camera topic (up to 90s)
-# Accept possible Gazebo auto-suffixes on model names (e.g., fixed_cam_0).
-CAMERA_TOPIC=""
-for _ in {1..90}; do
-    CAMERA_TOPIC=$(gz topic -l 2>/dev/null | grep -m 1 -E "/model/(fixed_cam|fixed_cam_[0-9]+|mono_cam_hd|mono_cam_hd_[0-9]+)/link/camera_link/sensor/camera/image$" || true)
-    if [ -n "$CAMERA_TOPIC" ]; then
-        break
-    fi
-    sleep 1
-done
-
-echo "[launch_with_stream] Step 4/4: run camera stream"
-# Start the stream server (background)
-OPEN_FLAG=""
-if [ "$OPEN_BROWSER" -eq 1 ]; then
-    OPEN_FLAG="--open"
-fi
-if [ "$STREAM_MODE" = "webrtc" ]; then
-    if ! "$PYTHON_BIN" -c "import aiortc, aiohttp, av" >/dev/null 2>&1; then
-        echo "[launch_with_stream] WARNING: WebRTC dependencies missing in $PYTHON_BIN"
-        echo "[launch_with_stream] Falling back to MJPEG stream mode"
-        STREAM_MODE="mjpeg"
-    fi
-fi
-
-if [ "$STREAM_MODE" = "webrtc" ]; then
-    PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera_webrtc.py" \
-        --port "$STREAM_PORT" --fps "$STREAM_FPS" --threads "$STREAM_THREADS" \
-        $OPEN_FLAG ${CAMERA_TOPIC:+--topic "$CAMERA_TOPIC"} \
-        > "$REPO_ROOT/output/stream_camera.log" 2>&1 &
+if [ "$INTERACTIVE_PXH" -eq 1 ]; then
+    start_stream_worker > "$REPO_ROOT/output/stream_camera.log" 2>&1 &
+    STREAM_PID=$!
+    echo "[launch_with_stream] Stream worker PID: $STREAM_PID"
+    echo "[launch_with_stream] Stream log:        $REPO_ROOT/output/stream_camera.log"
+    "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG"
 else
-    PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera.py" \
-        --port "$STREAM_PORT" --fps "$STREAM_FPS" --quality "$STREAM_QUALITY" --threads "$STREAM_THREADS" \
-        $OPEN_FLAG ${CAMERA_TOPIC:+--topic "$CAMERA_TOPIC"} \
-        > "$REPO_ROOT/output/stream_camera.log" 2>&1 &
-fi
-STREAM_PID=$!
-echo "[launch_with_stream] Stream PID:     $STREAM_PID"
-echo "[launch_with_stream] Stream log:     $REPO_ROOT/output/stream_camera.log"
-if [ -z "$CAMERA_TOPIC" ]; then
-    echo "[launch_with_stream] ERROR: fixed camera topic not found; refusing to start stream on the drone camera"
-    echo "[launch_with_stream] Check world/model setup for model names: fixed_cam / mono_cam_hd"
-    echo "[launch_with_stream] Available camera topics:"
-    gz topic -l 2>/dev/null | grep -E "camera_link/sensor/camera/image$|sensor/camera/image$" || true
-    exit 1
-else
-    echo "[launch_with_stream] Camera topic:   $CAMERA_TOPIC"
-fi
+    "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" \
+        > "$REPO_ROOT/output/launch_sim.log" 2>&1 &
+    SIM_PID=$!
+    echo "[launch_with_stream] Simulator PID:  $SIM_PID"
+    echo "[launch_with_stream] Sim log:        $REPO_ROOT/output/launch_sim.log"
 
-# Wait for simulator to exit
-wait $SIM_PID
+    start_stream_worker > "$REPO_ROOT/output/stream_camera.log" 2>&1 &
+    STREAM_PID=$!
+    echo "[launch_with_stream] Stream worker PID: $STREAM_PID"
+    echo "[launch_with_stream] Stream log:        $REPO_ROOT/output/stream_camera.log"
 
-# Cleanup stream when sim exits
-if ps -p $STREAM_PID > /dev/null 2>&1; then
-    kill $STREAM_PID
+    wait $SIM_PID
 fi
