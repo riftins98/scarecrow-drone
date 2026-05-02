@@ -17,6 +17,11 @@ trap cleanup EXIT INT TERM
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
+_LOG_COMPONENT="launch.stream"
+source "$SCRIPT_DIR/_log.sh"
+_log_init "stream"
+_log_host
+_log_env_snapshot
 REPO_ROOT="$SCARECROW_DIR"
 
 WORLD="${1:-drone_garage_pigeon_3d}"
@@ -68,15 +73,21 @@ fi
 # Ensure output directory exists for logs
 mkdir -p "$REPO_ROOT/output"
 
+_log_event step world="$WORLD" port="$STREAM_PORT" stream_mode="$STREAM_MODE" headless="$([ -n "$HEADLESS_FLAG" ] && echo true || echo false)"
+
 echo "[launch_with_stream] Step 1/4: create the sim"
+_log_timer_begin step1_create_sim
 # Start the simulator (background, log to file to avoid pxh> prompt)
 "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" \
     > "$REPO_ROOT/output/launch_sim.log" 2>&1 &
 SIM_PID=$!
+_log_event sim_spawned pid="$SIM_PID" sim_log="$REPO_ROOT/output/launch_sim.log"
 echo "[launch_with_stream] Simulator PID:  $SIM_PID"
 echo "[launch_with_stream] Sim log:        $REPO_ROOT/output/launch_sim.log"
+_log_timer_end step1_create_sim
 
 echo "[launch_with_stream] Step 2/4: create the drone"
+_log_timer_begin step2_drone_topic
 # Wait for PX4 sitl instance/drone topics to appear (up to 90s)
 DRONE_READY=0
 for _ in {1..90}; do
@@ -86,11 +97,14 @@ for _ in {1..90}; do
     fi
     sleep 1
 done
+_log_timer_end step2_drone_topic detected="$DRONE_READY"
 if [ "$DRONE_READY" -eq 0 ]; then
+    _log_warn drone_topic_timeout
     echo "[launch_with_stream] WARNING: drone model topic not detected yet"
 fi
 
 echo "[launch_with_stream] Step 3/4: set the camera"
+_log_timer_begin step3_camera_topic
 # Wait specifically for the fixed external camera topic (up to 90s)
 # Accept possible Gazebo auto-suffixes on model names (e.g., fixed_cam_0).
 CAMERA_TOPIC=""
@@ -101,8 +115,10 @@ for _ in {1..90}; do
     fi
     sleep 1
 done
+_log_timer_end step3_camera_topic camera_topic="\"${CAMERA_TOPIC:-}\""
 
 echo "[launch_with_stream] Step 4/4: run camera stream"
+_log_timer_begin step4_stream
 # Start the stream server (background)
 OPEN_FLAG=""
 if [ "$OPEN_BROWSER" -eq 1 ]; then
@@ -128,9 +144,11 @@ else
         > "$REPO_ROOT/output/stream_camera.log" 2>&1 &
 fi
 STREAM_PID=$!
+_log_event stream_spawned pid="$STREAM_PID" mode="$STREAM_MODE" port="$STREAM_PORT"
 echo "[launch_with_stream] Stream PID:     $STREAM_PID"
 echo "[launch_with_stream] Stream log:     $REPO_ROOT/output/stream_camera.log"
 if [ -z "$CAMERA_TOPIC" ]; then
+    _log_error camera_topic_missing
     echo "[launch_with_stream] ERROR: fixed camera topic not found; refusing to start stream on the drone camera"
     echo "[launch_with_stream] Check world/model setup for model names: fixed_cam / mono_cam_hd"
     echo "[launch_with_stream] Available camera topics:"
@@ -139,11 +157,16 @@ if [ -z "$CAMERA_TOPIC" ]; then
 else
     echo "[launch_with_stream] Camera topic:   $CAMERA_TOPIC"
 fi
+_log_timer_end step4_stream
+_log_event ready stream_url="http://localhost:${STREAM_PORT}/" sim_pid="$SIM_PID" stream_pid="$STREAM_PID"
 
 # Wait for simulator to exit
 wait $SIM_PID
+_log_event sim_exited
 
 # Cleanup stream when sim exits
 if ps -p $STREAM_PID > /dev/null 2>&1; then
     kill $STREAM_PID
+    _log_event stream_killed
 fi
+_log_event run_end

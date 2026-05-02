@@ -24,6 +24,9 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from scarecrow.sensors.camera.gazebo import GazeboCamera
+from scarecrow.logging_setup import get_logger, log_event
+
+_log = get_logger("stream.webrtc", prefix="stream")
 
 PCS: set[RTCPeerConnection] = set()
 
@@ -119,12 +122,15 @@ async def offer(request):
     app = request.app
     params = await request.json()
     offer_desc = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
+    log_event(_log, "browser_offer_received",
+              peer=request.remote, total_pcs=len(PCS) + 1)
 
     pc = RTCPeerConnection()
     PCS.add(pc)
 
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
+        log_event(_log, "pc_state_change", state=pc.connectionState)
         if pc.connectionState in {"failed", "closed", "disconnected"}:
             await pc.close()
             PCS.discard(pc)
@@ -134,6 +140,7 @@ async def offer(request):
     pc.addTrack(track)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
+    log_event(_log, "browser_answer_sent")
 
     return web.json_response(
         {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
@@ -158,10 +165,14 @@ def main():
     parser.add_argument("--topic", type=str, default=None)
     args = parser.parse_args()
 
+    log_event(_log, "stream_init",
+              port=args.port, fps=args.fps, threads=args.threads,
+              topic=args.topic or "auto")
     frame_buffer = SharedFrameBuffer()
     camera = GazeboCamera(topic=args.topic, env=None, num_threads=args.threads)
     camera.on_frame = frame_buffer.update
     camera.start()
+    log_event(_log, "camera_started", topic=getattr(camera, "topic", args.topic) or "unknown")
 
     app = web.Application()
     app["frame_buffer"] = frame_buffer
@@ -177,7 +188,9 @@ def main():
         except Exception:
             pass
 
+    log_event(_log, "server_listen", host=args.host, port=args.port)
     web.run_app(app, host=args.host, port=args.port, access_log=None)
+    log_event(_log, "server_exit")
 
 
 if __name__ == "__main__":

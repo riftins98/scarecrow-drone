@@ -90,8 +90,17 @@ async def run():
 
     print(f"Output:    {output_dir}")
 
+    # --- Init structured logger (open per-flight log file early) ---
+    from scarecrow.logging_setup import get_logger, log_event, log_run_file_path
+    log = get_logger("flight.demo_v2", run_id=flight_id, prefix="flight")
+    log_event(log, "flight_start", flight_id=flight_id, output_dir=output_dir,
+              target_alt=TARGET_ALT, hover_duration=HOVER_DURATION,
+              system_address=SYSTEM_ADDRESS,
+              log_file=str(log_run_file_path()))
+
     # Kill stale MAVSDK servers from previous runs
     subprocess.run(["pkill", "-f", "mavsdk_server"], capture_output=True)
+    log_event(log, "stale_mavsdk_killed")
 
     # --- Parallel warmup: YOLO model + Gazebo topic list in background ---
     detector = YoloDetector(
@@ -105,20 +114,26 @@ async def run():
     # --- Connect drone in parallel ---
     drone = Drone(system_address=SYSTEM_ADDRESS)
     print("\nConnecting to drone...")
+    log_event(log, "phase", phase="connect")
     if not await drone.connect():
+        log_event(log, "connect_failed_abort")
         print("ERROR: could not connect to drone")
         return
     print("Connected.")
 
     print("Waiting for position estimate...")
+    log_event(log, "phase", phase="wait_health")
     if not await drone.wait_for_health():
+        log_event(log, "health_timeout_abort")
         print("ERROR: position estimate timed out (check optical flow + EKF2)")
         return
     print("Position OK.")
 
     # --- Sensor config verification ---
     print("\n--- Sensor verification ---")
+    log_event(log, "phase", phase="verify_params")
     if not await drone.verify_gps_denied_params(verbose=True):
+        log_event(log, "verify_params_failed_abort")
         print("Sensor config mismatch -- aborting")
         return
 
@@ -129,6 +144,7 @@ async def run():
     topics = gz_result.topics
 
     # --- EKF origin ---
+    log_event(log, "phase", phase="set_ekf_origin")
     await drone.set_ekf_origin()
 
     # --- Start lidar ---
@@ -182,20 +198,25 @@ async def run():
         start_pos = await drone.prepare_takeoff(TARGET_ALT)
 
         # --- Arm + takeoff ---
+        log_event(log, "phase", phase="arm")
         print("Arming...")
         try:
             await drone.arm()
         except Exception as e:
+            log_event(log, "arm_aborted", error=str(e), error_type=type(e).__name__)
             print(f"\nERROR: arm failed -- {e}")
             print("If COMMAND_DENIED: set EKF origin manually in pxh> and retry:")
             print("  commander set_ekf_origin 0 0 0")
             return
         print("Armed.")
 
+        log_event(log, "phase", phase="takeoff", target_alt=TARGET_ALT)
         print(f"Taking off to {TARGET_ALT}m...")
         if not await drone.takeoff(altitude=TARGET_ALT):
+            log_event(log, "takeoff_aborted")
             print("ERROR: takeoff failed")
             return
+        log_event(log, "phase", phase="airborne")
 
         # --- Offboard + stabilize ---
         if not await drone.start_offboard():

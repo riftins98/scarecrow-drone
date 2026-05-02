@@ -35,6 +35,9 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from scarecrow.sensors.camera.gazebo import GazeboCamera
+from scarecrow.logging_setup import get_logger, log_event
+
+_log = get_logger("stream.mjpeg", prefix="stream")
 
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
@@ -155,6 +158,7 @@ def run_server(camera: GazeboCamera, host: str, port: int, open_browser: bool, f
     encoder_thread = threading.Thread(target=encoder_loop, daemon=True)
     encoder_thread.start()
 
+    log_event(_log, "server_listen", host=host, port=port, fps=fps, quality=quality)
     print(f"Starting MJPEG server at http://{host}:{port}/")
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
