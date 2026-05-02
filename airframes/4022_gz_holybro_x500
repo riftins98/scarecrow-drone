@@ -16,6 +16,26 @@ param set-default SYS_HAS_GPS 0
 param set-default SIM_GPS_USED 0
 param set-default EKF2_GPS_CTRL 0
 param set-default EKF2_HGT_REF 0
+param set-default EKF2_DRAG_CTRL 1
+param set-default EKF2_IMU_POS_X 0.02
+param set-default EKF2_MIN_RNG 0.03
+param set-default EKF2_OF_CTRL 1
+param set-default EKF2_OF_POS_X 0.055
+param set-default EKF2_OF_POS_Y 0.02
+param set-default EKF2_OF_POS_Z 0.065
+param set-default EKF2_REQ_HDRIFT 0.6
+param set-default EKF2_REQ_SACC 2
+param set-default EKF2_REQ_VDRIFT 0.8
+param set-default EKF2_RNG_A_HMAX 8
+param set-default EKF2_RNG_A_VMAX 2
+param set-default EKF2_RNG_CTRL 1
+param set-default EKF2_RNG_POS_X 0.055
+param set-default EKF2_RNG_POS_Y -0.01
+param set-default EKF2_RNG_POS_Z 0.065
+param set-default EKF2_MAG_TYPE 5
+param set-default EKF2_MAG_CHECK 0
+param set-default COM_ARM_MAG_STR 0
+param set-default COM_ARM_MAG_INCL 0
 
 # Allow arming without GPS
 param set-default COM_ARM_WO_GPS 1

@@ -47,7 +47,7 @@ from scarecrow.sensors.lidar.gazebo import GazeboLidar
 
 # --- Configuration ---
 SYSTEM_ADDRESS = "udp://:14540"
-TARGET_ALT = 2.5
+DEFAULT_TARGET_ALT = 2.5
 HOVER_DURATION = 5
 YOLO_CONFIDENCE = 0.3
 
@@ -63,6 +63,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--flight-id", type=str, default=None,
                         help="Flight ID from webapp (optional; auto-generated if omitted)")
+    parser.add_argument("--target-alt", type=float, default=DEFAULT_TARGET_ALT,
+                        help="Target takeoff altitude in meters AGL (default: 2.5)")
     return parser.parse_args()
 
 
@@ -78,6 +80,7 @@ def emit_telemetry(detector: YoloDetector, distance: float, battery: float = 100
 
 async def run():
     args = parse_args()
+    target_alt = float(args.target_alt)
     if args.flight_id:
         flight_id = args.flight_id
         print(f"\nFlight ID: {flight_id} (from webapp)")
@@ -94,7 +97,7 @@ async def run():
     from scarecrow.logging_setup import get_logger, log_event, log_run_file_path
     log = get_logger("flight.demo_v2", run_id=flight_id, prefix="flight")
     log_event(log, "flight_start", flight_id=flight_id, output_dir=output_dir,
-              target_alt=TARGET_ALT, hover_duration=HOVER_DURATION,
+              target_alt=target_alt, hover_duration=HOVER_DURATION,
               system_address=SYSTEM_ADDRESS,
               log_file=str(log_run_file_path()))
 
@@ -120,6 +123,10 @@ async def run():
         print("ERROR: could not connect to drone")
         return
     print("Connected.")
+
+    # GPS-denied mode needs the EKF origin established before PX4's health
+    # checks can converge reliably.
+    await drone.set_ekf_origin()
 
     print("Waiting for position estimate...")
     log_event(log, "phase", phase="wait_health")
@@ -194,8 +201,8 @@ async def run():
 
     try:
         # --- Preflight (must happen BEFORE arm -- PX4 uses these in preflight checks) ---
-        print(f"\nSetting takeoff altitude to {TARGET_ALT}m...")
-        start_pos = await drone.prepare_takeoff(TARGET_ALT)
+        print(f"\nSetting takeoff altitude to {target_alt}m...")
+        start_pos = await drone.prepare_takeoff(target_alt)
 
         # --- Arm + takeoff ---
         log_event(log, "phase", phase="arm")
@@ -210,9 +217,9 @@ async def run():
             return
         print("Armed.")
 
-        log_event(log, "phase", phase="takeoff", target_alt=TARGET_ALT)
-        print(f"Taking off to {TARGET_ALT}m...")
-        if not await drone.takeoff(altitude=TARGET_ALT):
+        log_event(log, "phase", phase="takeoff", target_alt=target_alt)
+        print(f"Taking off to {target_alt}m...")
+        if not await drone.takeoff(altitude=target_alt):
             log_event(log, "takeoff_aborted")
             print("ERROR: takeoff failed")
             return

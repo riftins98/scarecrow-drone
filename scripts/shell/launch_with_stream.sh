@@ -24,6 +24,11 @@ _log_host
 _log_env_snapshot
 REPO_ROOT="$SCARECROW_DIR"
 
+echo "[launch_with_stream] Cleaning up stale PX4/Gazebo processes..."
+pkill -x px4 2>/dev/null || true
+pkill -f "gz sim" 2>/dev/null || true
+rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
+
 WORLD="${1:-drone_garage_pigeon_3d}"
 HEADLESS_FLAG=""
 STREAM_PORT="8080"
