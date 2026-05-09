@@ -111,61 +111,98 @@ if [ -n "${PX4_GZ_MODEL_POSE}" ]; then
     POSE_FLAG="PX4_GZ_MODEL_POSE=${PX4_GZ_MODEL_POSE}"
 fi
 
-# --- pxh command auto-injection (added 2026-05-02) ---
-# Mirrors webapp/backend/services/sim_service.py: after PX4 prints
-# "Startup script returned successfully", inject the two commander commands
-# that set EKF origin + heading. Required for arming in GPS-denied mode.
-# A FIFO supplies stdin to PX4 so we can write to it from a background watcher.
-PXH_FIFO="$(mktemp -u /tmp/scarecrow_pxh.XXXXXX).fifo"
-mkfifo "$PXH_FIFO"
-# Hold the FIFO open so PX4 doesn't see EOF on its stdin (would exit pxh).
-# Sleep is killed by trap on script exit.
-exec 9<>"$PXH_FIFO"
-cleanup_pxh() {
-    [ -n "${PXH_INJECT_PID:-}" ] && kill "$PXH_INJECT_PID" 2>/dev/null || true
-    exec 9>&- 2>/dev/null || true
-    rm -f "$PXH_FIFO" 2>/dev/null || true
-    [ -n "${PXH_INJECT_LOG:-}" ] && rm -f "$PXH_INJECT_LOG" 2>/dev/null || true
-}
-trap cleanup_pxh EXIT
-
-# Tee make's stdout so we can both display it AND watch for the readiness line.
-PXH_INJECT_LOG="$(mktemp /tmp/scarecrow_launch.XXXXXX.log)"
-_log_event fifo_setup fifo="$PXH_FIFO" tee_log="$PXH_INJECT_LOG"
-(
-    # Watcher: tail -F follows the log even before tee creates content;
-    # exits when "Startup script returned successfully" appears, after
-    # injecting the same two commander commands sim_service.py sends.
-    # Same delays as sim_service.py (2s before first, 1s between).
-    _watcher_log() {
-        local ts; ts="$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
-        local line="[$ts INFO launch.fifo] event=$1"; shift
-        for kv in "$@"; do line+=" $kv"; done
-        echo "$line" >&2
-        [ -n "$_LOG_FILE" ] && echo "$line" >> "$_LOG_FILE"
+if [ "${SCARECROW_PXH_INTERACTIVE:-0}" != "1" ]; then
+    # --- pxh command auto-injection (added 2026-05-02) ---
+    # Mirrors webapp/backend/services/sim_service.py: after PX4 prints
+    # "Startup script returned successfully", inject the two commander commands
+    # that set EKF origin + heading. Required for arming in GPS-denied mode.
+    # A FIFO supplies stdin to PX4 so we can write to it from a background watcher.
+    PXH_FIFO="$(mktemp -u /tmp/scarecrow_pxh.XXXXXX).fifo"
+    mkfifo "$PXH_FIFO"
+    # Hold the FIFO open so PX4 doesn't see EOF on its stdin (would exit pxh).
+    # Sleep is killed by trap on script exit.
+    exec 9<>"$PXH_FIFO"
+    cleanup_pxh() {
+        [ -n "${PXH_INJECT_PID:-}" ] && kill "$PXH_INJECT_PID" 2>/dev/null || true
+        exec 9>&- 2>/dev/null || true
+        rm -f "$PXH_FIFO" 2>/dev/null || true
+        [ -n "${PXH_INJECT_LOG:-}" ] && rm -f "$PXH_INJECT_LOG" 2>/dev/null || true
     }
-    _watcher_log watcher_started
-    tail -n +1 -F "$PXH_INJECT_LOG" 2>/dev/null | while IFS= read -r line; do
-        if [[ "$line" == *"Startup script returned successfully"* ]]; then
-            _watcher_log px4_startup_seen
-            sleep 2
-            echo "commander set_ekf_origin 0 0 0" >&9
-            _watcher_log injected cmd="\"commander set_ekf_origin 0 0 0\""
-            sleep 1
-            echo "commander set_heading 0" >&9
-            _watcher_log injected cmd="\"commander set_heading 0\""
-            _watcher_log watcher_done
-            break
-        fi
-    done
+    trap cleanup_pxh EXIT
+
+    # Tee make's stdout so we can both display it AND watch for the readiness line.
+    PXH_INJECT_LOG="$(mktemp /tmp/scarecrow_launch.XXXXXX.log)"
+    _log_event fifo_setup fifo="$PXH_FIFO" tee_log="$PXH_INJECT_LOG"
+    (
+        # Watcher: tail -F follows the log even before tee creates content;
+        # exits when "Startup script returned successfully" appears, after
+        # injecting the same two commander commands sim_service.py sends.
+        # Same delays as sim_service.py (2s before first, 1s between).
+        _watcher_log() {
+            local ts; ts="$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
+            local line="[$ts INFO launch.fifo] event=$1"; shift
+            for kv in "$@"; do line+=" $kv"; done
+            echo "$line" >&2
+            [ -n "$_LOG_FILE" ] && echo "$line" >> "$_LOG_FILE"
+        }
+        _watcher_log watcher_started
+        tail -n +1 -F "$PXH_INJECT_LOG" 2>/dev/null | while IFS= read -r line; do
+            if [[ "$line" == *"Startup script returned successfully"* ]]; then
+                _watcher_log px4_startup_seen
+                sleep 4
+                echo "commander set_ekf_origin 0 0 0" >&9
+                _watcher_log injected cmd="\"commander set_ekf_origin 0 0 0\""
+                sleep 1
+                echo "commander set_heading 0" >&9
+                _watcher_log injected cmd="\"commander set_heading 0\""
+                _watcher_log watcher_done
+                break
+            fi
+        done
+    ) &
+    PXH_INJECT_PID=$!
+else
+    _log_event fifo_skipped reason="interactive_pxh"
+fi
+
+_dump_latest_gz_log() {
+    local latest_dir
+    latest_dir=$(ls -t "$HOME/.gz/sim/log" 2>/dev/null | head -n 1)
+    if [[ -z "$latest_dir" ]]; then
+        echo "[launch] No Gazebo log directory found under ~/.gz/sim/log"
+        return
+    fi
+
+    local log_file="$HOME/.gz/sim/log/$latest_dir/server_console.log"
+    if [[ ! -f "$log_file" ]]; then
+        echo "[launch] Gazebo log not found: $log_file"
+        return
+    fi
+
+    echo "[launch] Gazebo log (tail 200): $log_file"
+    tail -n 200 "$log_file"
+}
+
+# --- Gazebo early-exit guard ---
+# If gz sim exits during startup, dump the latest server log to help diagnose.
+(
+    sleep 15
+    if ! pgrep -f "gz sim" >/dev/null 2>&1; then
+        echo "[launch] WARNING: gz sim not running after startup window"
+        _dump_latest_gz_log
+    fi
 ) &
-PXH_INJECT_PID=$!
+GZ_GUARD_PID=$!
 
 _log_event run_px4_begin headless_flag="$HEADLESS_FLAG" pose_flag="$POSE_FLAG" world="$WORLD" run_target="$PX4_RUN_TARGET"
 
-eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" gz_holybro_x500 \
-    < "$PXH_FIFO" \
-    > >(tee "$PXH_INJECT_LOG")
+if [ "${SCARECROW_PXH_INTERACTIVE:-0}" = "1" ]; then
+    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" gz_holybro_x500
+else
+    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" gz_holybro_x500 \
+        < "$PXH_FIFO" \
+        > >(tee "$PXH_INJECT_LOG")
+fi
 
 _log_event run_px4_end exit_code=$?
 # Cleanup is handled by the EXIT trap (cleanup_pxh).
