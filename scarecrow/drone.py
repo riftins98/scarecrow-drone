@@ -308,6 +308,14 @@ class Drone:
             pass
         self._in_air = False
 
+    async def emergency_land(self) -> None:
+        """Stop motion and land immediately in place."""
+        await self.set_velocity(VelocityCommand())
+        await self.stop_offboard()
+        await self.land()
+        await asyncio.sleep(1)
+        await self.disarm()
+
     # -- Offboard control --
 
     async def start_offboard(self) -> bool:
