@@ -19,6 +19,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 import threading
@@ -29,6 +30,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import socketserver
 
 import cv2
+import numpy as np
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
@@ -107,13 +109,70 @@ class MJPEGHandler(BaseHTTPRequestHandler):
             pass
 
 
-def run_server(camera: GazeboCamera, host: str, port: int, open_browser: bool, fps: float, quality: int):
+def _compose_grid(frames: list[np.ndarray | None], names: list[str]) -> np.ndarray | None:
+    base = next((frame for frame in frames if frame is not None), None)
+    if base is None:
+        return None
+
+    height, width = base.shape[:2]
+    normalized = []
+    for idx, frame in enumerate(frames):
+        if frame is None:
+            canvas = np.zeros((height, width, 3), dtype=np.uint8)
+        else:
+            if frame.shape[:2] != (height, width):
+                canvas = cv2.resize(frame, (width, height))
+            else:
+                canvas = frame.copy()
+
+        label = names[idx] if idx < len(names) else "camera"
+        cv2.putText(
+            canvas,
+            label,
+            (width - 15 - (len(label) * 12), 28),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 0),
+            3,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            canvas,
+            label,
+            (width - 15 - (len(label) * 12), 28),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+        normalized.append(canvas)
+
+    count = len(normalized)
+    if count == 1:
+        return normalized[0]
+
+    cols = 2 if count <= 4 else 3
+    rows = int(math.ceil(count / cols))
+    total = rows * cols
+    if total > count:
+        normalized.extend([np.zeros((height, width, 3), dtype=np.uint8)] * (total - count))
+
+    rows_imgs = []
+    for row_idx in range(rows):
+        row = normalized[row_idx * cols:(row_idx + 1) * cols]
+        rows_imgs.append(cv2.hconcat(row))
+
+    return cv2.vconcat(rows_imgs)
+
+
+def run_server(cameras: list[GazeboCamera], host: str, port: int, open_browser: bool, fps: float, quality: int, names: list[str]):
     server = ThreadedHTTPServer((host, port), MJPEGHandler)
 
     # Shared state:
     # - latest_raw_frame: newest frame from Gazebo callback
     # - latest_frame_jpeg: latest encoded JPEG consumed by HTTP clients
-    server.latest_raw_frame = None
+    server.latest_raw_frames = [None] * len(cameras)
     server.latest_frame_jpeg = None
     server.frame_lock = threading.Lock()
     server.stream_interval_s = 1.0 / fps
@@ -121,18 +180,21 @@ def run_server(camera: GazeboCamera, host: str, port: int, open_browser: bool, f
     server.stop_event = threading.Event()
 
     # Camera callback: keep it lightweight; no encoding here.
-    def on_frame(frame):
-        try:
-            with server.frame_lock:
-                server.latest_raw_frame = frame
-        except Exception:
-            pass
+    def make_on_frame(index):
+        def on_frame(frame):
+            try:
+                with server.frame_lock:
+                    server.latest_raw_frames[index] = frame
+            except Exception:
+                pass
+        return on_frame
 
     # Encoder thread: encode at paced output FPS, reusing latest raw frame.
     def encoder_loop():
         while not server.stop_event.is_set():
             with server.frame_lock:
-                frame = server.latest_raw_frame
+                frames = list(server.latest_raw_frames)
+            frame = _compose_grid(frames, names)
             if frame is None:
                 time.sleep(0.01)
                 continue
@@ -149,11 +211,12 @@ def run_server(camera: GazeboCamera, host: str, port: int, open_browser: bool, f
                 pass
             time.sleep(server.stream_interval_s)
 
-    camera.on_frame = on_frame
+    for idx, camera in enumerate(cameras):
+        camera.on_frame = make_on_frame(idx)
 
-    # Start camera
     print("Starting GazeboCamera (discovering topic if needed)...")
-    camera.start()
+    for camera in cameras:
+        camera.start()
 
     encoder_thread = threading.Thread(target=encoder_loop, daemon=True)
     encoder_thread.start()
@@ -178,7 +241,8 @@ def run_server(camera: GazeboCamera, host: str, port: int, open_browser: bool, f
         server.stop_event.set()
         server.shutdown()
         encoder_thread.join(timeout=2)
-        camera.stop()
+        for camera in cameras:
+            camera.stop()
 
 
 def main():
@@ -191,12 +255,25 @@ def main():
     parser.add_argument('--fps', type=float, default=12.0, help='Stream FPS limit (default: 12)')
     parser.add_argument('--topic', type=str, default=None,
                         help='Gazebo camera image topic (optional; auto-discover if omitted)')
+    parser.add_argument('--topics', type=str, default=None,
+                        help='Comma-separated camera topics for split-screen')
+    parser.add_argument('--names', type=str, default=None,
+                        help='Comma-separated camera names for split-screen labels')
     args = parser.parse_args()
 
-    cam = GazeboCamera(topic=args.topic, env=None, num_threads=args.threads)
+    cameras = []
+    if args.topics:
+        topic_list = [t.strip() for t in args.topics.split(',') if t.strip()]
+        cameras = [GazeboCamera(topic=topic, env=None, num_threads=args.threads) for topic in topic_list]
+    else:
+        cameras = [GazeboCamera(topic=args.topic, env=None, num_threads=args.threads)]
+    if args.names:
+        names = [n.strip() for n in args.names.split(',') if n.strip()]
+    else:
+        names = [f"camera_{i + 1}" for i in range(len(cameras))]
     fps = max(1.0, min(float(args.fps), 60.0))
     quality = max(40, min(int(args.quality), 95))
-    run_server(cam, args.host, args.port, args.open, fps, quality)
+    run_server(cameras, args.host, args.port, args.open, fps, quality, names)
 
 
 if __name__ == '__main__':
