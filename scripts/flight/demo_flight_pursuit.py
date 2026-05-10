@@ -66,11 +66,17 @@ KP_FORWARD = 0.3            # proportional gain: forward_speed = KP * (front - t
 YAW_KP = 15.0               # deg/s per unit of normalized pixel offset
 MAX_YAW_SPEED = 20.0        # deg/s clamp
 PURSUIT_TIMEOUT = 45.0      # seconds before giving up pursuit
-LOST_TARGET_TIMEOUT = 10.0  # seconds without detection → abort pursuit
+LOST_TARGET_TIMEOUT = 10.0  # seconds without detection → trigger relocate
 LOST_TARGET_SLOW = 3.0      # seconds without detection → slow down
 HOLD_DURATION = 5.0          # seconds to hover at target before landing
 MIN_WALL_DISTANCE = 0.8     # safety: abort if any wall closer than this
 IMAGE_WIDTH = 1280           # camera resolution width for centering calc
+
+# --- Relocate configuration ---
+RELOCATE_TIMEOUT = 15.0      # seconds to yaw-scan before giving up
+RELOCATE_YAW_SPEED = 25.0    # deg/s yaw rate during search sweep
+RELOCATE_SWEEP_STEP = 1.5    # seconds per sweep half (widens each pass)
+MAX_RELOCATE_ATTEMPTS = 2    # how many times to attempt relocate before abort
 
 
 # --- Pursuit state ---
@@ -405,7 +411,7 @@ async def run():
             pursuit_triggered = True
 
         # ====================================================================
-        # Phase 2b: Pigeon Pursuit
+        # Phase 2b: Pigeon Pursuit (with relocate on target loss)
         # ====================================================================
         print(f"\n--- Phase 2: Pigeon Pursuit (target: {target_dist}m) ---")
         log_event(log, "phase", phase="pursuit", target_dist=target_dist)
@@ -413,6 +419,7 @@ async def run():
         pursuit_start = time.time()
         pursuit_tick = 0
         reached_target = False
+        relocate_attempts = 0
         image_cx = IMAGE_WIDTH / 2.0
 
         while time.time() - pursuit_start < PURSUIT_TIMEOUT:
@@ -442,13 +449,90 @@ async def run():
                 await drone.set_velocity(VelocityCommand())
                 break
 
-            # Lost target check
+            # Lost target → try relocate before aborting
             det_age = pursuit.age
             if det_age > LOST_TARGET_TIMEOUT:
-                print(f"  [pursuit] Lost target for {det_age:.1f}s -- aborting pursuit")
-                log_event(log, "pursuit_lost_target", age=det_age)
+                relocate_attempts += 1
+                if relocate_attempts > MAX_RELOCATE_ATTEMPTS:
+                    print(f"  [pursuit] Lost target after {relocate_attempts - 1} relocate attempt(s) -- aborting")
+                    log_event(log, "pursuit_lost_target", age=det_age,
+                              relocate_attempts=relocate_attempts - 1)
+                    await drone.set_velocity(VelocityCommand())
+                    break
+
+                # ── Relocate phase: yaw sweep to re-acquire ──
+                print(f"  [pursuit] Target lost (age={det_age:.1f}s) -- relocate attempt {relocate_attempts}/{MAX_RELOCATE_ATTEMPTS}")
+                log_event(log, "relocate_start", attempt=relocate_attempts, age=det_age)
+                await drone.set_velocity(VelocityCommand())  # stop first
+                await asyncio.sleep(0.3)
+
+                relocate_start = time.time()
+                sweep_dir = 1.0   # +1 = right, -1 = left
+                sweep_pass = 0
+                reacquired = False
+
+                while time.time() - relocate_start < RELOCATE_TIMEOUT:
+                    # Check for overall pursuit timeout
+                    if time.time() - pursuit_start >= PURSUIT_TIMEOUT:
+                        break
+
+                    # Check if we re-acquired the target
+                    if pursuit.age < 1.0:
+                        reacquired = True
+                        print(f"  [relocate] *** TARGET RE-ACQUIRED (age={pursuit.age:.2f}s) ***")
+                        log_event(log, "relocate_reacquired",
+                                  elapsed=time.time() - relocate_start,
+                                  attempt=relocate_attempts)
+                        break
+
+                    # Safety: check walls during yaw sweep
+                    scan_r = lidar.get_scan()
+                    if scan_r is not None:
+                        if min(scan_r.left_distance(), scan_r.right_distance()) < MIN_WALL_DISTANCE * 0.5:
+                            print(f"  [relocate] SAFETY: wall too close during scan -- stopping")
+                            break
+
+                    # Yaw sweep: alternate direction, widen each pass
+                    sweep_half_duration = RELOCATE_SWEEP_STEP * (1 + sweep_pass * 0.5)
+                    yaw_cmd = VelocityCommand(
+                        forward_m_s=0.0,
+                        right_m_s=0.0,
+                        down_m_s=0.0,
+                        yawspeed_deg_s=sweep_dir * RELOCATE_YAW_SPEED,
+                    )
+                    await drone.set_velocity(yaw_cmd)
+
+                    sweep_start = time.time()
+                    while time.time() - sweep_start < sweep_half_duration:
+                        if pursuit.age < 1.0:
+                            reacquired = True
+                            break
+                        await asyncio.sleep(0.05)
+
+                    if reacquired:
+                        print(f"  [relocate] *** TARGET RE-ACQUIRED (age={pursuit.age:.2f}s) ***")
+                        log_event(log, "relocate_reacquired",
+                                  elapsed=time.time() - relocate_start,
+                                  attempt=relocate_attempts)
+                        break
+
+                    # Switch direction and widen
+                    sweep_dir *= -1
+                    sweep_pass += 1
+                    elapsed_r = time.time() - relocate_start
+                    print(f"  [relocate] sweep pass {sweep_pass} ({elapsed_r:.1f}s) -- reversing yaw")
+
+                # Stop yaw after relocate
                 await drone.set_velocity(VelocityCommand())
-                break
+                await asyncio.sleep(0.2)
+
+                if not reacquired:
+                    print(f"  [relocate] Attempt {relocate_attempts} failed -- no re-acquisition")
+                    log_event(log, "relocate_failed", attempt=relocate_attempts)
+                    continue  # back to pursuit loop top → will check det_age again → next attempt or abort
+
+                # Successfully re-acquired → reset lost-target tracking and continue pursuit
+                continue
 
             # Compute pursuit command
             cx, cy, det_time, conf = pursuit.get()
