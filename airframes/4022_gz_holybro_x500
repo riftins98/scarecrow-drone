@@ -35,7 +35,7 @@ param set-default EKF2_RNG_POS_Z 0.065
 param set-default EKF2_MAG_TYPE 5
 param set-default EKF2_MAG_CHECK 0
 param set-default COM_ARM_MAG_STR 0
-param set-default COM_ARM_MAG_INCL 0
+param set-default SENS_IMU_MODE 1
 
 # Allow arming without GPS
 param set-default COM_ARM_WO_GPS 1

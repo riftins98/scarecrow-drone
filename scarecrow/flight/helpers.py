@@ -26,7 +26,7 @@ def _default_takeoff_timeout() -> float:
             return float(v)
     except (TypeError, ValueError):
         pass
-    return 30.0
+    return 120.0
 
 
 async def get_position(drone):

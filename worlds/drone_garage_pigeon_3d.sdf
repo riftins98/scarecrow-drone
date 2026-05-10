@@ -570,6 +570,13 @@
       <static>true</static>
     </include>
 
+    <include>
+      <uri>model://mono_cam_hd</uri>
+      <name>center_cam</name>
+      <pose>6.5 -4.5 7 0 1.5708 0</pose>
+      <static>true</static>
+    </include>
+
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
       <latitude_deg>0</latitude_deg>

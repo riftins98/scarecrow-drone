@@ -2,6 +2,7 @@
 # Launch the scarecrow drone simulation + start camera stream.
 # Usage:
 #   ./scripts/shell/launch_with_stream.sh [world_name] [--headless] [--port 8080] [--no-open] [--background]
+#   Camera flags (required): --fixed --center
 # Default world: drone_garage_pigeon_3d
 set -e
 trap 'echo "[launch_with_stream] ERROR at line $LINENO — exit code $?"' ERR
@@ -39,6 +40,7 @@ STREAM_FPS="${STREAM_FPS:-24}"
 STREAM_QUALITY="${STREAM_QUALITY:-68}"
 STREAM_THREADS="${STREAM_THREADS:-2}"
 STREAM_MODE="${STREAM_MODE:-webrtc}"
+SELECTED_CAMERAS=()
 
 # Default spawn pose (can be overridden by exporting PX4_GZ_MODEL_POSE)
 if [ -z "${PX4_GZ_MODEL_POSE}" ]; then
@@ -67,6 +69,21 @@ for arg in "$@"; do
     fi
 done
 
+for arg in "$@"; do
+    case "$arg" in
+        --fixed)
+            SELECTED_CAMERAS+=("fixed_cam")
+            ;;
+        --center)
+            SELECTED_CAMERAS+=("center_cam")
+            ;;
+        --left_back_corner|--left_back_corncer)
+            ;;
+        --pigeons_looking)
+            ;;
+    esac
+done
+
 echo "============================================"
 echo "  Scarecrow Drone — Sim + Live Stream"
 echo "  World: $WORLD"
@@ -75,6 +92,9 @@ echo "  Open Browser: $([ "$OPEN_BROWSER" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Interactive PXH: $([ "$INTERACTIVE_PXH" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Stream Mode: $STREAM_MODE"
 echo "  Stream FPS: $STREAM_FPS | JPEG Quality: $STREAM_QUALITY | Camera Threads: $STREAM_THREADS"
+if [ ${#SELECTED_CAMERAS[@]} -gt 0 ]; then
+    echo "  Cameras: ${SELECTED_CAMERAS[*]}"
+fi
 echo "============================================"
 
 # Pick python (prefer venv if present)
@@ -110,15 +130,31 @@ start_stream_worker() {
 
     echo "[launch_with_stream] Step 3/4: set the camera"
     _log_timer_begin step3_camera_topic
-    CAMERA_TOPIC=""
-    for _ in {1..90}; do
-        CAMERA_TOPIC=$(gz topic -l 2>/dev/null | grep -m 1 -E "/model/(fixed_cam|fixed_cam_[0-9]+|mono_cam_hd|mono_cam_hd_[0-9]+)/link/camera_link/sensor/camera/image$" || true)
-        if [ -n "$CAMERA_TOPIC" ]; then
-            break
+    CAMERA_TOPICS=()
+    if [ ${#SELECTED_CAMERAS[@]} -eq 0 ]; then
+        _log_error camera_flags_missing
+        echo "[launch_with_stream] ERROR: no camera flags provided"
+        echo "[launch_with_stream] Use one or more: --fixed --center"
+        exit 1
+    fi
+
+    for cam_name in "${SELECTED_CAMERAS[@]}"; do
+        CAMERA_TOPIC=""
+        for _ in {1..90}; do
+            CAMERA_TOPIC=$(gz topic -l 2>/dev/null | grep -m 1 -E "/model/${cam_name}/link/camera_link/sensor/camera/image$" || true)
+            if [ -n "$CAMERA_TOPIC" ]; then
+                break
+            fi
+            sleep 1
+        done
+        if [ -z "$CAMERA_TOPIC" ]; then
+            _log_error camera_topic_missing name="$cam_name"
+            echo "[launch_with_stream] ERROR: camera topic not found for ${cam_name}"
+            exit 1
         fi
-        sleep 1
+        CAMERA_TOPICS+=("$CAMERA_TOPIC")
     done
-    _log_timer_end step3_camera_topic camera_topic="\"${CAMERA_TOPIC:-}\""
+    _log_timer_end step3_camera_topic camera_topics="\"${CAMERA_TOPICS[*]:-}\""
 
     echo "[launch_with_stream] Step 4/4: run camera stream"
     _log_timer_begin step4_stream
@@ -135,7 +171,7 @@ start_stream_worker() {
         fi
     fi
 
-    if [ -z "$CAMERA_TOPIC" ]; then
+    if [ ${#CAMERA_TOPICS[@]} -eq 0 ]; then
         _log_error camera_topic_missing
         echo "[launch_with_stream] ERROR: fixed camera topic not found; refusing to start stream on the drone camera"
         echo "[launch_with_stream] Check world/model setup for model names: fixed_cam / mono_cam_hd"
@@ -143,19 +179,31 @@ start_stream_worker() {
         gz topic -l 2>/dev/null | grep -E "camera_link/sensor/camera/image$|sensor/camera/image$" || true
         exit 1
     else
-        echo "[launch_with_stream] Camera topic:   $CAMERA_TOPIC"
+        echo "[launch_with_stream] Camera topics:  ${CAMERA_TOPICS[*]}"
     fi
 
-    _log_event stream_exec mode="$STREAM_MODE" port="$STREAM_PORT" topic="\"${CAMERA_TOPIC:-}\""
+    if [ ${#CAMERA_TOPICS[@]} -gt 1 ] && [ "$STREAM_MODE" = "webrtc" ]; then
+        _log_warn webrtc_multi_camera_fallback
+        STREAM_MODE="mjpeg"
+    fi
+    _log_event stream_exec mode="$STREAM_MODE" port="$STREAM_PORT" topics="\"${CAMERA_TOPICS[*]:-}\""
     _log_timer_end step4_stream
     if [ "$STREAM_MODE" = "webrtc" ]; then
         exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera_webrtc.py" \
             --port "$STREAM_PORT" --fps "$STREAM_FPS" --threads "$STREAM_THREADS" \
-            $OPEN_FLAG ${CAMERA_TOPIC:+--topic "$CAMERA_TOPIC"}
+            $OPEN_FLAG ${CAMERA_TOPICS[0]+--topic "${CAMERA_TOPICS[0]}"}
     else
+        TOPICS_ARG=""
+        if [ ${#CAMERA_TOPICS[@]} -gt 1 ]; then
+            TOPICS_ARG="--topics $(IFS=,; echo "${CAMERA_TOPICS[*]}")"
+            NAMES_ARG="--names $(IFS=,; echo "${SELECTED_CAMERAS[*]}")"
+        else
+            TOPICS_ARG=${CAMERA_TOPICS[0]+--topic "${CAMERA_TOPICS[0]}"}
+            NAMES_ARG="--names ${SELECTED_CAMERAS[0]}"
+        fi
         exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera.py" \
             --port "$STREAM_PORT" --fps "$STREAM_FPS" --quality "$STREAM_QUALITY" --threads "$STREAM_THREADS" \
-            $OPEN_FLAG ${CAMERA_TOPIC:+--topic "$CAMERA_TOPIC"}
+            $OPEN_FLAG $TOPICS_ARG $NAMES_ARG
     fi
 }
 

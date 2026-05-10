@@ -46,6 +46,7 @@ class YoloDetector:
         self._confidence = confidence
         self._min_interval = min_interval
         self._on_detection = on_detection
+        self._on_detection_data = None  # callback(detections: list[dict]) — pursuit scripts
 
         self.running = False
         self.detections_total = 0
@@ -146,6 +147,8 @@ class YoloDetector:
 
             if self._on_detection is not None:
                 self._on_detection(img_path)
+            if self._on_detection_data is not None:
+                self._on_detection_data(detections)
         else:
             img_path = os.path.join(self.frames_dir, f"frame_{self.frames_processed:04d}.png")
             cv2.imwrite(img_path, frame)

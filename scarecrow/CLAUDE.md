@@ -11,4 +11,4 @@ Python package for drone flight controllers, sensor interfaces, detection, and n
 
 ## Files
 - `__init__.py` — Package init
-- `drone.py` — Drone class wrapping MAVSDK: connect, arm (with retries + already-armed kill recovery), disarm (with action.kill fallback), takeoff (split into prepare_takeoff pre-arm + takeoff post-arm), offboard control, telemetry, verify_gps_denied_params, set_ekf_origin
+- `drone.py` — Drone class wrapping MAVSDK: connect, arm (with retries + already-armed kill recovery), disarm (with action.kill fallback), takeoff (split into prepare_takeoff pre-arm + takeoff post-arm), offboard control, telemetry, verify_gps_denied_params, set_ekf_origin, emergency_land

@@ -57,3 +57,8 @@ All code, scripts, and tooling MUST work on both macOS and Windows. The team has
 - Subprocess invocations: use `python3` (works in both WSL and macOS), not `python`.
 - Browser/network: bind to `0.0.0.0` (not `127.0.0.1` only) so WSL→Windows host browser access works.
 - When in doubt, document in the relevant sub-CLAUDE.md whether a workflow is "WSL on Windows" or "native on both".
+
+## Recent Changes
+- Added reusable offboard safety and altitude-hold helpers plus health monitoring.
+- Updated wall_follow_v2 to enforce height hold and safety limits with configurable CLI args.
+- Added emergency landing helper on Drone and a continuous room circuit v2 flight script.

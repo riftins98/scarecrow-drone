@@ -82,6 +82,25 @@ Double-click: webapp/Start Scarecrow.bat
 
 Both launchers start the FastAPI backend (port 8000) and the React frontend (port 3000), then open `http://localhost:3000` in the browser.
 
+---
+
+## Headless Sim + Interactive PXH
+
+Use this when you want headless Gazebo with an interactive `pxh>` prompt:
+
+```bash
+source scripts/shell/env.sh
+SCARECROW_PXH_INTERACTIVE=1 PX4_GZ_MODEL_POSE="5,-4.5,0,0,0,0" \
+  scripts/shell/launch_with_stream.sh drone_garage_pigeon_3d --headless
+```
+
+In `pxh>`:
+
+```
+commander set_ekf_origin 0 0 0
+commander set_heading 0
+```
+
 ### UI Workflow
 
 1. **Connect** — launches PX4 + Gazebo with a live checklist (cleanup → build → Gazebo → sensors → ready)
@@ -137,4 +156,24 @@ SYSTEM_ADDRESS = "serial:///dev/ttyACM0:921600"
 
 ```bash
 pkill -f "gz sim"; pkill -x px4
+```
+
+## Cleanup (Stale Processes)
+
+If you see `Task already running` or repeated `ekf2 missing data`, clear stale processes:
+
+```bash
+pkill -x px4 2>/dev/null || true
+pkill -f "gz sim" 2>/dev/null || true
+pkill -f mavsdk_server 2>/dev/null || true
+rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
+```
+
+## Wall Follow v2
+
+New wall-follow script with robust front-wall detection (world-agnostic):
+
+```bash
+source .venv-mavsdk/bin/activate
+python3 scripts/flight/wall_follow_v2.py --side left --wall-distance 2.0 --forward-speed 0.35
 ```

@@ -9,3 +9,4 @@ Flight control scripts and shell launch utilities. Flight scripts run as standal
 ## Files
 - `stream_camera.py` — MJPEG fixed-camera monitor server (fallback mode). Serves full-page browser viewer and streams latest fixed camera frame.
 - `stream_camera_webrtc.py` — WebRTC monitor server (preferred mode) for smoother H.264-capable browser playback in headless runs.
+- `test_cam.py` — Debug helper to pull a single Gazebo camera frame and save it to `output/test_capture.png`.
