@@ -17,25 +17,24 @@ export default function Dashboard() {
   const [flightStartTime, setFlightStartTime] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Poll sim status
+  // Poll sim status. Fetch immediately on mount so the UI doesn't render a
+  // stale "Offline" view for 3s after a page refresh while the sim is mid-launch.
+  // On transient fetch errors, keep the last good state instead of nuking it
+  // back to "Offline" — that previously bounced users to the pre-connect form
+  // mid-launch on a single hiccup.
   useEffect(() => {
-    const poll = setInterval(async () => {
+    let cancelled = false;
+    const fetchOnce = async () => {
       try {
         const status = await api.getSimStatus();
-        setSimStatus(status);
+        if (!cancelled) setSimStatus(status);
       } catch {
-        setSimStatus({
-          connected: false,
-          launching: false,
-          log: [],
-          progress: { steps: [] },
-          world: '',
-          headless: false,
-          streamUrl: null,
-        });
+        // ignore — keep last known state
       }
-    }, 3000);
-    return () => clearInterval(poll);
+    };
+    fetchOnce();
+    const poll = setInterval(fetchOnce, 3000);
+    return () => { cancelled = true; clearInterval(poll); };
   }, []);
 
   // Poll flight status when connected

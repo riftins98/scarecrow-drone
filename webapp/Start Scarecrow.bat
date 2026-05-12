@@ -24,7 +24,9 @@ echo ============================================
 echo.
 
 REM --- Paths (WSL view) ---
-set "WSL_REPO=/mnt/c/projects/finale_project/scarecrow-drone"
+REM Backend runs from WSL-native ext4 copy (~/scarecrow-drone) for fast build I/O.
+REM Frontend stays on Windows (this folder) so npm/Node run native.
+set "WSL_REPO=/home/tomeraf/scarecrow-drone"
 set "WSL_VENV=%WSL_REPO%/.venv-mavsdk/bin/activate"
 set "WSL_BACKEND=%WSL_REPO%/webapp/backend"
 set "FRONTEND_DIR=%~dp0frontend"
