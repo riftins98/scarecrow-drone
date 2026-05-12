@@ -71,6 +71,9 @@ cp -r "$SCARECROW_DIR/models/mono_cam" "$PX4_DIR/Tools/simulation/gz/models/" 2>
 cp -r "$SCARECROW_DIR/models/mono_cam_hd" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
 cp -r "$SCARECROW_DIR/models/lidar_2d_v2" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
 cp -r "$SCARECROW_DIR/models/military_drone" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
+if [[ "$(uname)" == "Darwin" ]]; then
+    cp -r "$SCARECROW_DIR/models/pigeon_3d" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
+fi
 cp -r "$SCARECROW_DIR/models/pigeon_billboard" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
 cp "$SCARECROW_DIR/worlds/"*.sdf "$PX4_DIR/Tools/simulation/gz/worlds/" 2>/dev/null || true
 _log_timer_end copy_assets
@@ -94,8 +97,30 @@ _log_timer_begin build_px4
 _BUILD_CACHE_HIT=true
 [ -f "$PX4_DIR/build/$PX4_BUILD_DIR_NAME/bin/px4" ] || _BUILD_CACHE_HIT=false
 echo "[launch] Building PX4 (this may take a few minutes on first run)..."
-make "$PX4_BUILD_TARGET"
+if [[ "$(uname)" == "Darwin" ]]; then
+    make -j1 "$PX4_BUILD_TARGET"
+else
+    make "$PX4_BUILD_TARGET"
+fi
 _log_timer_end build_px4 cache_hit="$_BUILD_CACHE_HIT" target="$PX4_BUILD_TARGET" build_dir="$PX4_BUILD_DIR_NAME"
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    # PX4's Gazebo optical-flow plugin links against libOpticalFlow.dylib via
+    # @rpath, but the dependency is installed under the build-local OpticalFlow dir.
+    # Put a stable symlink in the rpath searched by libOpticalFlowSystem.dylib.
+    OPTICAL_FLOW_LIB="$PX4_DIR/build/$PX4_BUILD_DIR_NAME/OpticalFlow/install/lib/libOpticalFlow.dylib"
+    OPTICAL_FLOW_RPATH_LIB="$PX4_DIR/build/$PX4_BUILD_DIR_NAME/external/Install/lib/libOpticalFlow.dylib"
+    if [ -f "$OPTICAL_FLOW_LIB" ]; then
+        mkdir -p "$(dirname "$OPTICAL_FLOW_RPATH_LIB")"
+        ln -sf "$OPTICAL_FLOW_LIB" "$OPTICAL_FLOW_RPATH_LIB"
+    fi
+
+    # Some copied/restored PX4 model files can end up user-only readable, which
+    # makes Gazebo report model://LW20 as missing even when the files exist.
+    if [ -d "$PX4_DIR/Tools/simulation/gz/models/LW20" ]; then
+        chmod -R a+rX,u+w "$PX4_DIR/Tools/simulation/gz/models/LW20" 2>/dev/null || true
+    fi
+fi
 
 # --- Copy airframe to rootfs (in case build didn't pick it up from ROMFS) ---
 cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" "build/$PX4_BUILD_DIR_NAME/rootfs/etc/init.d-posix/airframes/" 2>/dev/null || true
@@ -131,7 +156,14 @@ if [ "${SCARECROW_PXH_INTERACTIVE:-0}" != "1" ]; then
     trap cleanup_pxh EXIT
 
     # Tee make's stdout so we can both display it AND watch for the readiness line.
-    PXH_INJECT_LOG="$(mktemp /tmp/scarecrow_launch.XXXXXX.log)"
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # On macOS/BSD mktemp, trailing suffixes after XXXXXX are not portable.
+        # Also clean up a legacy stub path that can block mktemp on repeated runs.
+        [ -f /tmp/scarecrow_launch.XXXXXX.log ] && rm -f /tmp/scarecrow_launch.XXXXXX.log
+        PXH_INJECT_LOG="$(mktemp /tmp/scarecrow_launch.XXXXXX)"
+    else
+        PXH_INJECT_LOG="$(mktemp /tmp/scarecrow_launch.XXXXXX.log)"
+    fi
     _log_event fifo_setup fifo="$PXH_FIFO" tee_log="$PXH_INJECT_LOG"
     (
         # Watcher: tail -F follows the log even before tee creates content;
