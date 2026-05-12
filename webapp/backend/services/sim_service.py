@@ -51,7 +51,7 @@ class SimService:
         env["PX4_GZ_MODEL_POSE"] = "5,-4.5,0,0,0,0"
 
         self.process = subprocess.Popen(
-            ["bash", launch_script, "drone_garage"],
+            ["bash", launch_script, "drone_garage_pigeon_3d"],
             cwd=REPO_ROOT,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

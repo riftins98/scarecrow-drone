@@ -10,9 +10,9 @@ echo "  Scarecrow Drone — Web App (macOS)"
 echo "============================================"
 
 # Activate venv
-source "$REPO_ROOT/.venv-mavsdk/bin/activate" 2>/dev/null || {
-    echo "ERROR: .venv-mavsdk not found."
-    echo "Run: python3 -m venv .venv-mavsdk && source .venv-mavsdk/bin/activate && pip install -r requirements.txt"
+source "$REPO_ROOT/.venv/bin/activate" 2>/dev/null || {
+    echo "ERROR: .venv not found."
+    echo "Run: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
     exit 1
 }
 
@@ -20,7 +20,7 @@ source "$REPO_ROOT/.venv-mavsdk/bin/activate" 2>/dev/null || {
 pip install fastapi uvicorn -q 2>/dev/null
 
 echo "[webapp] Starting backend in new Terminal window..."
-osascript -e "tell application \"Terminal\" to do script \"source '$REPO_ROOT/.venv-mavsdk/bin/activate' && cd '$SCRIPT_DIR/backend' && python3 -m uvicorn app:app --host 0.0.0.0 --port 8000\""
+osascript -e "tell application \"Terminal\" to do script \"source '$REPO_ROOT/.venv/bin/activate' && cd '$SCRIPT_DIR/backend' && python3 -m uvicorn app:app --host 0.0.0.0 --port 8000\""
 
 echo "[webapp] Starting frontend in new Terminal window..."
 osascript -e "tell application \"Terminal\" to do script \"cd '$SCRIPT_DIR/frontend' && npm install --silent && npm start\""
