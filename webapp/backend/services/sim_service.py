@@ -86,9 +86,12 @@ class SimService:
 
         # Pick the launcher: headless uses launch_with_stream.sh (gives us a
         # browser-watchable camera feed); GUI uses launch.sh (Gazebo window).
+        # launch_with_stream.sh requires at least one camera flag (--fixed or
+        # --center) — without it the stream worker errors out and port 8080
+        # stays empty, leaving the UI's stream link broken.
         if headless:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch_with_stream.sh")
-            launch_args = [world, "--headless"]
+            launch_args = [world, "--headless", "--fixed"]
         else:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch.sh")
             launch_args = [world]

@@ -26,7 +26,16 @@ echo.
 REM --- Paths (WSL view) ---
 REM Backend runs from WSL-native ext4 copy (~/scarecrow-drone) for fast build I/O.
 REM Frontend stays on Windows (this folder) so npm/Node run native.
-set "WSL_REPO=/home/tomeraf/scarecrow-drone"
+REM Resolve WSL $HOME dynamically so this works for any user (not just the
+REM author's account). Falls back to /home/<user>/scarecrow-drone if $HOME is
+REM unset for some reason.
+for /f "usebackq delims=" %%H in (`wsl -- bash -c "echo $HOME"`) do set "WSL_HOME=%%H"
+if "%WSL_HOME%"=="" (
+    echo ERROR: Could not resolve WSL $HOME. Is WSL configured for a user?
+    pause
+    exit /b 1
+)
+set "WSL_REPO=%WSL_HOME%/scarecrow-drone"
 set "WSL_VENV=%WSL_REPO%/.venv-mavsdk/bin/activate"
 set "WSL_BACKEND=%WSL_REPO%/webapp/backend"
 set "FRONTEND_DIR=%~dp0frontend"
