@@ -59,6 +59,8 @@ All code, scripts, and tooling MUST work on both macOS and Windows. The team has
 - When in doubt, document in the relevant sub-CLAUDE.md whether a workflow is "WSL on Windows" or "native on both".
 
 ## Recent Changes
-- Added reusable offboard safety and altitude-hold helpers plus health monitoring.
-- Updated wall_follow_v2 to enforce height hold and safety limits with configurable CLI args.
-- Added emergency landing helper on Drone and a continuous room circuit v2 flight script.
+- Webapp UI: pre-connect world + GUI/headless picker, post-connect script picker with dynamic argparse-driven parameter form (`GET /api/sim/options`).
+- Webapp launcher: live per-step substatus (`Compiling [N/1157] ...`, EKF state, etc.) so users see actual progress rather than just "active".
+- Backend: `SimService.launch(world, headless)` captures stream URL from `launch_with_stream.sh`; `DetectionService.start()` accepts script name + arg dict.
+- `Start Scarecrow.bat` rewritten: auto-installs backend deps, hard-fails if backend doesn't respond, `-d`/`--dev` flag for visible log windows.
+- Drone class honors `MAVSDK_SERVER_ADDRESS` / `MAVSDK_SERVER_PORT` env vars so flight scripts can connect to an externally-launched `mavsdk_server` for debugging.

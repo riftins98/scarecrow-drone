@@ -1,10 +1,14 @@
 """Manages Gazebo simulation lifecycle."""
+import re
 import subprocess
 import os
 import time
 import threading
+from typing import Optional
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+DEFAULT_WORLD = "drone_garage_pigeon_3d"
 
 LAUNCH_STEPS = [
     ("cleanup", "Cleaning up old sessions"),
@@ -21,6 +25,33 @@ LAUNCH_STEPS = [
 ]
 
 
+_STREAM_URL_RE = re.compile(r"https?://[^\s'\"]+:\d+/?")
+
+# Substatus extractors: each maps to a step_id; the function takes a line
+# and returns either a short status string ("Compiling [847/1157] foo.cpp")
+# or None if this line doesn't update that step's substatus.
+_NINJA_RE = re.compile(r"^\[(\d+)/(\d+)\]\s+(.+)$")
+_CMAKE_FOUND_RE = re.compile(r"^--\s+(?:Found|Looking for|Searching for|Checking for|Could NOT find)\s+(.+)$")
+
+
+def _build_substatus(line: str) -> Optional[str]:
+    """Substatus for the 'build' step (cmake configure + ninja compile)."""
+    m = _NINJA_RE.match(line)
+    if m:
+        done, total, target = m.group(1), m.group(2), m.group(3)
+        # target lines can be long; keep only the action verb + tail of path
+        target = target.strip()
+        if len(target) > 60:
+            target = "..." + target[-57:]
+        return f"Compiling [{done}/{total}] {target}"
+    m = _CMAKE_FOUND_RE.match(line)
+    if m:
+        return f"Configuring CMake: {m.group(1).strip()[:60]}"
+    if "cmake" in line.lower() and "configuring" in line.lower():
+        return "Running cmake configure..."
+    return None
+
+
 class SimService:
     def __init__(self):
         self.process = None
@@ -29,9 +60,22 @@ class SimService:
         self._log_lines = []
         self._completed_steps = []
         self._current_step = None
+        # Free-form substatus for the active step (e.g., "Compiling [847/1157]")
+        # so the UI can show real-time progress instead of just a spinner.
+        self._step_substatus: dict[str, str] = {}
+        self._world: str = DEFAULT_WORLD
+        self._headless: bool = False
+        self._stream_url: Optional[str] = None
 
-    def launch(self) -> bool:
-        """Launch PX4 + Gazebo in background."""
+    def launch(self, world: str = DEFAULT_WORLD, headless: bool = False) -> bool:
+        """Launch PX4 + Gazebo in background.
+
+        Args:
+            world: Name of a world in worlds/ (without .sdf extension).
+            headless: If True, run Gazebo headless and start a browser
+                stream server. The stream URL is published via
+                ``stream_url`` once it appears in the launcher output.
+        """
         if self.connected and self.process and self.process.poll() is None:
             return True
         if self.launching:
@@ -40,9 +84,17 @@ class SimService:
         self.stop()
         time.sleep(1)
 
-        launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch.sh")
+        # Pick the launcher: headless uses launch_with_stream.sh (gives us a
+        # browser-watchable camera feed); GUI uses launch.sh (Gazebo window).
+        if headless:
+            launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch_with_stream.sh")
+            launch_args = [world, "--headless"]
+        else:
+            launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch.sh")
+            launch_args = [world]
+
         if not os.path.exists(launch_script):
-            raise FileNotFoundError(f"launch.sh not found at {launch_script}")
+            raise FileNotFoundError(f"launch script not found at {launch_script}")
 
         env = os.environ.copy()
         env.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
@@ -51,7 +103,7 @@ class SimService:
         env["PX4_GZ_MODEL_POSE"] = "5,-4.5,0,0,0,0"
 
         self.process = subprocess.Popen(
-            ["bash", launch_script, "drone_garage_pigeon_3d"],
+            ["bash", launch_script, *launch_args],
             cwd=REPO_ROOT,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -64,15 +116,31 @@ class SimService:
         self._log_lines = []
         self._completed_steps = []
         self._current_step = "cleanup"
+        self._step_substatus = {}
         self.launching = True
+        self._world = world
+        self._headless = headless
+        self._stream_url = None
 
         t = threading.Thread(target=self._wait_for_ready, daemon=True)
         t.start()
         return True
 
     def _mark_step(self, step_id):
-        if self._current_step and self._current_step not in self._completed_steps:
-            self._completed_steps.append(self._current_step)
+        # Idempotent: re-marking the active step doesn't advance past it.
+        if step_id == self._current_step or step_id in self._completed_steps:
+            return
+        # When we jump to step_id, mark every earlier step in LAUNCH_STEPS as
+        # done (the launcher's output order isn't always linear, so skipping
+        # past an intermediate step means it happened off-camera).
+        step_ids = [sid for sid, _ in LAUNCH_STEPS]
+        try:
+            target_idx = step_ids.index(step_id)
+        except ValueError:
+            target_idx = len(step_ids)
+        for sid in step_ids[:target_idx]:
+            if sid not in self._completed_steps:
+                self._completed_steps.append(sid)
         self._current_step = step_id
 
     def _wait_for_ready(self):
@@ -84,22 +152,64 @@ class SimService:
                 if len(self._log_lines) > 500:
                     self._log_lines = self._log_lines[-200:]
 
-                # Track launch stages
-                if "Clean" in line and "Cleaning" not in line:
+                # Capture stream URL from headless launcher banner
+                # (e.g., "Stream: http://localhost:8080/")
+                if self._headless and self._stream_url is None and "Stream:" in line:
+                    m = _STREAM_URL_RE.search(line)
+                    if m:
+                        self._stream_url = m.group(0).rstrip("/")
+
+                # Substatus updates (live progress within the active step)
+                if self._current_step == "build":
+                    sub = _build_substatus(line)
+                    if sub:
+                        self._step_substatus["build"] = sub
+                elif self._current_step == "gazebo_start" and ("gz sim" in line or "Gazebo" in line):
+                    if "Headless" in line:
+                        self._step_substatus["gazebo_start"] = "Starting headless gz sim"
+                    elif "Waiting for Gazebo" in line:
+                        self._step_substatus["gazebo_start"] = "Waiting for Gazebo to come up"
+                elif self._current_step == "gazebo_world" and "world" in line.lower():
+                    self._step_substatus["gazebo_world"] = line[:80]
+                elif self._current_step == "spawn":
+                    if "model pose" in line.lower():
+                        self._step_substatus["spawn"] = f"Spawning at {line.split(':', 1)[-1].strip()[:40]}"
+                    elif "model:" in line.lower():
+                        self._step_substatus["spawn"] = f"Spawning {line.split('model:', 1)[-1].strip()[:40]}"
+                elif self._current_step == "sensors":
+                    if "ekf2" in line.lower() and "origin" in line.lower():
+                        self._step_substatus["sensors"] = "EKF2 establishing NED origin"
+                    elif "uxrce_dds" in line.lower():
+                        self._step_substatus["sensors"] = "Initializing uxrce_dds_client"
+                    elif "mavlink" in line.lower() and "mode:" in line.lower():
+                        self._step_substatus["sensors"] = "Starting MAVLink"
+                elif self._current_step == "startup" and "commander" in line.lower():
+                    self._step_substatus["startup"] = "Sending commander init commands"
+
+                # Track launch stages. Order matters: more-specific PX4-startup
+                # markers must beat the loose cmake/build-output matchers above.
+                if "Startup script returned" in line:
+                    pass  # handled below
+                elif "INFO  [init] Gazebo simulator" in line or "Starting gazebo" in line:
+                    self._mark_step("gazebo_start")
+                elif "INFO  [init] Gazebo world is ready" in line or "Gazebo world is ready" in line:
+                    self._mark_step("gazebo_world")
+                elif "INFO  [init] Spawning Gazebo model" in line:
+                    self._mark_step("spawn")
+                elif "INFO  [gz_bridge]" in line:
+                    # The actual gz_bridge runtime module logs with this prefix;
+                    # cmake-stage output never does.
+                    self._mark_step("sensors")
+                elif "Clean" in line and "Cleaning" not in line:
                     self._mark_step("airframe")
                 elif "Copying airframe" in line:
                     self._mark_step("build")
-                elif "Building PX4" in line or "ninja" in line.lower():
+                elif "Building PX4" in line:
                     self._mark_step("build")
-                elif "Starting gazebo" in line or "Starting gz" in line:
-                    self._mark_step("gazebo_start")
-                elif "Gazebo world is ready" in line:
-                    self._mark_step("gazebo_world")
-                elif "Spawning" in line:
-                    self._mark_step("spawn")
-                elif "gz_bridge" in line:
-                    self._mark_step("sensors")
-                elif "Startup script returned" in line:
+                # NOTE: removed "ninja" matcher -- it triggered on cmake's
+                # "-GNinja" generator argument echoed during configure.
+
+                if "Startup script returned" in line:
                     self._mark_step("startup")
                     self._mark_step("ekf_origin")
                     # Send EKF origin and heading
@@ -141,6 +251,8 @@ class SimService:
         self.launching = False
         self._completed_steps = []
         self._current_step = None
+        self._step_substatus = {}
+        self._stream_url = None
         if self.process:
             try:
                 self.process.kill()
@@ -150,6 +262,8 @@ class SimService:
 
         subprocess.run(["pkill", "-f", "gz sim"], capture_output=True)
         subprocess.run(["pkill", "-x", "px4"], capture_output=True)
+        # Also kill stream camera workers spawned by launch_with_stream.sh
+        subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
         for f in ["/tmp/px4_lock-0", "/tmp/px4-sock-0"]:
             try:
                 os.remove(f)
@@ -172,8 +286,26 @@ class SimService:
                 status = "active"
             else:
                 status = "pending"
-            steps.append({"id": step_id, "label": label, "status": status})
+            steps.append({
+                "id": step_id,
+                "label": label,
+                "status": status,
+                "substatus": self._step_substatus.get(step_id, ""),
+            })
         return {"steps": steps}
 
     def get_log(self, n=50) -> list:
         return self._log_lines[-n:]
+
+    @property
+    def world(self) -> str:
+        return self._world
+
+    @property
+    def headless(self) -> bool:
+        return self._headless
+
+    @property
+    def stream_url(self) -> Optional[str]:
+        """Browser-viewable camera stream URL, or None for GUI mode / not ready yet."""
+        return self._stream_url

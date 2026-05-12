@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import SimControl from '../components/SimControl';
 import FlightHistory from '../components/FlightHistory';
 import FlightModal from '../components/FlightModal';
-import { Flight, SimStatus, FlightStatus } from '../types/flight';
+import { Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams } from '../types/flight';
 import * as api from '../services/api';
 
 export default function Dashboard() {
@@ -24,7 +24,15 @@ export default function Dashboard() {
         const status = await api.getSimStatus();
         setSimStatus(status);
       } catch {
-        setSimStatus({ connected: false, launching: false, log: [], progress: { steps: [] } });
+        setSimStatus({
+          connected: false,
+          launching: false,
+          log: [],
+          progress: { steps: [] },
+          world: '',
+          headless: false,
+          streamUrl: null,
+        });
       }
     }, 3000);
     return () => clearInterval(poll);
@@ -49,11 +57,11 @@ export default function Dashboard() {
     }
   }, [activeTab]);
 
-  const handleConnect = useCallback(async () => {
+  const handleConnect = useCallback(async (params: ConnectSimParams) => {
     setIsConnecting(true);
     setError(null);
     try {
-      const result = await api.connectSim();
+      const result = await api.connectSim(params);
       if (!result.success) setError(result.error || 'Failed to connect');
     } catch (e: any) {
       setError(e.message);
@@ -64,17 +72,25 @@ export default function Dashboard() {
   const handleDisconnect = useCallback(async () => {
     try {
       await api.disconnectSim();
-      setSimStatus({ connected: false, launching: false, log: [], progress: { steps: [] } });
+      setSimStatus({
+        connected: false,
+        launching: false,
+        log: [],
+        progress: { steps: [] },
+        world: '',
+        headless: false,
+        streamUrl: null,
+      });
       setFlightStatus(null);
     } catch (e: any) {
       setError(e.message);
     }
   }, []);
 
-  const handleStartFlight = useCallback(async () => {
+  const handleStartFlight = useCallback(async (params: StartFlightParams) => {
     setError(null);
     try {
-      const result = await api.startFlight();
+      const result = await api.startFlight(params);
       if (result.success) {
         setFlightStartTime(new Date());
       } else {

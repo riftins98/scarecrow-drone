@@ -760,3 +760,156 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #4a4a4a;
 }
+
+/* --- Sim configuration form (pre-connect) --- */
+.sim-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 18px 0 22px;
+}
+.sim-config-form .form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sim-config-form .form-label {
+  font-size: 0.85em;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.sim-config-form select,
+.script-config select,
+.script-args input,
+.script-args select {
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 0.95em;
+}
+.sim-config-form select:focus,
+.script-config select:focus,
+.script-args input:focus,
+.script-args select:focus {
+  outline: none;
+  border-color: #5a8;
+}
+.sim-config-form fieldset {
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 0;
+}
+.sim-config-form fieldset legend {
+  padding: 0 6px;
+}
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.radio-option input[type="radio"] {
+  accent-color: #5a8;
+}
+
+/* --- Stream link (post-connect, headless mode) --- */
+.stream-link {
+  background: #1a3a2a;
+  border: 1px solid #2a5a3a;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  font-size: 0.9em;
+}
+.stream-link a {
+  color: #6cc;
+  text-decoration: none;
+}
+.stream-link a:hover {
+  text-decoration: underline;
+}
+
+/* --- Script picker + argument form (post-connect) --- */
+.script-config {
+  margin: 18px 0;
+  padding: 14px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+}
+.script-config .form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.script-config .form-label {
+  font-size: 0.85em;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.script-description {
+  font-size: 0.88em;
+  color: #aaa;
+  margin: 6px 0 12px;
+  font-style: italic;
+}
+.script-warning {
+  font-size: 0.85em;
+  color: #d8a05a;
+  margin: 6px 0 12px;
+}
+.script-args {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #2a2a2a;
+}
+.arg-field {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9em;
+}
+.arg-field.arg-bool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.arg-label {
+  color: #ccc;
+  font-family: monospace;
+}
+.arg-help {
+  font-size: 0.8em;
+  color: #888;
+  grid-column: 2;
+}
+.arg-field input[type="checkbox"] {
+  accent-color: #5a8;
+}
+
+/* --- Launch checklist substatus (per-step live progress) --- */
+.checklist-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.checklist-substatus {
+  font-size: 0.78em;
+  color: #888;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 540px;
+}

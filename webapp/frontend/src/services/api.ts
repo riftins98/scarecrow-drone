@@ -1,3 +1,5 @@
+import { ConnectSimParams, StartFlightParams } from '../types/flight';
+
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://127.0.0.1:8000';
 
 async function fetchJson(url: string, options?: RequestInit) {
@@ -9,13 +11,24 @@ async function fetchJson(url: string, options?: RequestInit) {
   return res.json();
 }
 
+function postJson<T>(url: string, body?: T) {
+  return fetchJson(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
 // Sim connection
-export const connectSim = () => fetchJson('/api/sim/connect', { method: 'POST' });
+export const connectSim = (params?: ConnectSimParams) =>
+  postJson('/api/sim/connect', params || {});
 export const disconnectSim = () => fetchJson('/api/sim/connect', { method: 'DELETE' });
 export const getSimStatus = () => fetchJson('/api/sim/status');
+export const getSimOptions = () => fetchJson('/api/sim/options');
 
 // Flight control
-export const startFlight = () => fetchJson('/api/flight/start', { method: 'POST' });
+export const startFlight = (params?: StartFlightParams) =>
+  postJson('/api/flight/start', params || {});
 export const stopFlight = () => fetchJson('/api/flight/stop', { method: 'POST' });
 export const getFlightStatus = () => fetchJson('/api/flight/status');
 

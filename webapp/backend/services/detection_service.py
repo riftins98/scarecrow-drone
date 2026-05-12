@@ -9,6 +9,9 @@ from typing import Optional, Callable
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+DEFAULT_SCRIPT = "demo_flight_v2.py"
+SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts", "flight")
+
 
 class DetectionService:
     def __init__(self):
@@ -23,10 +26,38 @@ class DetectionService:
         self._on_detection: Optional[Callable] = None
         self._last_error: Optional[str] = None
         self._output_lines: list = []
+        # Script chosen for this run (None until start() is called).
+        self.current_script: Optional[str] = None
+        self.current_script_args: dict = {}
 
-    def start(self, flight_id: str, on_detection: Optional[Callable] = None) -> bool:
-        """Start the detection script as a subprocess."""
+    def start(self, flight_id: str,
+              on_detection: Optional[Callable] = None,
+              script_name: str = DEFAULT_SCRIPT,
+              script_args: Optional[dict] = None) -> bool:
+        """Start a flight script as a subprocess.
+
+        Args:
+            flight_id: Per-flight identifier (also passed to scripts that
+                accept --flight-id).
+            on_detection: Callback invoked when a DETECTION_IMAGE line is
+                parsed. Signature: ``(flight_id, img_path) -> None``.
+            script_name: Filename inside scripts/flight/ (defaults to the v2
+                detection mission for backwards compat).
+            script_args: ``{name: value}`` map of CLI args to pass. Each key
+                gets passed as ``--<key-with-dashes> <value>``. Bool values
+                become bare flags (or are omitted when False). ``flight_id``
+                is always added (unless the script doesn't take it).
+        """
         if self.running:
+            return False
+
+        # Resolve and validate the script.
+        flight_script = os.path.join(SCRIPTS_DIR, script_name)
+        if not os.path.isfile(flight_script):
+            self._last_error = f"script not found: {script_name}"
+            return False
+        if not script_name.endswith(".py"):
+            self._last_error = f"not a python script: {script_name}"
             return False
 
         self.flight_id = flight_id
@@ -36,8 +67,10 @@ class DetectionService:
         self.video_path = None
         self.latest_telemetry = {}
         self._on_detection = on_detection
-
-        flight_script = os.path.join(REPO_ROOT, "scripts", "flight", "demo_flight_v2.py")
+        self._last_error = None
+        self._output_lines = []
+        self.current_script = script_name
+        self.current_script_args = dict(script_args or {})
 
         # Output dir per flight
         output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
@@ -46,11 +79,16 @@ class DetectionService:
         env = os.environ.copy()
         env["GZ_PARTITION"] = "px4"
 
+        cmd = ["python3", flight_script]
+        cmd.extend(self._format_cli_args(script_args or {}))
+        # Always pass --flight-id; scripts that don't accept it will error,
+        # but the standard ones do. The dict-based args interface already
+        # lets the user override this if they want.
+        if not any(arg == "--flight-id" for arg in cmd):
+            cmd.extend(["--flight-id", flight_id])
+
         self.process = subprocess.Popen(
-            [
-                "python3", flight_script,
-                "--flight-id", flight_id,
-            ],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -63,6 +101,33 @@ class DetectionService:
         t = threading.Thread(target=self._monitor, daemon=True)
         t.start()
         return True
+
+    @staticmethod
+    def _format_cli_args(script_args: dict) -> list[str]:
+        """Convert a {name: value} dict into a list of ``--flag value`` tokens.
+
+        Conventions:
+        - Keys with underscores become dashes: ``target_alt`` -> ``--target-alt``.
+        - bool True -> bare flag (``--show``).
+        - bool False -> omitted entirely (matches argparse store_true semantics).
+        - None / empty string -> omitted.
+        - Lists -> repeated flag with each value.
+        """
+        out: list[str] = []
+        for raw_name, value in script_args.items():
+            flag = "--" + raw_name.replace("_", "-")
+            if value is None or value == "":
+                continue
+            if isinstance(value, bool):
+                if value:
+                    out.append(flag)
+                continue
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    out.extend([flag, str(item)])
+                continue
+            out.extend([flag, str(value)])
+        return out
 
     def _monitor(self):
         """Monitor detection subprocess stdout for protocol lines.

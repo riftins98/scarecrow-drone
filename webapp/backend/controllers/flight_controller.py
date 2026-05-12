@@ -4,7 +4,10 @@ Covers:
   - Legacy (kept for frontend compatibility): /api/flight/start, /stop, /status
   - ADD A.4 flight history: /api/flights, /api/flights/{id}, /summary, /telemetry, /images, /recording, DELETE
 """
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from dependencies import (
     sim_service,
@@ -19,11 +22,21 @@ router = APIRouter(tags=["flights"])
 _detection_image_repo = DetectionImageRepository()
 
 
+class FlightStartRequest(BaseModel):
+    script: Optional[str] = None             # filename inside scripts/flight/
+    args: Optional[dict] = None              # {arg_name: value, ...}
+
+
 # --- Legacy detection-flight endpoints (used by existing frontend) ---
 
 @router.post("/api/flight/start")
-async def start_flight_legacy():
-    """Start pigeon detection session (legacy endpoint, kept for current frontend)."""
+async def start_flight_legacy(req: Optional[FlightStartRequest] = None):
+    """Start a flight script as a subprocess.
+
+    Optional body:
+        {"script": "demo_flight_v2.py", "args": {"target_alt": 2.0}}
+    No body / empty body falls back to demo_flight_v2.py with no args.
+    """
     if not sim_service.is_connected:
         raise HTTPException(400, "Simulation not running")
     if detection_service.running:
@@ -34,12 +47,29 @@ async def start_flight_legacy():
     def on_detection(fid, img_path):
         _detection_image_repo.create(fid, img_path)
 
-    ok = flight_service.start_detection(flight.id, on_detection=on_detection)
+    script = (req.script if req else None) or "demo_flight_v2.py"
+    args = (req.args if req else None) or {}
+
+    ok = flight_service.start_detection(
+        flight.id,
+        on_detection=on_detection,
+        script_name=script,
+        script_args=args,
+    )
     if not ok:
         flight_service.flight_repo.fail_flight(flight.id)
-        raise HTTPException(500, "Failed to start detection")
+        # Bubble up the detection_service error so the user knows why
+        raise HTTPException(
+            500,
+            detection_service._last_error or "Failed to start detection",
+        )
 
-    return {"success": True, "flightId": flight.id}
+    return {
+        "success": True,
+        "flightId": flight.id,
+        "script": script,
+        "args": args,
+    }
 
 
 @router.post("/api/flight/stop")
