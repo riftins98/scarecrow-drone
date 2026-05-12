@@ -23,4 +23,3 @@ webapp/backend/database/*.db
 .coverage
 .pytest_cache/
 htmlcov/
-scarecrow/mapped_env/*
