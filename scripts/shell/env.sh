@@ -16,9 +16,28 @@
 #                if a user manually sets SCARECROW_NOLOCKSTEP=1.
 #                Backup at scripts/shell/env.sh.bak. Revert: `mv env.sh.bak env.sh`.
 
-# Resolve repo root (works from any subdirectory)
-export SCARECROW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Resolve repo root. macOS users commonly source this from zsh, where
+# BASH_SOURCE is not populated; keep the original bash behavior elsewhere.
+if [[ "$(uname)" == "Darwin" ]]; then
+    if [ -n "${BASH_SOURCE[0]:-}" ]; then
+        _SCARECROW_ENV_PATH="${BASH_SOURCE[0]}"
+    elif [ -n "${ZSH_VERSION:-}" ]; then
+        _SCARECROW_ENV_PATH="${(%):-%x}"
+    else
+        _SCARECROW_ENV_PATH="$0"
+    fi
+    export SCARECROW_DIR="$(cd "$(dirname "$_SCARECROW_ENV_PATH")/../.." && pwd)"
+    unset _SCARECROW_ENV_PATH
+else
+    export SCARECROW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
 export PX4_DIR="$SCARECROW_DIR/px4"
+
+# On macOS, prefer the repo virtualenv for PX4's Python/CMake probes. Without
+# this, non-interactive launches can pick Homebrew's newest python.
+if [[ "$(uname)" == "Darwin" ]] && [ -x "$SCARECROW_DIR/.venv/bin/python" ]; then
+    export PATH="$SCARECROW_DIR/.venv/bin:$PATH"
+fi
 
 # Gazebo resource paths (includes our custom models and worlds).
 # Note: GZ_SIM_SYSTEM_PLUGIN_PATH is set lower down — it depends on whether
