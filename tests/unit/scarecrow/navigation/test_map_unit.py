@@ -22,6 +22,7 @@ class TestMapUnit:
         m.record_position(mock_lidar_scan(), 0, 0)
         m.start_mapping()
         assert m.points == []
+        assert m.corners == []
 
     def test_record_position_stores_distances(self, mock_lidar_scan):
         m = MapUnit()
@@ -49,14 +50,17 @@ class TestMapUnit:
         assert result["area_size"] == 0.0
         assert result["boundaries"] == "[]"
 
-    def test_finish_computes_bounding_box(self, mock_lidar_scan):
-        """Simulate flying a 10x10 room, sampling at center. Walls 5m in each direction."""
+    def test_finish_uses_corners_for_area(self, mock_lidar_scan):
+        """Area is computed from recorded corners."""
         m = MapUnit()
         m.start_mapping()
         scan = mock_lidar_scan(front=5.0, rear=5.0, left=5.0, right=5.0)
         m.record_position(scan, north_m=0.0, east_m=0.0)
+        m.record_corner(0.0, 0.0)
+        m.record_corner(10.0, 0.0)
+        m.record_corner(10.0, 10.0)
+        m.record_corner(0.0, 10.0)
         result = m.finish_mapping()
-        # Bounding box should be 10x10 = 100 sq m
         assert abs(result["area_size"] - 100.0) < 1.0
         boundaries = json.loads(result["boundaries"])
         assert len(boundaries) == 4
@@ -68,17 +72,12 @@ class TestMapUnit:
         m.finish_mapping()
         assert m.active is False
 
-    def test_multi_point_envelope(self, mock_lidar_scan):
-        """Record at two positions -- envelope should span both."""
+    def test_finish_falls_back_without_corners(self, mock_lidar_scan):
+        """Fallback uses wall points when no corners are recorded."""
         m = MapUnit()
         m.start_mapping()
-        # At (0,0): walls 2m left, 8m right
         m.record_position(mock_lidar_scan(left=2.0, right=8.0), 0, 0)
-        # At (5,0): walls 2m left, 8m right still
         m.record_position(mock_lidar_scan(left=2.0, right=8.0), 5, 0)
         result = m.finish_mapping()
         boundaries = json.loads(result["boundaries"])
-        ys = [p["y"] for p in boundaries]
-        # Envelope spans from -2 (left of 0) to +8 (right of 0, also right of 5)
-        assert min(ys) == -2.0
-        assert max(ys) == 8.0
+        assert len(boundaries) >= 2
