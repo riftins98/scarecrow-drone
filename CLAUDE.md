@@ -31,6 +31,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - `models/` — Gazebo simulation models: drone, sensors, targets, YOLO weights (see `models/CLAUDE.md`)
 - `worlds/` — Gazebo world SDF files (see `worlds/CLAUDE.md`)
 - `tests/` — Pytest unit tests for controllers and repositories (see `tests/CLAUDE.md`)
+- `design-system/` — Visual design system for the webapp (see `design-system/CLAUDE.md`). Read `design-system/scarecrow/MASTER.md` before any UI work.
 - `airframes/` — PX4 airframe configurations
 - `config/` — Gazebo server configuration
 - `docs/` — Implementation plan and specs (see `docs/implementation/README.md`)
@@ -59,8 +60,10 @@ All code, scripts, and tooling MUST work on both macOS and Windows. The team has
 - When in doubt, document in the relevant sub-CLAUDE.md whether a workflow is "WSL on Windows" or "native on both".
 
 ## Recent Changes
-- Webapp UI: pre-connect world + GUI/headless picker, post-connect script picker with dynamic argparse-driven parameter form (`GET /api/sim/options`).
+- Webapp UI overhauled into a military / HUD console: top `HudHeader` (callsign, system-state pill, local clock, indicator lights), scrolling `Ticker`, `TelemetryRail` (ALT/BAT/SIG/RTF + GPS-DENIED badge), vertical `Sidebar` (OPS / DIAGNOSTICS), `Minimap` (top-down garage with obstacle-avoiding drone path), and full-width `SystemLog` (terminal-style mock feed). All in `webapp/frontend/src/components/`.
+- Design system established at `design-system/scarecrow/MASTER.md`. UI work should read it first; future sessions stay visually consistent.
+- `ui-ux-pro-max` skill installed at `.claude/skills/ui-ux-pro-max/`. Python `python3` shim at `~/.local/bin/python3.bat` is required on Windows.
 - Webapp launcher: live per-step substatus (`Compiling [N/1157] ...`, EKF state, etc.) so users see actual progress rather than just "active".
-- Backend: `SimService.launch(world, headless)` captures stream URL from `launch_with_stream.sh`; `DetectionService.start()` accepts script name + arg dict.
+- Backend: `SimService.launch(world, headless)` captures stream URL from `launch_with_stream.sh`; `DetectionService.start()` accepts script name + arg dict; `script_metadata.py` introspects flight scripts via `--help` for the dynamic pre-flight argparse form.
 - `Start Scarecrow.bat` rewritten: auto-installs backend deps, hard-fails if backend doesn't respond, `-d`/`--dev` flag for visible log windows.
 - Drone class honors `MAVSDK_SERVER_ADDRESS` / `MAVSDK_SERVER_PORT` env vars so flight scripts can connect to an externally-launched `mavsdk_server` for debugging.
