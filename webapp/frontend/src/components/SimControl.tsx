@@ -131,9 +131,8 @@ export default function SimControl({
             <div className="launch-checklist">
               {steps.map((step: import('../types/flight').LaunchStep) => (
                 <div key={step.id} className={`checklist-item ${step.status}`}>
-                  <span className="checklist-icon">
-                    {step.status === 'done' ? '✓' :
-                     step.status === 'active' ? '●' : '○'}
+                  <span className="checklist-icon" aria-hidden="true">
+                    <ChecklistIcon status={step.status} />
                   </span>
                   <div className="checklist-text">
                     <span className="checklist-label">{step.label}</span>
@@ -320,11 +319,29 @@ export default function SimControl({
 }
 
 
-/**
- * One form field for a single script argument. Renders different inputs by
- * arg.type: choice -> <select>, bool -> checkbox, int/float -> number, str ->
- * text. Defaults are pre-filled by the parent.
- */
+function ChecklistIcon({ status }: { status: string }) {
+  if (status === 'done') {
+    return (
+      <svg viewBox="0 0 14 14" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 7.5 L5.5 11 L12 3" />
+      </svg>
+    );
+  }
+  if (status === 'active') {
+    return (
+      <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
+        <circle cx="7" cy="7" r="3.5" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 14 14" fill="none" strokeWidth="1.5">
+      <circle cx="7" cy="7" r="4" />
+    </svg>
+  );
+}
+
+
 interface ArgFieldProps {
   arg: ScriptArg;
   value: ScriptArgValues[string];

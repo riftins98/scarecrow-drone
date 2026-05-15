@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import SimControl from '../components/SimControl';
 import FlightHistory from '../components/FlightHistory';
 import FlightModal from '../components/FlightModal';
+import HudHeader from '../components/HudHeader';
+import Sidebar from '../components/Sidebar';
+import TelemetryRail from '../components/TelemetryRail';
+import Minimap from '../components/Minimap';
+import SystemLog from '../components/SystemLog';
+import Ticker from '../components/Ticker';
 import { Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams } from '../types/flight';
 import * as api from '../services/api';
 
@@ -124,47 +130,70 @@ export default function Dashboard() {
     }
   }, []);
 
+  const connected = !!simStatus?.connected;
+  const launching = !!simStatus?.launching;
+  const flying = !!flightStatus?.isFlying;
+
   return (
     <div className="dashboard">
-      <div className="dashboard-header">
-        <h1>Scarecrow Drone</h1>
-        <p>GPS-Denied Pigeon Detection Simulation</p>
-      </div>
+      <HudHeader
+        connected={connected}
+        launching={launching}
+        flying={flying}
+        world={simStatus?.world}
+      />
 
-      <div className="dashboard-nav">
-        <button
-          className={`nav-btn ${activeTab === 'control' ? 'active' : ''}`}
-          onClick={() => setActiveTab('control')}
-        >Drone Control</button>
-        <button
-          className={`nav-btn ${activeTab === 'history' ? 'active' : ''}`}
-          onClick={() => setActiveTab('history')}
-        >Detection History</button>
-      </div>
+      <Ticker connected={connected} flying={flying} />
 
-      {error && (
-        <div className="error-message">{error}</div>
-      )}
+      <TelemetryRail
+        connected={connected}
+        flying={flying}
+      />
 
-      {activeTab === 'control' && (
-        <SimControl
-          simStatus={simStatus}
-          flightStatus={flightStatus}
-          onConnect={handleConnect}
-          onDisconnect={handleDisconnect}
-          onStartFlight={handleStartFlight}
-          onStopFlight={handleStopFlight}
-          isConnecting={isConnecting}
-          flightStartTime={flightStartTime}
+      <div className="dashboard-body">
+        <Sidebar
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          connected={connected}
+          flying={flying}
         />
-      )}
 
-      {activeTab === 'history' && (
-        <FlightHistory
-          flights={flights}
-          onSelectFlight={handleSelectFlight}
-        />
-      )}
+        <main className="dashboard-main">
+          {error && (
+            <div className="error-message">{error}</div>
+          )}
+
+          {activeTab === 'control' && (
+            <>
+              <div className="control-grid">
+                <SimControl
+                  simStatus={simStatus}
+                  flightStatus={flightStatus}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                  onStartFlight={handleStartFlight}
+                  onStopFlight={handleStopFlight}
+                  isConnecting={isConnecting}
+                  flightStartTime={flightStartTime}
+                />
+                <div className="control-side-stack">
+                  <Minimap active={connected} />
+                </div>
+              </div>
+              <div className="lower-grid lower-grid-single">
+                <SystemLog connected={connected} flying={flying} />
+              </div>
+            </>
+          )}
+
+          {activeTab === 'history' && (
+            <FlightHistory
+              flights={flights}
+              onSelectFlight={handleSelectFlight}
+            />
+          )}
+        </main>
+      </div>
 
       {selectedFlight && (
         <FlightModal
