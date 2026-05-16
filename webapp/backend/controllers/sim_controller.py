@@ -68,7 +68,8 @@ async def sim_options():
     Used by the frontend to render the pre-connect world/headless picker and
     the post-connect script picker.
     """
+    fast_metadata = os.getenv("SCARECROW_FAST_SCRIPT_METADATA", "").lower() in ("1", "true", "yes")
     return {
         "worlds": [world_info_to_dict(w) for w in list_worlds(WORLDS_DIR)],
-        "scripts": [script_info_to_dict(s) for s in list_flight_scripts(SCRIPTS_DIR)],
+        "scripts": [script_info_to_dict(s) for s in list_flight_scripts(SCRIPTS_DIR, fast=fast_metadata)],
     }

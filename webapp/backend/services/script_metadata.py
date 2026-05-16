@@ -78,7 +78,8 @@ _HELP_BOILERPLATE = re.compile(
 
 def list_flight_scripts(scripts_dir: str,
                         python_bin: str = DEFAULT_PYTHON_BIN,
-                        timeout_s: float = 8.0) -> list[ScriptInfo]:
+                        timeout_s: float = 8.0,
+                        fast: bool = False) -> list[ScriptInfo]:
     """Return every ``*.py`` in ``scripts_dir``, with parsed argparse metadata.
 
     For each script we run ``python3 <script> --help`` (in a subprocess) and
@@ -93,6 +94,14 @@ def list_flight_scripts(scripts_dir: str,
         if not fname.endswith(".py") or fname.startswith("_"):
             continue
         full = os.path.join(scripts_dir, fname)
+        if fast:
+            info = ScriptInfo(
+                name=fname,
+                path=full,
+                description=_extract_module_docstring(full),
+            )
+            out.append(info)
+            continue
         info = _introspect_script(full, python_bin=python_bin, timeout_s=timeout_s)
         info.name = fname
         out.append(info)
