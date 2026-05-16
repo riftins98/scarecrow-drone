@@ -22,13 +22,13 @@ from pathlib import Path
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from scarecrow.controllers.front_wall_detector import FrontWallDetector
-from scarecrow.controllers.rotation import rotate_90
-from scarecrow.controllers.wall_follow import WallFollowController, VelocityCommand
-from scarecrow.drone import Drone
-from scarecrow.navigation.map_unit import MapUnit
-from scarecrow.sensors.gz_utils import prefetch_gz_env_async
-from scarecrow.sensors.lidar.gazebo import GazeboLidar
+from scarecrow.controllers.front_wall_detector import FrontWallDetector  # noqa: E402
+from scarecrow.controllers.rotation import rotate_90 # noqa: E402
+from scarecrow.controllers.wall_follow import WallFollowController, VelocityCommand # noqa: E402
+from scarecrow.drone import Drone # noqa: E402
+from scarecrow.navigation.map_unit import MapUnit # noqa: E402
+from scarecrow.sensors.gz_utils import prefetch_gz_env_async # noqa: E402
+from scarecrow.sensors.lidar.gazebo import GazeboLidar # noqa: E402
 
 # --- Configuration ---
 SYSTEM_ADDRESS = "udpin://0.0.0.0:14540"
@@ -43,9 +43,9 @@ MAP_RECORD_EVERY = 10
 OUTPUT_ROOT = Path(REPO_ROOT) / "scarecrow" / "mapped_env"
 WALL_FIND_MIN = 0.3
 WALL_FIND_MAX = 8.0
-WALL_FIND_TIMEOUT_S = 20.0
-WALL_FIND_SPEED = 0.3
-CORNER_FIND_SPEED = 0.25
+WALL_FIND_TIMEOUT_S = 240.0
+WALL_FIND_SPEED = 0.5
+CORNER_FIND_SPEED = 0.4
 MAP_MIN_DIST = 0.2
 MAP_MAX_DIST = 20.0
 
@@ -58,6 +58,7 @@ def faster_forward_speed(base_speed: float, multiplier: float = 1.5, max_speed: 
 def _build_map_payload(mapper: MapUnit, output_dir: Path) -> dict:
     result = mapper.finish_mapping()
     boundaries_json = result.get("boundaries", "[]")
+    wall_points = result.get("wall_points", [])
     try:
         boundaries = json.loads(boundaries_json)
     except json.JSONDecodeError:
@@ -73,7 +74,9 @@ def _build_map_payload(mapper: MapUnit, output_dir: Path) -> dict:
         "area_size": result.get("area_size", 0.0),
         "point_count": len(points),
         "map_path": str(map_path),
+        "takeoff_point": mapper.takeoff_point,
         "points": points,
+        "wall_points": wall_points,
         "metadata": {
             "target_alt": TARGET_ALT,
             "wall_distance": WALL_DISTANCE,
@@ -108,9 +111,11 @@ def _scan_valid_for_map(scan) -> bool:
 
 
 async def _move_until_wall(drone: Drone, lidar: GazeboLidar, *, axis: str, speed: float,
-                           min_m: float, max_m: float, timeout_s: float) -> bool:
+                           min_m: float, max_m: float, timeout_s: float,
+                           log_prefix: str = "", log_all: bool = False) -> bool:
     """Move along one axis until the corresponding wall distance is finite and within range."""
     start = time.time()
+    last_log = 0.0
     while time.time() - start < timeout_s:
         scan = lidar.get_scan()
         if scan is not None:
@@ -120,6 +125,25 @@ async def _move_until_wall(drone: Drone, lidar: GazeboLidar, *, axis: str, speed
                 dist = scan.front_distance()
             else:
                 raise ValueError("axis must be 'right' or 'front'")
+            if axis == "front" and not math.isfinite(dist):
+                start = time.time()
+                dist = None
+            if time.time() - last_log >= 1.0:
+                last_log = time.time()
+                dist_str = "inf" if dist is None else f"{dist:.2f}m"
+                if log_all:
+                    front = scan.front_distance()
+                    left = scan.left_distance()
+                    right = scan.right_distance()
+                    front_str = "inf" if not math.isfinite(front) else f"{front:.2f}m"
+                    left_str = "inf" if not math.isfinite(left) else f"{left:.2f}m"
+                    right_str = "inf" if not math.isfinite(right) else f"{right:.2f}m"
+                    print(
+                        f"  {log_prefix}dist={dist_str} target=({min_m:.2f}-{max_m:.2f}m) "
+                        f"front={front_str} left={left_str} right={right_str}"
+                    )
+                else:
+                    print(f"  {log_prefix}dist={dist_str} target=({min_m:.2f}-{max_m:.2f}m)")
             if _valid_distance(dist, min_m=min_m, max_m=max_m):
                 await drone.set_velocity(VelocityCommand())
                 return True
@@ -200,6 +224,11 @@ async def run() -> None:
             f"Left: {scan.left_distance():.1f}m  Right: {scan.right_distance():.1f}m"
         )
 
+    # Record takeoff position before the circuit begins
+    pos = await drone.get_position()
+    mapper.set_takeoff_point(pos.position.north_m, pos.position.east_m)
+    print(f"  Takeoff point recorded: ({pos.position.north_m:.2f}, {pos.position.east_m:.2f})")
+
     print("\n--- Starting Wall Follow ---")
     print(f"  Target: {WALL_DISTANCE}m from left wall, {FORWARD_SPEED} m/s forward")
     print(f"  Stop when: {FRONT_STOP_DISTANCE}m from front wall")
@@ -211,23 +240,7 @@ async def run() -> None:
         return
     print("  Offboard mode active")
 
-    print("\n--- Finding Right Wall ---")
-    if not await _move_until_wall(
-        drone,
-        lidar,
-        axis="right",
-        speed=WALL_FIND_SPEED,
-        min_m=WALL_FIND_MIN,
-        max_m=WALL_FIND_MAX,
-        timeout_s=WALL_FIND_TIMEOUT_S,
-    ):
-        print("  ERROR: Could not find right wall")
-        await drone.emergency_land()
-        if lidar is not None:
-            lidar.stop()
-        return
-
-    print("  Turning to corner...")
+    print("\n--- Turn Right (1/2) ---")
     ok = await rotate_90(drone.system, lidar, direction="right")
     if not ok:
         print("  ERROR: Rotation failed")
@@ -236,17 +249,55 @@ async def run() -> None:
             lidar.stop()
         return
 
-    print("\n--- Finding Corner ---")
+    print("\n--- Approach Wall (1/2) ---")
     if not await _move_until_wall(
         drone,
         lidar,
         axis="front",
         speed=CORNER_FIND_SPEED,
-        min_m=WALL_FIND_MIN,
-        max_m=FRONT_STOP_DISTANCE + 0.5,
+        min_m=0.1,
+        max_m=2.2,
         timeout_s=WALL_FIND_TIMEOUT_S,
+        log_prefix="corner-1: ",
+        log_all=True,
     ):
-        print("  ERROR: Could not find corner wall")
+        print("  ERROR: Could not reach wall (1/2)")
+        await drone.emergency_land()
+        if lidar is not None:
+            lidar.stop()
+        return
+
+    print("\n--- Turn Right (2/2) ---")
+    ok = await rotate_90(drone.system, lidar, direction="right")
+    if not ok:
+        print("  ERROR: Rotation failed")
+        await drone.emergency_land()
+        if lidar is not None:
+            lidar.stop()
+        return
+
+    print("\n--- Approach Wall (2/2) ---")
+    if not await _move_until_wall(
+        drone,
+        lidar,
+        axis="front",
+        speed=CORNER_FIND_SPEED,
+        min_m=0.1,
+        max_m=2.2,
+        timeout_s=WALL_FIND_TIMEOUT_S,
+        log_prefix="corner-2: ",
+        log_all=True,
+    ):
+        print("  ERROR: Could not reach wall (2/2)")
+        await drone.emergency_land()
+        if lidar is not None:
+            lidar.stop()
+        return
+
+    print("\n--- Turn Right (start mapping) ---")
+    ok = await rotate_90(drone.system, lidar, direction="right")
+    if not ok:
+        print("  ERROR: Rotation failed")
         await drone.emergency_land()
         if lidar is not None:
             lidar.stop()
@@ -254,6 +305,8 @@ async def run() -> None:
 
     mapper.start_mapping()
     output_dir = OUTPUT_ROOT / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    pos = await drone.get_position()
+    mapper.record_corner(pos.position.north_m, pos.position.east_m)
 
     forward_speed = faster_forward_speed(FORWARD_SPEED)
     controller = WallFollowController(
@@ -310,6 +363,9 @@ async def run() -> None:
                 if _scan_valid_for_map(scan):
                     pos = await drone.get_position()
                     mapper.record_position(scan, pos.position.north_m, pos.position.east_m)
+
+                pos = await drone.get_position()
+                mapper.record_corner(pos.position.north_m, pos.position.east_m)
 
                 await drone.set_velocity(VelocityCommand())
                 print("  Turning corner...")
