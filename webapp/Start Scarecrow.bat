@@ -33,10 +33,10 @@ for /f "usebackq delims=" %%H in (`wsl -- bash -c "echo $HOME"`) do set "WSL_HOM
 if "%WSL_HOME%"=="" (
     echo ERROR: Could not resolve WSL $HOME. Is WSL configured for a user?
     pause
-    exit /b 1
+    exit /b 1`
 )
 set "WSL_REPO=%WSL_HOME%/scarecrow-drone"
-set "WSL_VENV=%WSL_REPO%/.venv-mavsdk/bin/activate"
+set "WSL_VENV=%WSL_REPO%/.venv/bin/activate"
 set "WSL_BACKEND=%WSL_REPO%/webapp/backend"
 set "FRONTEND_DIR=%~dp0frontend"
 
@@ -56,8 +56,8 @@ if errorlevel 1 (
     echo Create it first:
     echo   wsl
     echo   cd %WSL_REPO%
-    echo   python3 -m venv .venv-mavsdk
-    echo   source .venv-mavsdk/bin/activate
+    echo   python3 -m venv .venv
+    echo   source .venv/bin/activate
     echo   pip install -r requirements.txt
     pause
     exit /b 1
