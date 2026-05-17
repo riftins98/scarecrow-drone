@@ -491,8 +491,10 @@
     </model>
 
     <!-- ==================== CEILING STRUCTURE ==================== -->
-    <!-- Requested beam-only structure: 2 length dividers + 5 width dividers, with X-bracing in every cell -->
-        <model name="ceiling_beam_grid">
+    <!-- Straight beam grid: 5 length dividers + 2 width dividers, creating a
+         6-by-3 ceiling grid. Diagonal X-bracing remains disabled for flight
+         stability. -->
+    <model name="ceiling_beam_grid">
       <static>true</static><pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="c_long_m8"><pose>-8 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
@@ -509,85 +511,23 @@
         <visual name="v_short_m2p5"><pose>0 -2.5 4.9 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
         <collision name="c_short_2p5"><pose>0 2.5 4.9 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry></collision>
         <visual name="v_short_2p5"><pose>0 2.5 4.9 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
-        <collision name="c_xa_1"><pose>-10 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_1"><pose>-10 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_1"><pose>-10 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_1"><pose>-10 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_2"><pose>-10 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_2"><pose>-10 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_2"><pose>-10 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_2"><pose>-10 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_3"><pose>-10 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_3"><pose>-10 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_3"><pose>-10 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_3"><pose>-10 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_4"><pose>-6 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_4"><pose>-6 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_4"><pose>-6 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_4"><pose>-6 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_5"><pose>-6 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_5"><pose>-6 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_5"><pose>-6 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_5"><pose>-6 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_6"><pose>-6 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_6"><pose>-6 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_6"><pose>-6 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_6"><pose>-6 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_7"><pose>-2 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_7"><pose>-2 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_7"><pose>-2 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_7"><pose>-2 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_8"><pose>-2 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_8"><pose>-2 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_8"><pose>-2 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_8"><pose>-2 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_9"><pose>-2 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_9"><pose>-2 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_9"><pose>-2 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_9"><pose>-2 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_10"><pose>2 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_10"><pose>2 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_10"><pose>2 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_10"><pose>2 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_11"><pose>2 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_11"><pose>2 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_11"><pose>2 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_11"><pose>2 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_12"><pose>2 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_12"><pose>2 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_12"><pose>2 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_12"><pose>2 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_13"><pose>6 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_13"><pose>6 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_13"><pose>6 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_13"><pose>6 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_14"><pose>6 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_14"><pose>6 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_14"><pose>6 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_14"><pose>6 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_15"><pose>6 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_15"><pose>6 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_15"><pose>6 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_15"><pose>6 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_16"><pose>10 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_16"><pose>10 -5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_16"><pose>10 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_16"><pose>10 -5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_17"><pose>10 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_17"><pose>10 0 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_17"><pose>10 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_17"><pose>10 0 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xa_18"><pose>10 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xa_18"><pose>10 5 4.9 0 0 0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
-        <collision name="c_xb_18"><pose>10 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry></collision>
-        <visual name="v_xb_18"><pose>10 5 4.9 0 0 -0.896055</pose><geometry><box><size>6.4031242 0.25 0.25</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+        <!-- Diagonal X-bracing intentionally disabled. -->
       </link>
     </model>
-    <!-- Collision proxy for net (single lightweight sheet for stable physics) -->
+    <!-- Collision proxy for ceiling/net: one lightweight solid sheet to keep
+         the hangar closed without the expensive beam collision grid. -->
     <model name="ceiling_mesh_net_collision">
       <static>true</static><pose>0 0 4.91 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>24.0 15.0</size></plane></geometry></collision>
+        <collision name="c"><geometry><box><size>24.0 15.0 0.08</size></box></geometry></collision>
+        <visual name="rangefinder_target">
+          <geometry><box><size>24.0 15.0 0.08</size></box></geometry>
+          <material>
+            <ambient>0.62 0.62 0.65 1</ambient>
+            <diffuse>0.62 0.62 0.65 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
       </link>
     </model>
 

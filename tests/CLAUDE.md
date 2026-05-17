@@ -58,7 +58,7 @@ pytest --cov=webapp/backend --cov=scarecrow     # with coverage report
 ## Subdirectories
 - `unit/` — Test files organized by source package to mirror the codebase:
   - `unit/scarecrow/controllers/` — WallFollow, DistanceStabilizer, FrontWallDetector
-  - `unit/scarecrow/sensors/` — LidarScan, GazeboLidar topic discovery, gz_utils prefetch
+  - `unit/scarecrow/sensors/` — LidarScan, GazeboLidar topic discovery, single-ray rangefinder parsing/topic discovery, gz_utils prefetch
   - `unit/scarecrow/detection/` — YoloDetector (rate limiting, callback, preload_async)
   - `unit/scarecrow/navigation/` — NavigationUnit, MapUnit
   - `unit/scarecrow/flight/` — Flight orchestrator
