@@ -81,9 +81,9 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_RETURN_CEILING_CLEARANCE,
         help="After the near-ceiling hover, descend until TF-Luna reads this ceiling clearance.",
     )
-    parser.add_argument("--climb-speed", type=float, default=0.18, help="m/s upward")
+    parser.add_argument("--climb-speed", type=float, default=0.30, help="m/s upward")
     parser.add_argument("--descend-speed", type=float, default=0.20, help="m/s downward")
-    parser.add_argument("--max-climb-seconds", type=float, default=30.0)
+    parser.add_argument("--max-climb-seconds", type=float, default=60.0)
     parser.add_argument("--max-descend-seconds", type=float, default=30.0)
     parser.add_argument("--system-address", default=SYSTEM_ADDRESS)
     return parser.parse_args()

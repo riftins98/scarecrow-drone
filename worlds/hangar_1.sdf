@@ -455,38 +455,68 @@
       </visual></link>
     </model>
 
-    <!-- ==================== WALLS & CEILING (20m x 15m x 3m) ==================== -->
-    <!-- North wall (X=+10) -->
+    <!-- ==================== WALLS & CEILING (24m x 15m x 8m) ==================== -->
+    <!-- North wall (X=+12.1) -->
     <model name="wall_north">
-      <static>true</static><pose>12.1 0 2.5 0 0 0</pose>
+      <static>true</static><pose>12.1 0 4.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.2 15.4 5.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.2 15.4 5.0</size></box></geometry>
-          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.2 15.4 8.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.2 15.4 8.0</size></box></geometry>
+          <material><ambient>0.42 0.44 0.45 1</ambient><diffuse>0.42 0.44 0.45 1</diffuse><specular>0.18 0.18 0.18 1</specular></material></visual>
+      </link>
+    </model>
+    <model name="wall_east_inner_structure">
+      <static>true</static><pose>0 7.48 0 0 0 0</pose>
+      <link name="link">
+        <!-- Visual-only steel frame and louver band inspired by the reference hangar wall. -->
+        <visual name="clerestory_white_panel_1"><pose>-9.0 0 4.85 0 0 0</pose><geometry><box><size>5.0 0.035 0.8</size></box></geometry><material><ambient>0.92 0.92 0.88 1</ambient><diffuse>0.92 0.92 0.88 1</diffuse><emissive>0.18 0.18 0.16 1</emissive></material></visual>
+        <visual name="clerestory_white_panel_2"><pose>-3.0 0 4.85 0 0 0</pose><geometry><box><size>5.0 0.035 0.8</size></box></geometry><material><ambient>0.92 0.92 0.88 1</ambient><diffuse>0.92 0.92 0.88 1</diffuse><emissive>0.18 0.18 0.16 1</emissive></material></visual>
+        <visual name="clerestory_white_panel_3"><pose>3.0 0 4.85 0 0 0</pose><geometry><box><size>5.0 0.035 0.8</size></box></geometry><material><ambient>0.92 0.92 0.88 1</ambient><diffuse>0.92 0.92 0.88 1</diffuse><emissive>0.18 0.18 0.16 1</emissive></material></visual>
+        <visual name="clerestory_white_panel_4"><pose>9.0 0 4.85 0 0 0</pose><geometry><box><size>5.0 0.035 0.8</size></box></geometry><material><ambient>0.92 0.92 0.88 1</ambient><diffuse>0.92 0.92 0.88 1</diffuse><emissive>0.18 0.18 0.16 1</emissive></material></visual>
+
+        <visual name="louver_panel_1"><pose>-10.0 0 6.25 0 0 0</pose><geometry><box><size>3.2 0.04 1.1</size></box></geometry><material><ambient>0.58 0.39 0.22 1</ambient><diffuse>0.58 0.39 0.22 1</diffuse><specular>0.08 0.06 0.04 1</specular></material></visual>
+        <visual name="louver_panel_2"><pose>-6.0 0 6.25 0 0 0</pose><geometry><box><size>3.2 0.04 1.1</size></box></geometry><material><ambient>0.58 0.39 0.22 1</ambient><diffuse>0.58 0.39 0.22 1</diffuse><specular>0.08 0.06 0.04 1</specular></material></visual>
+        <visual name="louver_panel_3"><pose>-2.0 0 6.25 0 0 0</pose><geometry><box><size>3.2 0.04 1.1</size></box></geometry><material><ambient>0.58 0.39 0.22 1</ambient><diffuse>0.58 0.39 0.22 1</diffuse><specular>0.08 0.06 0.04 1</specular></material></visual>
+        <visual name="louver_panel_4"><pose>2.0 0 6.25 0 0 0</pose><geometry><box><size>3.2 0.04 1.1</size></box></geometry><material><ambient>0.58 0.39 0.22 1</ambient><diffuse>0.58 0.39 0.22 1</diffuse><specular>0.08 0.06 0.04 1</specular></material></visual>
+        <visual name="louver_panel_5"><pose>6.0 0 6.25 0 0 0</pose><geometry><box><size>3.2 0.04 1.1</size></box></geometry><material><ambient>0.58 0.39 0.22 1</ambient><diffuse>0.58 0.39 0.22 1</diffuse><specular>0.08 0.06 0.04 1</specular></material></visual>
+        <visual name="louver_panel_6"><pose>10.0 0 6.25 0 0 0</pose><geometry><box><size>3.2 0.04 1.1</size></box></geometry><material><ambient>0.58 0.39 0.22 1</ambient><diffuse>0.58 0.39 0.22 1</diffuse><specular>0.08 0.06 0.04 1</specular></material></visual>
+
+        <visual name="frame_post_1"><pose>-11.4 0 3.55 0 0 0</pose><geometry><box><size>0.14 0.12 6.9</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_post_2"><pose>-8.0 0 3.55 0 0 0</pose><geometry><box><size>0.14 0.12 6.9</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_post_3"><pose>-4.0 0 3.55 0 0 0</pose><geometry><box><size>0.14 0.12 6.9</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_post_4"><pose>0 0 3.55 0 0 0</pose><geometry><box><size>0.14 0.12 6.9</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_post_5"><pose>4.0 0 3.55 0 0 0</pose><geometry><box><size>0.14 0.12 6.9</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_post_6"><pose>8.0 0 3.55 0 0 0</pose><geometry><box><size>0.14 0.12 6.9</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_post_7"><pose>11.4 0 3.55 0 0 0</pose><geometry><box><size>0.14 0.12 6.9</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+
+        <visual name="frame_bottom_rail"><pose>0 0 4.38 0 0 0</pose><geometry><box><size>23.2 0.12 0.12</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_mid_rail"><pose>0 0 5.45 0 0 0</pose><geometry><box><size>23.2 0.12 0.12</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="frame_top_rail"><pose>0 0 6.92 0 0 0</pose><geometry><box><size>23.2 0.12 0.14</size></box></geometry><material><ambient>0.34 0.36 0.37 1</ambient><diffuse>0.34 0.36 0.37 1</diffuse><specular>0.25 0.25 0.25 1</specular></material></visual>
+        <visual name="thin_red_pipe"><pose>0 -0.01 5.38 0 0 0</pose><geometry><box><size>22.8 0.04 0.04</size></box></geometry><material><ambient>0.45 0.12 0.07 1</ambient><diffuse>0.45 0.12 0.07 1</diffuse></material></visual>
       </link>
     </model>
     <model name="wall_south">
-      <static>true</static><pose>-12.1 0 2.5 0 0 0</pose>
+      <static>true</static><pose>-12.1 0 4.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>0.2 15.4 5.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.2 15.4 5.0</size></box></geometry>
-          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>0.2 15.4 8.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.2 15.4 8.0</size></box></geometry>
+          <material><ambient>0.42 0.44 0.45 1</ambient><diffuse>0.42 0.44 0.45 1</diffuse><specular>0.18 0.18 0.18 1</specular></material></visual>
       </link>
     </model>
     <model name="wall_east">
-      <static>true</static><pose>0 7.6 2.5 0 0 0</pose>
+      <static>true</static><pose>0 7.6 4.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>24.0 0.2 5.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>24.0 0.2 5.0</size></box></geometry>
-          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>24.0 0.2 8.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>24.0 0.2 8.0</size></box></geometry>
+          <material><ambient>0.42 0.44 0.45 1</ambient><diffuse>0.42 0.44 0.45 1</diffuse><specular>0.18 0.18 0.18 1</specular></material></visual>
       </link>
     </model>
     <model name="wall_west">
-      <static>true</static><pose>0 -7.6 2.5 0 0 0</pose>
+      <static>true</static><pose>0 -7.6 4.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>24.0 0.2 5.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>24.0 0.2 5.0</size></box></geometry>
-          <material><ambient>0.6 0.6 0.55 1</ambient><diffuse>0.6 0.6 0.55 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>24.0 0.2 8.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>24.0 0.2 8.0</size></box></geometry>
+          <material><ambient>0.42 0.44 0.45 1</ambient><diffuse>0.42 0.44 0.45 1</diffuse><specular>0.18 0.18 0.18 1</specular></material></visual>
       </link>
     </model>
 
@@ -497,27 +527,27 @@
     <model name="ceiling_beam_grid">
       <static>true</static><pose>0 0 0 0 0 0</pose>
       <link name="link">
-        <collision name="c_long_m8"><pose>-8 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
-        <visual name="v_long_m8"><pose>-8 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
-        <collision name="c_long_m4"><pose>-4 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
-        <visual name="v_long_m4"><pose>-4 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
-        <collision name="c_long_0"><pose>0 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
-        <visual name="v_long_0"><pose>0 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
-        <collision name="c_long_4"><pose>4 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
-        <visual name="v_long_4"><pose>4 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
-        <collision name="c_long_8"><pose>8 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
-        <visual name="v_long_8"><pose>8 0 4.9 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
-        <collision name="c_short_m2p5"><pose>0 -2.5 4.9 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry></collision>
-        <visual name="v_short_m2p5"><pose>0 -2.5 4.9 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
-        <collision name="c_short_2p5"><pose>0 2.5 4.9 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry></collision>
-        <visual name="v_short_2p5"><pose>0 2.5 4.9 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
+        <collision name="c_long_m8"><pose>-8 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
+        <visual name="v_long_m8"><pose>-8 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
+        <collision name="c_long_m4"><pose>-4 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
+        <visual name="v_long_m4"><pose>-4 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
+        <collision name="c_long_0"><pose>0 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
+        <visual name="v_long_0"><pose>0 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
+        <collision name="c_long_4"><pose>4 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
+        <visual name="v_long_4"><pose>4 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
+        <collision name="c_long_8"><pose>8 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry></collision>
+        <visual name="v_long_8"><pose>8 0 7.75 0 0 0</pose><geometry><box><size>0.5 15.0 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
+        <collision name="c_short_m2p5"><pose>0 -2.5 7.75 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry></collision>
+        <visual name="v_short_m2p5"><pose>0 -2.5 7.75 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
+        <collision name="c_short_2p5"><pose>0 2.5 7.75 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry></collision>
+        <visual name="v_short_2p5"><pose>0 2.5 7.75 0 0 0</pose><geometry><box><size>24.0 0.5 0.5</size></box></geometry><material><ambient>0.12 0.12 0.12 1</ambient><diffuse>0.12 0.12 0.12 1</diffuse></material></visual>
         <!-- Diagonal X-bracing intentionally disabled. -->
       </link>
     </model>
     <!-- Collision proxy for ceiling/net: one lightweight solid sheet to keep
          the hangar closed without the expensive beam collision grid. -->
     <model name="ceiling_mesh_net_collision">
-      <static>true</static><pose>0 0 4.91 0 0 0</pose>
+      <static>true</static><pose>0 0 7.91 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>24.0 15.0 0.08</size></box></geometry></collision>
         <visual name="rangefinder_target">
@@ -968,7 +998,7 @@
 
     <!-- Corrugated metal roof panels (above mesh) -->
     <model name="roof_panels">
-      <static>true</static><pose>0 0 5.1 0 0 0</pose>
+      <static>true</static><pose>0 0 8.1 0 0 0</pose>
       <link name="link">
         <visual name="v"><geometry><plane><normal>0 0 1</normal><size>24.0 15.0</size></plane></geometry>
           <material><ambient>0.65 0.65 0.68 1</ambient><diffuse>0.65 0.65 0.68 1</diffuse></material>
@@ -978,13 +1008,13 @@
 
     <!-- Debris on ceiling (minor damage) -->
     <model name="ceiling_debris_1">
-      <static>true</static><pose>3 2 4.96 0.1 0.2 0.5</pose>
+      <static>true</static><pose>3 2 7.96 0.1 0.2 0.5</pose>
       <link name="link"><visual name="v"><geometry><box><size>0.4 0.3 0.08</size></box></geometry>
       <material><ambient>0.6 0.5 0.2 1</ambient><diffuse>0.6 0.5 0.2 1</diffuse></material></visual></link>
     </model>
 
     <model name="ceiling_debris_2">
-      <static>true</static><pose>-4 -3 4.96 -0.2 0.1 1.2</pose>
+      <static>true</static><pose>-4 -3 7.96 -0.2 0.1 1.2</pose>
       <link name="link"><visual name="v"><geometry><box><size>0.5 0.35 0.08</size></box></geometry>
       <material><ambient>0.55 0.45 0.15 1</ambient><diffuse>0.55 0.45 0.15 1</diffuse></material></visual></link>
     </model>
@@ -1004,33 +1034,33 @@
     </include>
 
     <light name="light_bay_1" type="point">
-      <pose>-8 4 4.8 0 0 0</pose><cast_shadows>true</cast_shadows>
+      <pose>-8 4 7.8 0 0 0</pose><cast_shadows>true</cast_shadows>
       <intensity>1.5</intensity><diffuse>1.0 1.0 1.0 1</diffuse><specular>0.5 0.5 0.5 1</specular>
       <attenuation><range>20</range><linear>0.05</linear><constant>0.5</constant><quadratic>0.005</quadratic></attenuation>
     </light>
     <light name="light_bay_2" type="point">
-      <pose>0 4 4.8 0 0 0</pose><cast_shadows>true</cast_shadows>
+      <pose>0 4 7.8 0 0 0</pose><cast_shadows>true</cast_shadows>
       <intensity>1.5</intensity><diffuse>1.0 1.0 1.0 1</diffuse><specular>0.5 0.5 0.5 1</specular>
       <attenuation><range>20</range><linear>0.05</linear><constant>0.5</constant><quadratic>0.005</quadratic></attenuation>
     </light>
     <light name="light_bay_3" type="point">
-      <pose>8 4 4.8 0 0 0</pose><cast_shadows>true</cast_shadows>
+      <pose>8 4 7.8 0 0 0</pose><cast_shadows>true</cast_shadows>
       <intensity>1.5</intensity><diffuse>1.0 1.0 1.0 1</diffuse><specular>0.5 0.5 0.5 1</specular>
       <attenuation><range>20</range><linear>0.05</linear><constant>0.5</constant><quadratic>0.005</quadratic></attenuation>
     </light>
     
     <light name="light_bay_4" type="point">
-      <pose>-8 -4 4.8 0 0 0</pose><cast_shadows>true</cast_shadows>
+      <pose>-8 -4 7.8 0 0 0</pose><cast_shadows>true</cast_shadows>
       <intensity>1.5</intensity><diffuse>1.0 1.0 1.0 1</diffuse><specular>0.5 0.5 0.5 1</specular>
       <attenuation><range>20</range><linear>0.05</linear><constant>0.5</constant><quadratic>0.005</quadratic></attenuation>
     </light>
     <light name="light_bay_5" type="point">
-      <pose>0 -4 4.8 0 0 0</pose><cast_shadows>true</cast_shadows>
+      <pose>0 -4 7.8 0 0 0</pose><cast_shadows>true</cast_shadows>
       <intensity>1.5</intensity><diffuse>1.0 1.0 1.0 1</diffuse><specular>0.5 0.5 0.5 1</specular>
       <attenuation><range>20</range><linear>0.05</linear><constant>0.5</constant><quadratic>0.005</quadratic></attenuation>
     </light>
     <light name="light_bay_6" type="point">
-      <pose>8 -4 4.8 0 0 0</pose><cast_shadows>true</cast_shadows>
+      <pose>8 -4 7.8 0 0 0</pose><cast_shadows>true</cast_shadows>
       <intensity>1.5</intensity><diffuse>1.0 1.0 1.0 1</diffuse><specular>0.5 0.5 0.5 1</specular>
       <attenuation><range>20</range><linear>0.05</linear><constant>0.5</constant><quadratic>0.005</quadratic></attenuation>
     </light>
