@@ -36,6 +36,13 @@ export const connectSim = (params?: ConnectSimParams) =>
 export const disconnectSim = () => fetchJson('/api/sim/connect', { method: 'DELETE' });
 export const getSimStatus = () => fetchJson('/api/sim/status');
 export const getSimOptions = () => fetchJson('/api/sim/options');
+/** Live-swap the headless camera without restarting PX4/Gazebo. */
+export const setSimCamera = (camera: string): Promise<{
+  success: boolean;
+  camera?: string;
+  error?: string;
+  noop?: boolean;
+}> => postJson('/api/sim/camera', { camera });
 
 // Flight control
 export const startFlight = (params?: StartFlightParams) =>

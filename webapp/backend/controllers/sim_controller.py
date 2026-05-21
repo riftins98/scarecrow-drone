@@ -24,6 +24,7 @@ SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts", "flight")
 class ConnectRequest(BaseModel):
     world: Optional[str] = None
     headless: Optional[bool] = False
+    camera: Optional[str] = None  # e.g. "fixed", "center" — headless only
 
 
 @router.post("/connect")
@@ -31,13 +32,14 @@ async def connect_sim(req: Optional[ConnectRequest] = None):
     """Launch PX4 + Gazebo (non-blocking, poll /api/sim/status for progress).
 
     Optional body:
-        {"world": "drone_garage_pigeon_3d", "headless": false}
+        {"world": "drone_garage_pigeon_3d", "headless": false, "camera": "fixed"}
     Defaults match the legacy behavior (drone_garage_pigeon_3d, GUI).
     """
     try:
         world = (req.world if req else None) or "drone_garage_pigeon_3d"
         headless = bool(req.headless) if req else False
-        sim_service.launch(world=world, headless=headless)
+        camera = req.camera if req else None
+        sim_service.launch(world=world, headless=headless, camera=camera)
         return {"success": True, "message": "Simulation launching..."}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -49,6 +51,20 @@ async def disconnect_sim():
     return {"success": True}
 
 
+class CameraSwitchRequest(BaseModel):
+    camera: str  # "fixed" | "center"
+
+
+@router.post("/camera")
+async def switch_camera(req: CameraSwitchRequest):
+    """Live-swap the headless stream to a different camera without
+    restarting PX4/Gazebo. Returns {success, camera} or {success: False,
+    error}. Frontend should show a brief 'switching…' state and let
+    /api/sim/status reflect the new camera on the next poll.
+    """
+    return sim_service.switch_camera(req.camera)
+
+
 @router.get("/status")
 async def sim_status():
     return {
@@ -58,6 +74,7 @@ async def sim_status():
         "progress": sim_service.launch_progress,
         "world": sim_service.world,
         "headless": sim_service.headless,
+        "camera": sim_service.camera,
         "streamUrl": sim_service.stream_url,
     }
 

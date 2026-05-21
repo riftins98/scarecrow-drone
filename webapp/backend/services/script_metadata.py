@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
@@ -45,23 +46,100 @@ class ScriptInfo:
 
 
 @dataclass
+class CameraInfo:
+    """A streamable camera discovered in a world SDF.
+
+    `name` is the bare token the headless launcher accepts as a flag
+    (e.g. ``fixed`` -> ``--fixed``). The full model name in the SDF is
+    ``<name>_cam`` (e.g. ``fixed_cam``); we strip the suffix so the API
+    surface mirrors the launcher flags users would type.
+    """
+    name: str             # launcher flag stem, e.g. "fixed", "center"
+    label: str            # human-readable, e.g. "Fixed", "Center"
+    model: str            # underlying model used, e.g. "mono_cam_hd"
+
+
+@dataclass
 class WorldInfo:
     name: str             # without extension, e.g. "drone_garage_pigeon_3d"
     path: str             # absolute path to .sdf
+    cameras: list[CameraInfo] = field(default_factory=list)
 
 
 # ---- world enumeration ----------------------------------------------------
 
+# Model URIs whose included instances are streamable cameras. The headless
+# launcher (scripts/shell/launch_with_stream.sh) only knows how to point a
+# WebRTC worker at these — drone-onboard cameras are not streamable from the
+# webapp side and don't belong in the dropdown.
+_STREAMABLE_CAMERA_MODELS = {"mono_cam_hd", "mono_cam"}
+
+# Launcher flag stems we know about, in display order.
+_KNOWN_CAMERA_FLAGS = ("fixed", "center")
+
+
+def _parse_world_cameras(sdf_path: str) -> list[CameraInfo]:
+    """Return streamable cameras included in a world SDF.
+
+    Looks for ``<include>`` elements that pull in a camera model and whose
+    ``<name>`` ends in ``_cam`` (the convention used in our worlds). The
+    bare stem (everything before ``_cam``) becomes the launcher flag — e.g.
+    ``fixed_cam`` -> launcher accepts ``--fixed``.
+
+    Parser is lenient on purpose: an SDF that can't be parsed just returns
+    an empty list rather than failing the whole /api/sim/options route.
+    """
+    try:
+        tree = ET.parse(sdf_path)
+    except (ET.ParseError, FileNotFoundError, OSError):
+        return []
+
+    root = tree.getroot()
+    seen: dict[str, CameraInfo] = {}
+    for include in root.iter("include"):
+        uri_el = include.find("uri")
+        name_el = include.find("name")
+        if uri_el is None or name_el is None:
+            continue
+        uri = (uri_el.text or "").strip()
+        name = (name_el.text or "").strip()
+        if not uri or not name or not name.endswith("_cam"):
+            continue
+        # uri looks like "model://mono_cam_hd"
+        model = uri.rsplit("/", 1)[-1]
+        if model not in _STREAMABLE_CAMERA_MODELS:
+            continue
+        stem = name[: -len("_cam")]
+        if not stem or stem in seen:
+            continue
+        seen[stem] = CameraInfo(
+            name=stem,
+            label=stem.replace("_", " ").title(),
+            model=model,
+        )
+
+    # Sort by the known launcher-flag display order; unknowns trail alphabetically.
+    known = [seen[k] for k in _KNOWN_CAMERA_FLAGS if k in seen]
+    extras = sorted(
+        (cam for k, cam in seen.items() if k not in _KNOWN_CAMERA_FLAGS),
+        key=lambda c: c.name,
+    )
+    return known + extras
+
+
 def list_worlds(worlds_dir: str) -> list[WorldInfo]:
-    """Return every ``*.sdf`` in ``worlds_dir``, sorted by name."""
+    """Return every ``*.sdf`` in ``worlds_dir``, sorted by name, with
+    streamable cameras parsed out of each SDF."""
     if not os.path.isdir(worlds_dir):
         return []
     out: list[WorldInfo] = []
     for fname in sorted(os.listdir(worlds_dir)):
         if fname.endswith(".sdf"):
+            path = os.path.join(worlds_dir, fname)
             out.append(WorldInfo(
                 name=fname[:-4],
-                path=os.path.join(worlds_dir, fname),
+                path=path,
+                cameras=_parse_world_cameras(path),
             ))
     return out
 

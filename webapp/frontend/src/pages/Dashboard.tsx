@@ -6,9 +6,13 @@ import HudHeader from '../components/HudHeader';
 import Sidebar from '../components/Sidebar';
 import TelemetryRail from '../components/TelemetryRail';
 import Minimap from '../components/Minimap';
+import CameraStream from '../components/CameraStream';
 import SystemLog from '../components/SystemLog';
 import Ticker from '../components/Ticker';
-import { Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams } from '../types/flight';
+import {
+  Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams,
+  SimOptions, WorldInfo,
+} from '../types/flight';
 import * as api from '../services/api';
 
 export default function Dashboard() {
@@ -22,6 +26,12 @@ export default function Dashboard() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [flightStartTime, setFlightStartTime] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Sim options (worlds + cameras + scripts) — fetched once on mount so
+  // CameraStream knows the available cameras for the active world.
+  const [simOptions, setSimOptions] = useState<SimOptions | null>(null);
+  useEffect(() => {
+    api.getSimOptions().then(setSimOptions).catch(() => { });
+  }, []);
 
   // Poll sim status. Fetch immediately on mount so the UI doesn't render a
   // stale "Offline" view for 3s after a page refresh while the sim is mid-launch.
@@ -106,6 +116,7 @@ export default function Dashboard() {
         progress: { steps: [] },
         world: '',
         headless: false,
+        camera: null,
         streamUrl: null,
       });
       setFlightStatus(null);
@@ -200,6 +211,19 @@ export default function Dashboard() {
                 />
                 <div className="control-side-stack">
                   <Minimap active={connected} />
+                  {simStatus?.headless && (
+                    <CameraStream
+                      streamUrl={simStatus.streamUrl}
+                      launching={launching}
+                      connected={connected}
+                      camera={simStatus.camera}
+                      availableCameras={
+                        simOptions?.worlds.find(
+                          (w: WorldInfo) => w.name === simStatus.world,
+                        )?.cameras ?? []
+                      }
+                    />
+                  )}
                 </div>
               </div>
               <div className="lower-grid lower-grid-single">

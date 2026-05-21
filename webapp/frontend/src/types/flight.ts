@@ -25,6 +25,8 @@ export interface SimStatus {
   progress: { steps: LaunchStep[] };
   world: string;
   headless: boolean;
+  /** Camera flag stem currently streamed (e.g. "fixed"), null in GUI mode. */
+  camera: string | null;
   streamUrl: string | null;
 }
 
@@ -39,9 +41,19 @@ export interface FlightStatus {
 
 // --- Sim options (worlds + scripts available for the user to pick) ---
 
+export interface CameraInfo {
+  /** Launcher flag stem, e.g. "fixed". Sent back in ConnectSimParams.camera. */
+  name: string;
+  /** Pretty label for the dropdown. */
+  label: string;
+  /** Underlying SDF model used (mono_cam_hd / mono_cam). Not shown in UI. */
+  model: string;
+}
+
 export interface WorldInfo {
   name: string;
   path: string;
+  cameras: CameraInfo[];
 }
 
 export interface ScriptArg {
@@ -70,6 +82,9 @@ export interface SimOptions {
 export interface ConnectSimParams {
   world?: string;
   headless?: boolean;
+  /** Headless-only. Picks which streamable camera the launcher points the
+   *  WebRTC stream at. Backend silently falls back to "fixed" if invalid. */
+  camera?: string;
 }
 
 // Map of {arg_name: value} sent to /api/flight/start.

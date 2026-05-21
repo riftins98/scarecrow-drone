@@ -73,9 +73,17 @@ class SimService:
         self._step_substatus: dict[str, str] = {}
         self._world: str = DEFAULT_WORLD
         self._headless: bool = False
+        self._camera: Optional[str] = None
         self._stream_url: Optional[str] = None
 
-    def launch(self, world: str = DEFAULT_WORLD, headless: bool = False) -> bool:
+    # Camera names we'll pass through to launch_with_stream.sh as ``--<name>``
+    # flags. Anything not in this allowlist is silently rejected to keep
+    # untrusted input from sneaking flags into the launcher CLI.
+    _ALLOWED_CAMERAS = {"fixed", "center"}
+    _DEFAULT_CAMERA = "fixed"
+
+    def launch(self, world: str = DEFAULT_WORLD, headless: bool = False,
+               camera: Optional[str] = None) -> bool:
         """Launch PX4 + Gazebo in background.
 
         Args:
@@ -83,6 +91,9 @@ class SimService:
             headless: If True, run Gazebo headless and start a browser
                 stream server. The stream URL is published via
                 ``stream_url`` once it appears in the launcher output.
+            camera: Which streamable camera to point the headless stream
+                worker at (e.g. "fixed", "center"). Ignored when not
+                headless. Defaults to "fixed" if omitted or invalid.
         """
         if self.connected and self.process and self.process.poll() is None:
             return True
@@ -99,10 +110,13 @@ class SimService:
         # stays empty, leaving the UI's stream link broken.
         if headless:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch_with_stream.sh")
-            launch_args = [world, "--headless", "--fixed"]
+            cam = camera if camera in self._ALLOWED_CAMERAS else self._DEFAULT_CAMERA
+            launch_args = [world, "--headless", f"--{cam}"]
+            self._camera = cam
         else:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch.sh")
             launch_args = [world]
+            self._camera = None
 
         if not os.path.exists(launch_script):
             raise FileNotFoundError(f"launch script not found at {launch_script}")
@@ -264,6 +278,69 @@ class SimService:
             except Exception:
                 pass
 
+    def switch_camera(self, camera: str) -> dict:
+        """Hot-swap the headless stream to a different camera.
+
+        Kills only the currently running stream_camera_webrtc.py worker —
+        leaves PX4 and Gazebo untouched — then spawns a fresh worker
+        pointed at the new camera's topic. Both cameras are spawned at
+        world load, so their topics exist for the lifetime of the sim.
+
+        Returns:
+            {"success": True, "camera": "<cam>"} on success
+            {"success": False, "error": "..."}   on failure
+        """
+        if not self.is_connected:
+            return {"success": False, "error": "sim not connected"}
+        if not self._headless:
+            return {"success": False, "error": "not in headless mode"}
+        if camera not in self._ALLOWED_CAMERAS:
+            return {"success": False, "error": f"unknown camera: {camera!r}"}
+        if camera == self._camera:
+            return {"success": True, "camera": camera, "noop": True}
+
+        topic = f"/model/{camera}_cam/link/camera_link/sensor/camera/image"
+
+        # Kill the existing stream worker. -f matches anything with
+        # "stream_camera" in the command line (matches both the MJPEG and
+        # WebRTC variants spawned by launch_with_stream.sh).
+        subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
+        # Tiny delay so the OS releases the listening socket before we
+        # try to bind to the same port.
+        time.sleep(0.5)
+
+        # Pick the same python the launcher would have picked.
+        venv_python = os.path.join(REPO_ROOT, ".venv", "bin", "python")
+        python_bin = venv_python if os.path.isfile(venv_python) else "python3"
+
+        streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera_webrtc.py")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = REPO_ROOT
+
+        try:
+            # Detach: we don't keep a handle. The previous worker was
+            # similarly detached from this process; we just pkill them
+            # when we want to swap or shut down.
+            subprocess.Popen(
+                [python_bin, streamer,
+                 "--port", "8080",
+                 "--fps", "15",
+                 "--threads", "2",
+                 "--topic", topic],
+                cwd=REPO_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                env=env,
+            )
+        except FileNotFoundError as e:
+            return {"success": False, "error": f"streamer not found: {e}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+        self._camera = camera
+        return {"success": True, "camera": camera}
+
     def stop(self):
         self.connected = False
         self.launching = False
@@ -271,6 +348,7 @@ class SimService:
         self._current_step = None
         self._step_substatus = {}
         self._stream_url = None
+        self._camera = None
         if self.process:
             try:
                 self.process.kill()
@@ -346,6 +424,12 @@ class SimService:
     @property
     def headless(self) -> bool:
         return self._headless
+
+    @property
+    def camera(self) -> Optional[str]:
+        """Camera flag stem used for the current headless stream (e.g.
+        "fixed"), or None for GUI mode."""
+        return self._camera
 
     @property
     def stream_url(self) -> Optional[str]:

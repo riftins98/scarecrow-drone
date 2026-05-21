@@ -8,6 +8,8 @@ import {
   ScriptArgValues,
   ConnectSimParams,
   StartFlightParams,
+  WorldInfo,
+  CameraInfo,
 } from '../types/flight';
 import * as api from '../services/api';
 
@@ -41,6 +43,9 @@ export default function SimControl({
   // Pre-connect form state
   const [selectedWorld, setSelectedWorld] = useState<string>(DEFAULT_WORLD);
   const [headless, setHeadless] = useState<boolean>(false);
+  // Camera the user picked from the dropdown (only meaningful in headless mode).
+  // Empty string -> "let backend default it" (currently "fixed").
+  const [selectedCamera, setSelectedCamera] = useState<string>('');
 
   // Post-connect form state
   const [selectedScript, setSelectedScript] = useState<string>(DEFAULT_SCRIPT);
@@ -60,6 +65,29 @@ export default function SimControl({
       })
       .catch((e: unknown) => setOptionsError(e instanceof Error ? e.message : String(e)));
   }, []);
+
+  // Cameras the selected world exposes (parsed from its SDF by the backend).
+  // Empty if the SDF has no streamable cameras — in that case the headless
+  // launcher will still fall back to "fixed" if the user picks headless.
+  const availableCameras = options?.worlds.find(
+    (w: WorldInfo) => w.name === selectedWorld,
+  )?.cameras ?? [];
+
+  // Sync the camera selection with the current world. When the world
+  // changes (or options first arrive), reset to the first available camera
+  // if the previous pick isn't in the new world.
+  useEffect(() => {
+    if (availableCameras.length === 0) {
+      setSelectedCamera('');
+      return;
+    }
+    if (!availableCameras.find((c: CameraInfo) => c.name === selectedCamera)) {
+      setSelectedCamera(availableCameras[0].name);
+    }
+    // selectedCamera intentionally omitted from deps: we only reseed it when
+    // the available-set changes (world swap), not on every user click.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWorld, options]);
 
   // When the selected script changes, reset arg values to that script's defaults
   // (so the form fields reflect the new arg set, not stale values from another script).
@@ -95,7 +123,11 @@ export default function SimControl({
   }, [flightStartTime]);
 
   const handleConnect = () => {
-    onConnect({ world: selectedWorld, headless });
+    const params: ConnectSimParams = { world: selectedWorld, headless };
+    if (headless && selectedCamera) {
+      params.camera = selectedCamera;
+    }
+    onConnect(params);
   };
 
   const handleStart = () => {
@@ -161,7 +193,7 @@ export default function SimControl({
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedWorld(e.target.value)}
                     disabled={!options}
                   >
-                    {options ? options.worlds.map((w: { name: string; path: string }) => (
+                    {options ? options.worlds.map((w: WorldInfo) => (
                       <option key={w.name} value={w.name}>{w.name}</option>
                     )) : <option>Loading...</option>}
                   </select>
@@ -188,6 +220,29 @@ export default function SimControl({
                     Headless (browser camera stream)
                   </label>
                 </fieldset>
+
+                {headless && (
+                  <label className="form-row">
+                    <span className="form-label">Stream camera</span>
+                    {availableCameras.length === 0 ? (
+                      <span className="form-hint">
+                        No streamable cameras in this world — launcher will use default ("fixed")
+                      </span>
+                    ) : (
+                      <select
+                        value={selectedCamera}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedCamera(e.target.value)}
+                        disabled={!options}
+                      >
+                        {availableCameras.map((c: CameraInfo) => (
+                          <option key={c.name} value={c.name}>
+                            {c.label} ({c.name})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+                )}
               </div>
 
               <div className="control-buttons">
@@ -223,8 +278,9 @@ export default function SimControl({
 
       {simStatus?.headless && simStatus.streamUrl && (
         <div className="stream-link">
+          Camera feed embedded in side panel ·{' '}
           <a href={simStatus.streamUrl} target="_blank" rel="noopener noreferrer">
-            Open camera stream ({simStatus.streamUrl})
+            open fullscreen ↗
           </a>
         </div>
       )}
