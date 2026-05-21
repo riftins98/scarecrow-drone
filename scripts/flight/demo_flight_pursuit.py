@@ -26,7 +26,6 @@ import json
 import math
 import subprocess
 import sys
-import threading
 import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,7 +36,7 @@ from mavsdk.offboard import VelocityBodyYawspeed
 from scarecrow.controllers.distance_stabilizer import DistanceStabilizerController, DistanceTargets
 from scarecrow.controllers.wall_follow import VelocityCommand
 from scarecrow.detection.yolo import YoloDetector
-from scarecrow.drone import Drone
+from scarecrow.drone import Drone, PursuitState
 from scarecrow.flight.helpers import get_position, log_position
 from scarecrow.flight.stabilization import lidar_stabilize
 from scarecrow.navigation.navigation_unit import NavigationUnit
@@ -82,45 +81,6 @@ RETURN_TO_START_TOLERANCE = 0.35
 RETURN_STABLE_TIME = 1.2
 RETURN_KP = 0.35
 RETURN_MAX_SPEED = 0.35
-
-
-# --- Pursuit state ---
-class PursuitState:
-    """Thread-safe container for detection data shared between camera thread and
-    the async control loop."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._cx: float | None = None
-        self._cy: float | None = None
-        self._bbox: tuple | None = None
-        self._time: float = 0.0
-        self._conf: float = 0.0
-
-    def update(self, detections: list[dict]) -> None:
-        """Called from camera/YOLO thread via on_detection_data callback."""
-        if not detections:
-            return
-        # Use highest-confidence detection
-        best = max(detections, key=lambda d: d['conf'])
-        with self._lock:
-            self._cx, self._cy = best['center']
-            self._bbox = best['bbox']
-            self._time = time.time()
-            self._conf = best['conf']
-
-    def get(self) -> tuple[float | None, float | None, float, float]:
-        """Returns (cx, cy, det_time, confidence). cx/cy are None if no detection yet."""
-        with self._lock:
-            return self._cx, self._cy, self._time, self._conf
-
-    @property
-    def age(self) -> float:
-        """Seconds since last detection. inf if never detected."""
-        with self._lock:
-            if self._time == 0.0:
-                return float('inf')
-            return time.time() - self._time
 
 
 def parse_args():

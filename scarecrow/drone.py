@@ -19,6 +19,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 from typing import Literal, Optional
 
 from mavsdk import System
@@ -29,6 +31,43 @@ from .flight.helpers import get_position, wait_for_altitude, wait_for_stable
 from .logging_setup import get_logger, log_event, Timer
 
 _log = get_logger("drone")
+
+
+class PursuitState:
+    """Thread-safe container for detection data shared between threads."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._cx: float | None = None
+        self._cy: float | None = None
+        self._bbox: tuple | None = None
+        self._time: float = 0.0
+        self._conf: float = 0.0
+
+    def update(self, detections: list[dict]) -> None:
+        """Called from camera/YOLO thread via on_detection_data callback."""
+        if not detections:
+            return
+        # Use highest-confidence detection
+        best = max(detections, key=lambda d: d["conf"])
+        with self._lock:
+            self._cx, self._cy = best["center"]
+            self._bbox = best["bbox"]
+            self._time = time.time()
+            self._conf = best["conf"]
+
+    def get(self) -> tuple[float | None, float | None, float, float]:
+        """Returns (cx, cy, det_time, confidence). cx/cy are None if no detection yet."""
+        with self._lock:
+            return self._cx, self._cy, self._time, self._conf
+
+    @property
+    def age(self) -> float:
+        """Seconds since last detection. inf if never detected."""
+        with self._lock:
+            if self._time == 0.0:
+                return float("inf")
+            return time.time() - self._time
 
 
 class Drone:
