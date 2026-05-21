@@ -58,6 +58,14 @@ class SimService:
         self.connected = False
         self.launching = False
         self._log_lines = []
+        # Monotonic offset of the first line still in _log_lines after
+        # ring-buffer rolls. Frontend SystemLog uses (cursor, offset) to
+        # detect dropped lines.
+        self._log_offset = 0
+        self._log_lock = threading.Lock()
+        # Bumped from the old 200/500 trim values so a full PX4 build's
+        # output fits without rolling.
+        self._log_max = 4000
         self._completed_steps = []
         self._current_step = None
         # Free-form substatus for the active step (e.g., "Compiling [847/1157]")
@@ -116,7 +124,9 @@ class SimService:
             bufsize=1,
         )
 
-        self._log_lines = []
+        with self._log_lock:
+            self._log_lines = []
+            self._log_offset = 0
         self._completed_steps = []
         self._current_step = "cleanup"
         self._step_substatus = {}
@@ -151,9 +161,14 @@ class SimService:
         try:
             for line in self.process.stdout:
                 line = line.strip()
-                self._log_lines.append(line)
-                if len(self._log_lines) > 500:
-                    self._log_lines = self._log_lines[-200:]
+                with self._log_lock:
+                    self._log_lines.append(line)
+                    overflow = len(self._log_lines) - self._log_max
+                    if overflow > 0:
+                        # Drop oldest `overflow` lines, advance the offset
+                        # so absolute indices remain stable.
+                        self._log_lines = self._log_lines[overflow:]
+                        self._log_offset += overflow
 
                 # Capture stream URL from headless launcher banner
                 # (e.g., "Stream: http://localhost:8080/")
@@ -298,7 +313,31 @@ class SimService:
         return {"steps": steps}
 
     def get_log(self, n=50) -> list:
-        return self._log_lines[-n:]
+        with self._log_lock:
+            return self._log_lines[-n:]
+
+    def get_log_since(self, since: int = 0) -> dict:
+        """Return launcher stdout lines with absolute index >= since.
+
+        Same cursor protocol as DetectionService.get_log() — frontend
+        passes the last cursor, gets back {lines, start, cursor, dropped}.
+        """
+        with self._log_lock:
+            base = self._log_offset
+            total = base + len(self._log_lines)
+            requested = max(since, 0)
+            dropped = max(0, base - requested)
+            start = max(requested, base)
+            slice_from = start - base
+            lines = list(self._log_lines[slice_from:])
+            return {
+                "lines": lines,
+                "start": start,
+                "cursor": total,
+                "dropped": dropped,
+                "running": self.launching or self.connected,
+                "world": self._world,
+            }
 
     @property
     def world(self) -> str:

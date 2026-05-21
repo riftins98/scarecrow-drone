@@ -67,12 +67,34 @@ export default function Dashboard() {
     setError(null);
     try {
       const result = await api.connectSim(params);
-      if (!result.success) setError(result.error || 'Failed to connect');
+      if (!result.success) {
+        setError(result.error || 'Failed to connect');
+        setIsConnecting(false);
+        return;
+      }
+      // Kick a sim/status fetch right away so we don't wait up to 3s for
+      // the next regular poll to flip launching=true.
+      try {
+        const fresh = await api.getSimStatus();
+        setSimStatus(fresh);
+      } catch { /* the regular poller will catch up shortly */ }
+      // Intentionally LEAVE isConnecting true. The button label would
+      // otherwise flicker back to "Connect" for ~3s until the next
+      // sim/status poll picks up launching=true. We clear isConnecting in
+      // the effect below once we actually see launching or connected flip.
     } catch (e: any) {
       setError(e.message);
+      setIsConnecting(false);
     }
-    setIsConnecting(false);
   }, []);
+
+  // Once the backend reports launching or connected, hand the spinner off
+  // to the launch checklist / connected view; clear our local flag.
+  useEffect(() => {
+    if (isConnecting && (simStatus?.launching || simStatus?.connected)) {
+      setIsConnecting(false);
+    }
+  }, [isConnecting, simStatus?.launching, simStatus?.connected]);
 
   const handleDisconnect = useCallback(async () => {
     try {

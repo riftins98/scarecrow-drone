@@ -26,6 +26,17 @@ class DetectionService:
         self._on_detection: Optional[Callable] = None
         self._last_error: Optional[str] = None
         self._output_lines: list = []
+        # Monotonic offset of the first line still held in _output_lines.
+        # Frontend uses this as a cursor: ask for lines >= cursor, get the
+        # new ones plus a new cursor. Survives ring-buffer drops.
+        self._output_offset: int = 0
+        # Lock keeps the offset/buffer pair consistent between the monitor
+        # thread (which appends) and request handlers (which read).
+        self._output_lock = threading.Lock()
+        # Max lines retained in memory. Frontends poll ~1Hz; flight scripts
+        # at full chatter emit a few lines per second, so ~30min of history
+        # fits comfortably below 2000.
+        self._output_max = 2000
         # Script chosen for this run (None until start() is called).
         self.current_script: Optional[str] = None
         self.current_script_args: dict = {}
@@ -71,6 +82,12 @@ class DetectionService:
         self._output_lines = []
         self.current_script = script_name
         self.current_script_args = dict(script_args or {})
+        # Reset the output cursor for a fresh flight. Without this the
+        # frontend would still hold the previous flight's cursor and miss
+        # the first chunk of the new run.
+        with self._output_lock:
+            self._output_lines = []
+            self._output_offset = 0
 
         # Output dir per flight
         output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
@@ -144,9 +161,14 @@ class DetectionService:
                 line = line.strip()
                 if not line:
                     continue
-                self._output_lines.append(line)
-                if len(self._output_lines) > 200:
-                    self._output_lines = self._output_lines[-100:]
+                with self._output_lock:
+                    self._output_lines.append(line)
+                    overflow = len(self._output_lines) - self._output_max
+                    if overflow > 0:
+                        # Drop the oldest `overflow` lines and advance the
+                        # offset so absolute indices remain stable.
+                        self._output_lines = self._output_lines[overflow:]
+                        self._output_offset += overflow
 
                 # v2 stdout protocol
                 if "DETECTION_IMAGE:" in line:
@@ -219,11 +241,46 @@ class DetectionService:
 
     @property
     def status(self) -> dict:
+        with self._output_lock:
+            tail = self._output_lines[-10:]
         return {
             "running": self.running,
             "flight_id": self.flight_id,
             "pigeons_detected": self.pigeons_detected,
             "frames_processed": self.frames_processed,
             "last_error": self._last_error,
-            "log": self._output_lines[-10:],
+            "log": tail,
         }
+
+    def get_log(self, since: int = 0) -> dict:
+        """Return all stdout lines with absolute index >= since.
+
+        Returns:
+            {
+                "lines": [str, ...],   # lines with index in [start, cursor)
+                "start": int,          # absolute index of the first returned line
+                "cursor": int,         # next index to request (== start + len(lines))
+                "dropped": int,        # how many lines were lost to buffer overflow
+                                       # before `start` (frontend can show a gap)
+                "running": bool,
+                "flight_id": str | None,
+            }
+        """
+        with self._output_lock:
+            base = self._output_offset
+            total = base + len(self._output_lines)
+            requested = max(since, 0)
+            # If the caller is asking for lines we've already dropped, snap
+            # forward to the oldest one we still have and report the gap.
+            dropped = max(0, base - requested)
+            start = max(requested, base)
+            slice_from = start - base
+            lines = list(self._output_lines[slice_from:])
+            return {
+                "lines": lines,
+                "start": start,
+                "cursor": total,
+                "dropped": dropped,
+                "running": self.running,
+                "flight_id": self.flight_id,
+            }

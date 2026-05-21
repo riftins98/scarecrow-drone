@@ -2076,11 +2076,62 @@ body {
   border-bottom: 1px solid #2a3a1a;
 }
 .syslog-title {
-  flex: 1;
   color: #8b9a5b;
   font-size: 0.72rem;
   letter-spacing: 2.5px;
   font-weight: 600;
+}
+.syslog-pill {
+  padding: 2px 8px;
+  border: 1px solid #2a3a1a;
+  border-radius: 1px;
+  font-size: 0.62rem;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  color: #707070;
+  background: #0d1208;
+}
+.syslog-pill.on {
+  color: #8b9a5b;
+  border-color: #4a5a3a;
+  background: linear-gradient(180deg, #1f2a1a 0%, #151a10 100%);
+  box-shadow: 0 0 8px rgba(139,154,91,0.25);
+}
+.syslog-meta {
+  color: #5a6b3a;
+  font-family: 'Courier New', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 1.5px;
+  margin-left: auto;
+}
+.syslog-actions {
+  display: flex;
+  gap: 4px;
+}
+.syslog-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: #1a1f15;
+  border: 1px solid #2a3a1a;
+  border-radius: 1px;
+  color: #8b9a5b;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+.syslog-btn:hover {
+  background: linear-gradient(180deg, #2a3a1a 0%, #1a2a0d 100%);
+  border-color: #4a5a3a;
+  color: #d4e090;
+  box-shadow: 0 0 6px rgba(139,154,91,0.3);
+}
+.syslog-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 .syslog-rate {
   color: #707070;
@@ -2157,6 +2208,87 @@ body {
 @keyframes cursor-blink {
   0%, 50%   { opacity: 1; }
   51%, 100% { opacity: 0; }
+}
+
+/* New level classes (real stdout categorization) */
+.syslog-level-tel  .syslog-level { color: #b0d0d0; }
+.syslog-level-tel  .syslog-msg   { color: #b0d0d0; }
+.syslog-level-vid  .syslog-level { color: #d4e090; }
+.syslog-level-err  .syslog-level { color: #d4a0a0; text-shadow: 0 0 6px rgba(212,160,160,0.4); }
+.syslog-level-err  .syslog-msg   { color: #e0b8b8; }
+
+/* Gap marker — buffer rolled, some lines were lost */
+.syslog-gap {
+  color: #d8a05a;
+  font-style: italic;
+  text-align: center;
+  padding: 6px 0;
+  margin: 4px 0;
+  border-top: 1px dashed rgba(216,160,90,0.4);
+  border-bottom: 1px dashed rgba(216,160,90,0.4);
+  background: rgba(216,160,90,0.05);
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+}
+
+/* Footer (autoscroll toggle, poll rate) */
+.syslog-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 14px;
+  background: linear-gradient(180deg, #0d1208 0%, #060805 100%);
+  border-top: 1px solid #2a3a1a;
+}
+.syslog-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #909090;
+  font-size: 0.62rem;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.syslog-toggle input[type="checkbox"] {
+  accent-color: #8b9a5b;
+}
+.syslog-close {
+  margin-left: auto;
+  width: auto;
+  padding: 3px 12px;
+  font-family: 'Consolas', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  font-weight: 700;
+}
+
+/* Expanded / overlay mode */
+.syslog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: hud-mount 200ms ease-out;
+}
+.syslog-overlay-inner {
+  width: 100%;
+  height: 100%;
+  max-width: 1600px;
+}
+.syslog.syslog-expanded {
+  height: 100%;
+  box-shadow:
+    inset 0 1px 0 rgba(139,154,91,0.2),
+    0 0 40px rgba(0,0,0,0.7);
+}
+.syslog.syslog-expanded .syslog-body {
+  font-size: 0.85rem;
 }
 
 /* ============================================================
