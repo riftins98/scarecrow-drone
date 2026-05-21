@@ -89,6 +89,15 @@ for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
     world_name="$(basename "$world_file")"
     ln -s "$world_file" "$SCARECROW_PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
 done
+# PX4 still resolves worlds from Tools/simulation/gz/worlds. Mirror the
+# scarecrow worlds there so gz can open them by name.
+PX4_GZ_WORLDS_DIR="$PX4_DIR/Tools/simulation/gz/worlds"
+mkdir -p "$PX4_GZ_WORLDS_DIR"
+for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
+    [ -f "$world_file" ] || continue
+    world_name="$(basename "$world_file")"
+    ln -sf "$world_file" "$PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
+done
 export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_PX4_GZ_MODELS_DIR"
 export PX4_GZ_WORLDS_DIR="$SCARECROW_PX4_GZ_WORLDS_DIR"
 _log_timer_end copy_assets
