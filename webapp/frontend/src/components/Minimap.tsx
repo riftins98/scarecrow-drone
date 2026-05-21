@@ -58,8 +58,7 @@ export default function Minimap({ active }: Props) {
   return (
     <div className={`minimap ${active ? 'on' : 'off'}`}>
       <div className="minimap-header">
-        <span className="minimap-title">MAP // GARAGE_A</span>
-        <span className="minimap-tag">TOP DOWN</span>
+        <span className="minimap-title">Map : Garage_A</span>
       </div>
       <div className="minimap-scope">
         <svg viewBox="0 0 200 200" className="minimap-svg" aria-hidden="true">

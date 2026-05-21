@@ -76,6 +76,7 @@ async def sim_status():
         "headless": sim_service.headless,
         "camera": sim_service.camera,
         "streamUrl": sim_service.stream_url,
+        "rtf": sim_service.rtf,
     }
 
 

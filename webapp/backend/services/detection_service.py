@@ -250,6 +250,10 @@ class DetectionService:
             "frames_processed": self.frames_processed,
             "last_error": self._last_error,
             "log": tail,
+            # Pass through the latest TELEMETRY: payload so the frontend
+            # can show altitude / heading / battery in real time. Empty
+            # dict before the first telemetry tick arrives.
+            "telemetry": dict(self.latest_telemetry),
         }
 
     def get_log(self, since: int = 0) -> dict:

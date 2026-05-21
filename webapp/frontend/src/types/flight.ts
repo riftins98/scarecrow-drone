@@ -28,6 +28,8 @@ export interface SimStatus {
   /** Camera flag stem currently streamed (e.g. "fixed"), null in GUI mode. */
   camera: string | null;
   streamUrl: string | null;
+  /** Gazebo real_time_factor (0..1+). null before the poller has a reading. */
+  rtf: number | null;
 }
 
 export interface FlightStatus {
@@ -37,6 +39,15 @@ export interface FlightStatus {
   flight_id: string | null;
   pigeons_detected: number;
   frames_processed: number;
+  /** Latest TELEMETRY: payload from the flight script. Empty {} before
+   *  the first emission. Fields below are present once the script runs. */
+  telemetry?: {
+    battery?: number;        // percent 0..100
+    distance?: number;       // meters
+    detections?: number;     // cumulative pigeon hits
+    altitude?: number;       // meters AGL
+    heading?: number;        // degrees -180..180
+  };
 }
 
 // --- Sim options (worlds + scripts available for the user to pick) ---

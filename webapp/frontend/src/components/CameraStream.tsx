@@ -35,7 +35,6 @@ export default function CameraStream({
 }: Props) {
   // Bumping nonce remounts the iframe, forcing a fresh page load.
   const [nonce, setNonce] = useState(0);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // True while a switch_camera POST is in flight; flips back when the
   // confirmed `camera` prop matches the requested one (or after a timeout).
   const [switching, setSwitching] = useState(false);
@@ -66,7 +65,7 @@ export default function CameraStream({
   }, [camera, switching]);
 
   const handleSwitch = async (next: string) => {
-    if (!next || next === camera || switching) return;
+    if (!next || next === camera || switching || !streamUrl) return;
     setSwitching(true);
     setSwitchError(null);
     pendingCamRef.current = next;
@@ -82,8 +81,22 @@ export default function CameraStream({
       if (res.noop) {
         setSwitching(false);
         pendingCamRef.current = null;
+        return;
       }
-      // Otherwise the effect above will clear once status reflects the swap.
+      // The POST returned success, meaning the backend already pkilled
+      // the old streamer. But aiohttp inside the new process takes ~2s
+      // to bind to 8080 and start serving. We must NOT remount the iframe
+      // before then — if the browser hits the dead port, Chrome caches
+      // the connection-refused for the origin and keeps showing the
+      // error page even after the streamer is up.
+      //
+      // Probe the streamer's HTTP root from JS until it responds, then
+      // remount the iframe with a fresh cache-buster so Chrome treats
+      // it as a brand new request (bypassing any negative cache).
+      await waitForStreamer(streamUrl);
+      pendingCamRef.current = null;
+      setSwitching(false);
+      setNonce(n => n + 1);
     } catch (e: unknown) {
       setSwitchError(e instanceof Error ? e.message : String(e));
       setSwitching(false);
@@ -96,14 +109,10 @@ export default function CameraStream({
     : launching || !connected ? 'standby'
     : 'live';
 
-  const reload = () => setNonce(n => n + 1);
-
   return (
     <div className="camstream">
       <div className="camstream-header">
-        <span className="camstream-title">
-          CAM // {camera ? camera.toUpperCase() : 'FIXED'}
-        </span>
+        <span className="camstream-title">Camera</span>
         <span className={`camstream-pill camstream-pill-${state}`}>
           {switching ? 'SWITCHING'
             : state === 'live' ? 'LIVE'
@@ -123,18 +132,6 @@ export default function CameraStream({
             ))}
           </select>
         )}
-        {state === 'live' && (
-          <button
-            type="button"
-            className="camstream-popout camstream-reload"
-            onClick={reload}
-            title="Reload stream"
-            aria-label="Reload camera stream"
-            disabled={switching}
-          >
-            <ReloadIcon />
-          </button>
-        )}
         {streamUrl && (
           <a
             className="camstream-popout"
@@ -150,11 +147,22 @@ export default function CameraStream({
       </div>
 
       <div className="camstream-frame">
-        {state === 'live' && streamUrl && (
+        {/* Unmount the iframe entirely while switching. Otherwise the old
+            iframe stays mounted pointing at a dead/respawning server, the
+            browser caches a connection-refused on the origin, and that
+            cache survives the subsequent key-bump remount, leaving you
+            with a permanent "refused to connect" error.
+            By killing the iframe DOM node here, the browser drops its
+            connection state for the origin; the remount after `switching`
+            clears is a true cold load. */}
+        {state === 'live' && streamUrl && !switching && (
           <iframe
             key={nonce}
-            ref={iframeRef}
-            src={streamUrl}
+            // Cache-buster baked into nonce — Chrome's negative connection
+            // cache is keyed on the request URL, so varying the query string
+            // on every remount forces a fresh attempt instead of replaying
+            // a cached "connection refused".
+            src={`${streamUrl}/?n=${nonce}`}
             className="camstream-iframe"
             title="Camera feed"
             allow="autoplay"
@@ -196,14 +204,32 @@ export default function CameraStream({
         )}
       </div>
 
-      <div className="camstream-footer">
-        <span className="camstream-meta">
-          {streamUrl ? `SRC: ${streamUrl}` : '—'}
-        </span>
-        <span className="camstream-meta">WebRTC // H.264</span>
-      </div>
     </div>
   );
+}
+
+/**
+ * Poll the streamer's HTTP root until it responds (or we hit a timeout).
+ * Uses no-cors fetch so we don't need CORS headers on the stream server —
+ * we only care about "did the TCP connection succeed", not the response body.
+ * Each poll uses a cache-buster query param so Chrome's negative cache
+ * doesn't make every attempt a fake-failure.
+ */
+async function waitForStreamer(streamUrl: string, maxMs = 10000): Promise<void> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const probe = `${streamUrl}/?_=${Date.now()}`;
+    try {
+      // no-cors gives us an opaque response; ok-ness can't be read, but
+      // the fetch *resolving* at all means TCP + HTTP handshake worked.
+      await fetch(probe, { mode: 'no-cors', cache: 'no-store' });
+      return;
+    } catch {
+      // Connection refused / network error — wait a bit and retry.
+      await new Promise(r => setTimeout(r, 300));
+    }
+  }
+  throw new Error('streamer did not become ready within ' + maxMs + 'ms');
 }
 
 function PopoutIcon() {
@@ -216,13 +242,3 @@ function PopoutIcon() {
   );
 }
 
-function ReloadIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M13 3 V7 H9" />
-      <path d="M3 13 V9 H7" />
-      <path d="M12.5 7 A5 5 0 0 0 3.5 7" />
-      <path d="M3.5 9 A5 5 0 0 0 12.5 9" />
-    </svg>
-  );
-}

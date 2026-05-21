@@ -68,13 +68,26 @@ def parse_args():
     return parser.parse_args()
 
 
-def emit_telemetry(detector: YoloDetector, distance: float, battery: float = 100.0):
-    """Print a TELEMETRY: line for webapp parsing."""
+def emit_telemetry(detector: YoloDetector, distance: float, battery: float = 100.0,
+                   altitude: float | None = None, heading: float | None = None):
+    """Print a TELEMETRY: line for webapp parsing.
+
+    Fields:
+      battery   percent 0..100 (currently hardcoded; PX4 SITL barely drains)
+      distance  Manhattan dist from takeoff in meters
+      detections cumulative pigeon hits
+      altitude  meters AGL (None when not yet known)
+      heading   yaw in degrees -180..180 (None when not yet known)
+    """
     payload = {
         "battery": round(battery, 1),
         "distance": round(distance, 2),
         "detections": detector.detections_total,
     }
+    if altitude is not None:
+        payload["altitude"] = round(altitude, 2)
+    if heading is not None:
+        payload["heading"] = round(heading, 1)
     print(f"TELEMETRY:{json.dumps(payload)}", flush=True)
 
 
@@ -257,7 +270,14 @@ async def run():
                 pos = await drone.get_position()
                 distance = abs(pos.position.north_m - start_pos.position.north_m) + \
                            abs(pos.position.east_m - start_pos.position.east_m)
-                emit_telemetry(detector, distance)
+                altitude_agl = -(pos.position.down_m - drone.ground_z)
+                # Yaw is its own async stream; bail to None if it stalls so a
+                # missing reading never blocks the hover loop.
+                try:
+                    heading = await asyncio.wait_for(drone.get_yaw(), timeout=0.2)
+                except Exception:
+                    heading = None
+                emit_telemetry(detector, distance, altitude=altitude_agl, heading=heading)
                 await log_position(drone.system, f"HOVER  {time.time() - hover_start:.1f}s",
                                    drone.ground_z)
 

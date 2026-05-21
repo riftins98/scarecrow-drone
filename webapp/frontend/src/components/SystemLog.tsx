@@ -148,18 +148,11 @@ export default function SystemLog({ connected, flying }: Props) {
     ? 'WAITING'
     : 'IDLE';
 
-  const totalShown = rows.length > 0
-    ? rows[rows.length - 1].idx + (isGap(rows[rows.length - 1]) ? 0 : 1)
-    : 0;
-
   const panel = (variant: 'inline' | 'overlay') => (
     <div className={`syslog ${variant === 'overlay' ? 'syslog-expanded' : ''}`}>
       <div className="syslog-header">
-        <span className="syslog-title">SIM // STDOUT</span>
         <span className={`syslog-pill ${running ? 'on' : 'off'}`}>{headerPill}</span>
-        <span className="syslog-meta">
-          lines: {totalShown.toString().padStart(5, '0')}
-        </span>
+        <span className="syslog-spacer" />
         <div className="syslog-actions">
           <button
             type="button"
@@ -222,7 +215,6 @@ export default function SystemLog({ connected, flying }: Props) {
           />
           AUTOSCROLL
         </label>
-        <span className="syslog-rate">{connected ? 'poll: 1.0s' : 'poll: 3.0s'}</span>
         {variant === 'overlay' && (
           <button
             type="button"

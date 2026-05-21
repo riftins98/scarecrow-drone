@@ -118,6 +118,7 @@ export default function Dashboard() {
         headless: false,
         camera: null,
         streamUrl: null,
+        rtf: null,
       });
       setFlightStatus(null);
     } catch (e: any) {
@@ -179,8 +180,8 @@ export default function Dashboard() {
       <Ticker connected={connected} flying={flying} />
 
       <TelemetryRail
-        connected={connected}
-        flying={flying}
+        simStatus={simStatus}
+        flightStatus={flightStatus}
       />
 
       <div className="dashboard-body">

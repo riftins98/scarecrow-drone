@@ -1,26 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
+import { FlightStatus, SimStatus } from '../types/flight';
 
 interface Props {
-  connected: boolean;
-  flying: boolean;
+  /** Sim status; we read rtf + connected/headless flags from it. */
+  simStatus: SimStatus | null;
+  /** Flight status; we read the latest TELEMETRY: payload from .telemetry. */
+  flightStatus: FlightStatus | null;
 }
 
 /**
- * Mock telemetry strip. ALT, SIG, and RTF read fixed values when connected
- * (no drift); BAT drains slowly so the rail still feels live.
+ * Live telemetry strip. Five readouts:
+ *   ALT — meters AGL, from the flight script's TELEMETRY: stream
+ *   BAT — battery percent, ditto (PX4 SITL barely drains so it usually stays near 100)
+ *   HDG — yaw degrees, ditto
+ *   DETS — cumulative pigeon detections, ditto
+ *   RTF — Gazebo real_time_factor (sim wall-clock speed), from /api/sim/status
+ *
+ * Anything we don't have data for yet shows "--" rather than a mocked value.
  */
-export default function TelemetryRail({ connected, flying }: Props) {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (!connected) return;
-    const t = setInterval(() => setTick(x => x + 1), 800);
-    return () => clearInterval(t);
-  }, [connected]);
-
-  const altitude = connected ? 0 : null;
-  const battery = connected ? Math.max(0.2, 0.92 - tick * 0.0005) : null;
-  const signal = connected ? 1 : null;
-  const rtf = connected ? 1 : null;
+export default function TelemetryRail({ simStatus, flightStatus }: Props) {
+  const connected = !!simStatus?.connected;
+  const tel = flightStatus?.telemetry ?? {};
+  const altitude  = connected && tel.altitude  !== undefined ? tel.altitude  : null;
+  const battery   = connected && tel.battery   !== undefined ? tel.battery   : null;
+  const heading   = connected && tel.heading   !== undefined ? tel.heading   : null;
+  const detections = connected && tel.detections !== undefined ? tel.detections : null;
+  const rtf       = connected && simStatus?.rtf !== undefined && simStatus?.rtf !== null
+    ? simStatus.rtf
+    : null;
 
   return (
     <div className="telemetry-rail">
@@ -35,28 +42,21 @@ export default function TelemetryRail({ connected, flying }: Props) {
       <Gauge
         label="BAT"
         unit="%"
-        value={battery !== null ? battery * 100 : null}
+        value={battery}
         max={100}
         decimals={0}
-        color={battery !== null && battery < 0.3 ? 'red' : 'olive'}
+        color={battery !== null && battery < 30 ? 'red' : 'olive'}
       />
-      <Gauge
-        label="SIG"
-        unit="%"
-        value={signal !== null ? signal * 100 : null}
-        max={100}
-        decimals={0}
-        color="teal"
-      />
+      <HeadingGauge value={heading} />
+      <Counter label="DETS" value={detections} />
       <Gauge
         label="RTF"
-        unit="%"
-        value={rtf !== null ? rtf * 100 : null}
-        max={100}
-        decimals={0}
-        color="olive"
+        unit="x"
+        value={rtf}
+        max={1}
+        decimals={2}
+        color={rtf !== null && rtf < 0.5 ? 'red' : 'olive'}
       />
-      <GpsDeniedBadge active={connected} />
     </div>
   );
 }
@@ -93,16 +93,44 @@ function Gauge({
   );
 }
 
-function GpsDeniedBadge({ active }: { active: boolean }) {
+/** Heading is unbounded (-180..180), display as degrees with a wraparound bar. */
+function HeadingGauge({ value }: { value: number | null }) {
+  // Normalize to 0..360 for the bar fill so "north" is 0% and "back to north" is 100%.
+  const normalized = value !== null ? ((value + 360) % 360) : null;
+  const pct = normalized !== null ? (normalized / 360) * 100 : 0;
+  const display = value !== null ? Math.round(((value + 360) % 360)).toString() : '--';
   return (
-    <div className={`tel-badge ${active ? 'on' : 'off'}`}>
-      <div className="tel-badge-corner tel-badge-tl" />
-      <div className="tel-badge-corner tel-badge-tr" />
-      <div className="tel-badge-corner tel-badge-bl" />
-      <div className="tel-badge-corner tel-badge-br" />
-      <div className="tel-badge-text">
-        <div className="tel-badge-line1">GPS</div>
-        <div className="tel-badge-line2">DENIED</div>
+    <div className={`tel-gauge tel-teal ${value === null ? 'nil' : ''}`}>
+      <div className="tel-head">
+        <span className="tel-label">HDG</span>
+        <span className="tel-value">
+          {display}
+          <span className="tel-unit">°</span>
+        </span>
+      </div>
+      <div className="tel-bar">
+        <div className="tel-bar-fill" style={{ width: `${pct}%` }} />
+        <div className="tel-bar-ticks" aria-hidden="true">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <span key={i} className="tel-bar-tick" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Counter({ label, value }: { label: string; value: number | null }) {
+  return (
+    <div className={`tel-gauge tel-olive ${value === null ? 'nil' : ''}`}>
+      <div className="tel-head">
+        <span className="tel-label">{label}</span>
+        <span className="tel-value">
+          {value !== null ? value.toString() : '--'}
+        </span>
+      </div>
+      <div className="tel-bar">
+        <div className="tel-bar-fill" style={{ width: value && value > 0 ? '100%' : '0%' }} />
       </div>
     </div>
   );
