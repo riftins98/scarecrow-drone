@@ -35,19 +35,15 @@ export default function Sidebar({ activeTab, onChange, connected, flying }: Prop
           disabled
           icon={<IconLayers />}
           label="World Map"
-          sub="locked"
+          sub="work in progress"
         />
         <SidebarBtn
           active={false}
           disabled
           icon={<IconGear />}
           label="Settings"
-          sub="locked"
+          sub="work in progress"
         />
-      </div>
-
-      <div className="hud-sidebar-footer">
-        <div className="hud-version">v1.0.0 // FW-26.05</div>
       </div>
     </nav>
   );

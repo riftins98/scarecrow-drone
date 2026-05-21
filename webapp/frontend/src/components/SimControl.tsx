@@ -268,22 +268,18 @@ export default function SimControl({
   return (
     <div className="drone-control">
       <h2>Simulation Control</h2>
-      <div className="status-panel">
+      <div className="status-panel status-panel-stacked">
         <div className="status-indicator connected">
           <span className="status-dot"></span>
-          Simulation Online{simStatus?.world ? ` — ${simStatus.world}` : ''}
-          {simStatus?.headless ? ' (headless)' : ''}
+          Simulation Online
         </div>
+        {simStatus?.world && (
+          <div className="status-line">World: {simStatus.world}</div>
+        )}
+        {simStatus?.headless && (
+          <div className="status-line">Headless</div>
+        )}
       </div>
-
-      {simStatus?.headless && simStatus.streamUrl && (
-        <div className="stream-link">
-          Camera feed embedded in side panel ·{' '}
-          <a href={simStatus.streamUrl} target="_blank" rel="noopener noreferrer">
-            open fullscreen ↗
-          </a>
-        </div>
-      )}
 
       {/* Script selector and arg form (hidden while flying) */}
       {!flying && (

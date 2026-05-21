@@ -171,10 +171,8 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <HudHeader
-        connected={connected}
-        launching={launching}
-        flying={flying}
-        world={simStatus?.world}
+        simStatus={simStatus}
+        flightStatus={flightStatus}
       />
 
       <Ticker connected={connected} flying={flying} />

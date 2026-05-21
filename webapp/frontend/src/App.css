@@ -142,6 +142,21 @@ body {
   border-radius: 2px;
 }
 
+/* Vertical stacked variant used after sim is online — one line each for
+   "Simulation Online", world name, and headless flag. */
+.status-panel.status-panel-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.status-line {
+  color: #909090;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding-left: 20px; /* line up with text after the status-dot */
+}
+
 .status-indicator {
   display: flex;
   align-items: center;
@@ -1318,15 +1333,20 @@ body {
   border: 1px solid #3a3a3a;
   transition: background 200ms ease, box-shadow 200ms ease;
 }
-.hud-light.on.hud-light-olive .hud-light-bulb {
+/* Live indicator lights: grey (off) / red (low) / green (good) */
+.hud-light-off .hud-light-bulb {
+  background: #2a2a2a;
+  border-color: #3a3a3a;
+}
+.hud-light-green .hud-light-bulb {
   background: #8b9a5b;
   border-color: #6a7b4a;
   box-shadow: 0 0 8px #8b9a5b, inset 0 0 3px rgba(255,255,255,0.3);
 }
-.hud-light.on.hud-light-teal .hud-light-bulb {
-  background: #7a9a9a;
-  border-color: #4a6a7b;
-  box-shadow: 0 0 8px #7a9a9a, inset 0 0 3px rgba(255,255,255,0.3);
+.hud-light-red .hud-light-bulb {
+  background: #b85050;
+  border-color: #7b3a3a;
+  box-shadow: 0 0 8px #b85050, inset 0 0 3px rgba(255,255,255,0.3);
 }
 .hud-light.pulsing .hud-light-bulb {
   animation: hud-light-pulse 1.4s ease-in-out infinite;
@@ -1340,7 +1360,8 @@ body {
   font-size: 0.62rem;
   letter-spacing: 1.5px;
 }
-.hud-light.on .hud-light-label { color: #b0b0b0; }
+.hud-light-green .hud-light-label,
+.hud-light-red .hud-light-label { color: #b0b0b0; }
 
 /* ============================================================
    TELEMETRY RAIL

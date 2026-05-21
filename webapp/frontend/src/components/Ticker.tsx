@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
 interface Props {
   connected: boolean;
@@ -21,19 +21,13 @@ const FEED = [
   'MISSION READY',
 ];
 
+/**
+ * Decorative scrolling tag strip between the header and telemetry rail.
+ * No left state pill, no right rev tag — just the marquee.
+ */
 export default function Ticker({ connected, flying }: Props) {
-  const [tag, setTag] = useState<string>('STANDBY');
-  useEffect(() => {
-    if (flying) setTag('MISSION ACTIVE');
-    else if (connected) setTag('SYSTEMS NOMINAL');
-    else setTag('STANDBY');
-  }, [connected, flying]);
-
   return (
     <div className={`ticker ${flying ? 'live' : connected ? 'nominal' : 'standby'}`}>
-      <div className="ticker-tag">
-        <span className="ticker-tag-bullet" /> {tag}
-      </div>
       <div className="ticker-track">
         <div className="ticker-stream">
           {FEED.concat(FEED).map((item, i) => (
@@ -44,7 +38,6 @@ export default function Ticker({ connected, flying }: Props) {
           ))}
         </div>
       </div>
-      <div className="ticker-end">REV 26.05</div>
     </div>
   );
 }
