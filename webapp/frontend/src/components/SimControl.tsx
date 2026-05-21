@@ -86,7 +86,6 @@ export default function SimControl({
     }
     // selectedCamera intentionally omitted from deps: we only reseed it when
     // the available-set changes (world swap), not on every user click.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWorld, options]);
 
   // When the selected script changes, reset arg values to that script's defaults
