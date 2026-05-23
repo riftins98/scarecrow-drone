@@ -41,7 +41,7 @@ from scarecrow.flight.helpers import wait_for_stable
 from scarecrow.flight.stabilization import lidar_stabilize
 from scarecrow.logging_setup import get_logger, log_event, log_run_file_path
 from scarecrow.navigation.navigation_unit import NavigationUnit
-from scarecrow.sensors import GazeboRangefinder
+from scarecrow.sensors.rangefinder import GazeboRangefinder
 from scarecrow.sensors.gz_utils import prefetch_gz_env_async
 from scarecrow.sensors.lidar.gazebo import GazeboLidar
 

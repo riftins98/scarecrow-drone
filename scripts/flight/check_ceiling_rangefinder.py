@@ -15,7 +15,7 @@ import time
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from scarecrow.sensors import GazeboRangefinder
+from scarecrow.sensors.rangefinder import GazeboRangefinder
 
 
 def parse_args() -> argparse.Namespace:
