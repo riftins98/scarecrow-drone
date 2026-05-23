@@ -34,6 +34,9 @@ if [[ "$2" == "--headless" ]] || [[ "$1" == "--headless" ]]; then
     fi
 fi
 
+# Accept both "world_name" and "world_name.sdf" inputs.
+WORLD="${WORLD%.sdf}"
+
 _log_event launch_start \
     world="$WORLD" \
     headless="$([ -n "$HEADLESS_FLAG" ] && echo true || echo false)" \
@@ -65,17 +68,38 @@ cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" ROMFS/px4fmu_common/init.d-po
 cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" ROMFS/px4fmu_common/init.d-posix/airframes/
 cp "$SCARECROW_DIR/config/server.config" src/modules/simulation/gz_bridge/
 
-# Copy custom models and world to PX4 dirs
-cp -r "$SCARECROW_DIR/models/holybro_x500" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
-cp -r "$SCARECROW_DIR/models/mono_cam" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
-cp -r "$SCARECROW_DIR/models/mono_cam_hd" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
-cp -r "$SCARECROW_DIR/models/lidar_2d_v2" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
-cp -r "$SCARECROW_DIR/models/military_drone" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
-if [[ "$(uname)" == "Darwin" ]]; then
-    cp -r "$SCARECROW_DIR/models/pigeon_3d" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
-fi
-cp -r "$SCARECROW_DIR/models/pigeon_billboard" "$PX4_DIR/Tools/simulation/gz/models/" 2>/dev/null || true
-cp "$SCARECROW_DIR/worlds/"*.sdf "$PX4_DIR/Tools/simulation/gz/worlds/" 2>/dev/null || true
+# Build against clean mirrors (single source of truth = local repo).
+SCARECROW_PX4_GZ_MODELS_DIR="$PX4_DIR/build/scarecrow_gz_models"
+SCARECROW_PX4_GZ_WORLDS_DIR="$PX4_DIR/build/scarecrow_gz_worlds"
+
+rm -rf "$SCARECROW_PX4_GZ_MODELS_DIR" 2>/dev/null || true
+mkdir -p "$SCARECROW_PX4_GZ_MODELS_DIR"
+for model_dir in "$SCARECROW_DIR/models"/*; do
+    [ -d "$model_dir" ] || continue
+    model_name="$(basename "$model_dir")"
+    ln -s "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name" 2>/dev/null || true
+done
+
+# Build a deterministic worlds set for PX4 CMake target generation.
+# This avoids accidental duplicate/invalid files from polluting targets.
+rm -rf "$SCARECROW_PX4_GZ_WORLDS_DIR" 2>/dev/null || true
+mkdir -p "$SCARECROW_PX4_GZ_WORLDS_DIR"
+for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
+    [ -f "$world_file" ] || continue
+    world_name="$(basename "$world_file")"
+    ln -s "$world_file" "$SCARECROW_PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
+done
+# PX4 still resolves worlds from Tools/simulation/gz/worlds. Mirror the
+# scarecrow worlds there so gz can open them by name.
+PX4_GZ_WORLDS_DIR="$PX4_DIR/Tools/simulation/gz/worlds"
+mkdir -p "$PX4_GZ_WORLDS_DIR"
+for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
+    [ -f "$world_file" ] || continue
+    world_name="$(basename "$world_file")"
+    ln -sf "$world_file" "$PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
+done
+export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_PX4_GZ_MODELS_DIR"
+export PX4_GZ_WORLDS_DIR="$SCARECROW_PX4_GZ_WORLDS_DIR"
 _log_timer_end copy_assets
 
 # --- Build PX4 first (creates rootfs with airframe) ---

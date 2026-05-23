@@ -3,7 +3,7 @@
 # @name Holybro X500 V2 — GPS-denied with full sensor stack
 # @type Quadrotor
 #
-# Sensors: optical flow (MTF-01), rangefinder (TF-Luna), 2D lidar (RPLidar A1M8), mono camera (Pi Camera 3)
+# Sensors: optical flow (MTF-01), downward rangefinder, upward TF-Luna-style ceiling rangefinder, 2D lidar (RPLidar A1M8), mono camera (Pi Camera 3)
 # Based on stock 4021_gz_x500_flow — only GPS disabled, everything else at PX4 defaults.
 #
 

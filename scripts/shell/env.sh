@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared environment for all scarecrow-drone scripts.
-# Source this file: source scripts/env.sh
+# Source this file: source scripts/shell/env.sh
 #
 # CHANGELOG
 #   2026-05-02 — On WSL2 auto-set SCARECROW_TAKEOFF_TIMEOUT=300 because the sim
@@ -40,9 +40,10 @@ if [[ "$(uname)" == "Darwin" ]] && [ -x "$SCARECROW_DIR/.venv/bin/python" ]; the
 fi
 
 # Gazebo resource paths (includes our custom models and worlds).
+# NOTE: Load ONLY from local directories, not from PX4's copy
 # Note: GZ_SIM_SYSTEM_PLUGIN_PATH is set lower down — it depends on whether
 # nolockstep is active (different build dir name).
-export GZ_SIM_RESOURCE_PATH="$SCARECROW_DIR/models:$SCARECROW_DIR/worlds:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
+export GZ_SIM_RESOURCE_PATH="$SCARECROW_DIR/worlds:$SCARECROW_DIR/models"
 export GZ_SIM_SERVER_CONFIG_PATH="$PX4_DIR/src/modules/simulation/gz_bridge/server.config"
 
 # Network — Gazebo needs real IP (not 127.0.0.1, loopback breaks multicast)

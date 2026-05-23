@@ -32,6 +32,12 @@
       <pose relative_to="base_link">.12 .03 .242 0 0 0</pose>
     </include>
 
+    <!-- Upward TF-Luna-style rangefinder for ceiling clearance checks -->
+    <include merge='true'>
+      <uri>model://tf_luna_up</uri>
+      <pose relative_to="base_link">0 0 .16 0 0 0</pose>
+    </include>
+
     <!-- Joints -->
     <joint name="optical_flow_joint" type="fixed">
       <parent>base_link</parent>
@@ -56,6 +62,11 @@
     <joint name="CameraJoint" type="fixed">
       <parent>base_link</parent>
       <child>camera_link</child>
+    </joint>
+
+    <joint name="ceiling_rangefinder_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>tf_luna_up_link</child>
     </joint>
 
     <!-- Downward lidar sensor link (from x500_flow) -->
