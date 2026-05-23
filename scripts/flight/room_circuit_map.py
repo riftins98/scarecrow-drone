@@ -64,25 +64,12 @@ def _build_map_payload(mapper: MapUnit, output_dir: Path) -> dict:
     except json.JSONDecodeError:
         boundaries = []
     points = [asdict(p) for p in mapper.points]
-    created_at = datetime.now(timezone.utc).isoformat()
-    map_path = output_dir / "map.json"
-
     payload = {
-        "created_at": created_at,
         "boundaries": boundaries,
         "boundaries_json": boundaries_json,
-        "area_size": result.get("area_size", 0.0),
-        "point_count": len(points),
-        "map_path": str(map_path),
         "takeoff_point": mapper.takeoff_point,
         "points": points,
         "wall_points": wall_points,
-        "metadata": {
-            "target_alt": TARGET_ALT,
-            "wall_distance": WALL_DISTANCE,
-            "forward_speed": FORWARD_SPEED,
-            "system_address": SYSTEM_ADDRESS,
-        },
     }
     return payload
 
@@ -346,7 +333,16 @@ async def run() -> None:
 
                     if step % MAP_RECORD_EVERY == 0 and _scan_valid_for_map(scan):
                         pos = await drone.get_position()
-                        mapper.record_position(scan, pos.position.north_m, pos.position.east_m)
+                        yaw_deg = await drone.get_yaw()
+                        mapper.record_position(scan, pos.position.north_m, pos.position.east_m, yaw_deg)
+                        mapper.record_left_wall_hit(
+                            scan,
+                            pos.position.north_m,
+                            pos.position.east_m,
+                            yaw_deg,
+                            min_m=MAP_MIN_DIST,
+                            max_m=MAP_MAX_DIST,
+                        )
 
                     if step % 10 == 0:
                         elapsed = time.time() - start_time
@@ -362,7 +358,16 @@ async def run() -> None:
                 scan = lidar.get_scan()
                 if _scan_valid_for_map(scan):
                     pos = await drone.get_position()
-                    mapper.record_position(scan, pos.position.north_m, pos.position.east_m)
+                    yaw_deg = await drone.get_yaw()
+                    mapper.record_position(scan, pos.position.north_m, pos.position.east_m, yaw_deg)
+                    mapper.record_left_wall_hit(
+                        scan,
+                        pos.position.north_m,
+                        pos.position.east_m,
+                        yaw_deg,
+                        min_m=MAP_MIN_DIST,
+                        max_m=MAP_MAX_DIST,
+                    )
 
                 pos = await drone.get_position()
                 mapper.record_corner(pos.position.north_m, pos.position.east_m)
@@ -384,9 +389,9 @@ async def run() -> None:
         map_path = _save_map(payload, output_dir)
         summary = {
             "boundaries": payload.get("boundaries_json", "[]"),
-            "area_size": payload.get("area_size", 0.0),
             "map_path": str(map_path),
-            "point_count": payload.get("point_count", 0),
+            "point_count": len(payload.get("points", [])),
+            "wall_point_count": len(payload.get("wall_points", [])),
         }
         print(f"MAP_RESULT:{json.dumps(summary)}", flush=True)
 

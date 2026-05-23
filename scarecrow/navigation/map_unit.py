@@ -10,6 +10,7 @@ Full SLAM is out of scope for the university project.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
@@ -22,6 +23,7 @@ class MappingPoint:
     """A single measurement recorded during mapping."""
     x: float          # north_m (NED)
     y: float          # east_m (NED)
+    yaw_deg: float
     front_dist: float
     rear_dist: float
     left_dist: float
@@ -45,6 +47,7 @@ class MapUnit:
     def __init__(self) -> None:
         self.points: list[MappingPoint] = []
         self.corners: list[dict] = []
+        self.wall_points: list[dict] = []
         self.active: bool = False
         self.takeoff_point: Optional[dict] = None
 
@@ -52,6 +55,7 @@ class MapUnit:
         """Begin recording. Clears any previous points."""
         self.points = []
         self.corners = []
+        self.wall_points = []
         self.active = True
 
     def set_takeoff_point(self, north_m: float, east_m: float) -> None:
@@ -63,6 +67,7 @@ class MapUnit:
         scan: LidarScan,
         north_m: float,
         east_m: float,
+        yaw_deg: float,
     ) -> Optional[MappingPoint]:
         """Record a measurement at the current position. No-op if not active
         or if the scan is empty. Returns the point that was recorded."""
@@ -71,6 +76,7 @@ class MapUnit:
         point = MappingPoint(
             x=north_m,
             y=east_m,
+            yaw_deg=yaw_deg,
             front_dist=scan.front_distance(),
             rear_dist=scan.rear_distance(),
             left_dist=scan.left_distance(),
@@ -85,24 +91,45 @@ class MapUnit:
             return
         self.corners.append({"x": north_m, "y": east_m})
 
+    def record_left_wall_hit(
+        self,
+        scan: LidarScan,
+        north_m: float,
+        east_m: float,
+        yaw_deg: float,
+        *,
+        min_m: float,
+        max_m: float,
+    ) -> Optional[dict]:
+        """Record a single left-wall hit projected into world frame."""
+        if not self.active or scan is None or scan.num_samples == 0:
+            return None
+        left_dist = scan.left_distance()
+        if not math.isfinite(left_dist) or left_dist < min_m or left_dist > max_m:
+            return None
+
+        yaw_rad = math.radians(yaw_deg)
+        right_x = -math.sin(yaw_rad)
+        right_y = math.cos(yaw_rad)
+        hit = {
+            "x": north_m - right_x * left_dist,
+            "y": east_m - right_y * left_dist,
+        }
+        self.wall_points.append(hit)
+        return hit
+
     def finish_mapping(self) -> dict:
-        """Compute area from recorded corners. Returns area_map-compatible dict."""
+        """Return recorded boundaries and wall-hit points."""
         self.active = False
         if not self.points:
-            return {"boundaries": "[]", "area_size": 0.0, "wall_points": []}
+            return {"boundaries": "[]", "wall_points": []}
 
         boundaries = list(self.corners)
-        if boundaries:
-            area_size = self._polygon_area(boundaries)
-        else:
-            wall_points = self._wall_points()
-            boundaries = self._convex_hull(wall_points)
-            area_size = self._polygon_area(boundaries)
+        wall_points = list(self.wall_points)
 
         return {
             "boundaries": json.dumps(boundaries),
-            "area_size": round(area_size, 2),
-            "wall_points": self._wall_points(),
+            "wall_points": wall_points,
         }
 
     # ------------------------------------------------------------------
@@ -135,6 +162,7 @@ class MapUnit:
         # --- extract data ---
         boundaries = data.get("boundaries", [])
         points = data.get("points", [])
+        wall_points = data.get("wall_points", [])
         takeoff = data.get("takeoff_point", None)
 
         # --- set up figure ---
@@ -158,6 +186,13 @@ class MapUnit:
             py = [p["y"] for p in points]
             ax.scatter(px, py, s=4, c="#888888", alpha=0.7, zorder=3,
                        label=f"Flight points ({len(points)})")
+
+        # --- wall hit points (cyan dots) ---
+        if wall_points:
+            wx = [p["x"] for p in wall_points]
+            wy = [p["y"] for p in wall_points]
+            ax.scatter(wx, wy, s=3, c="#4fc3f7", alpha=0.55, zorder=2,
+                       label=f"Wall hits ({len(wall_points)})")
 
         # --- takeoff point (bigger red dot) ---
         if takeoff:
@@ -197,14 +232,20 @@ class MapUnit:
         """Project lidar distances into world-frame wall-hit points."""
         wall_points: list[dict] = []
         for p in self.points:
-            wall_points.extend(
-                [
-                    {"x": p.x + p.front_dist, "y": p.y},
-                    {"x": p.x - p.rear_dist, "y": p.y},
-                    {"x": p.x, "y": p.y - p.left_dist},
-                    {"x": p.x, "y": p.y + p.right_dist},
-                ]
-            )
+            yaw_rad = math.radians(p.yaw_deg)
+            fwd_x = math.cos(yaw_rad)
+            fwd_y = math.sin(yaw_rad)
+            right_x = -math.sin(yaw_rad)
+            right_y = math.cos(yaw_rad)
+
+            if math.isfinite(p.front_dist):
+                wall_points.append({"x": p.x + fwd_x * p.front_dist, "y": p.y + fwd_y * p.front_dist})
+            if math.isfinite(p.rear_dist):
+                wall_points.append({"x": p.x - fwd_x * p.rear_dist, "y": p.y - fwd_y * p.rear_dist})
+            if math.isfinite(p.left_dist):
+                wall_points.append({"x": p.x - right_x * p.left_dist, "y": p.y - right_y * p.left_dist})
+            if math.isfinite(p.right_dist):
+                wall_points.append({"x": p.x + right_x * p.right_dist, "y": p.y + right_y * p.right_dist})
         return wall_points
 
     @staticmethod
