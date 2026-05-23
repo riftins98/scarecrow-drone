@@ -37,11 +37,27 @@ class FlightService:
         self,
         flight_id: str,
         on_detection: Optional[Callable] = None,
+        script_name: Optional[str] = None,
+        script_args: Optional[dict] = None,
     ) -> bool:
-        """Start the detection subprocess for this flight."""
+        """Start the detection subprocess for this flight.
+
+        Args:
+            flight_id: Flight identifier.
+            on_detection: Callback when a detection image is parsed.
+            script_name: Filename in scripts/flight/. Defaults to whatever
+                DetectionService.start() considers its default
+                (demo_flight_v2.py at the time of writing).
+            script_args: Optional dict of CLI arg overrides.
+        """
         if self.detection_service is None:
             return False
-        return self.detection_service.start(flight_id, on_detection=on_detection)
+        kwargs = {"on_detection": on_detection}
+        if script_name:
+            kwargs["script_name"] = script_name
+        if script_args is not None:
+            kwargs["script_args"] = script_args
+        return self.detection_service.start(flight_id, **kwargs)
 
     def stop_flight(self, flight_id: str) -> FlightDTO:
         """Stop detection and mark flight as completed with final counts."""

@@ -10,7 +10,7 @@ FastAPI router modules. One controller per ADD Appendix A section. Each module e
 
 ## Files
 - `__init__.py` — Re-exports all controller modules for `from controllers import *`
-- `sim_controller.py` — `/api/sim/*` (ADD A.1): connect, disconnect, status
+- `sim_controller.py` — `/api/sim/*` (ADD A.1): connect (POST body `{world, headless}`), disconnect, status (includes `world`, `headless`, `streamUrl`), and **`/api/sim/options`** which lists every world in `worlds/` and every flight script in `scripts/flight/` (with parsed argparse metadata so the frontend can render a parameter form).
 - `flight_controller.py` — `/api/flights/*` (ADD A.4) + legacy `/api/flight/start|stop|status`. The legacy routes stay for frontend compatibility until the React side is updated.
 - `drone_controller.py` — `/api/drone/*` (ADD A.3): start, stop, abort, return-home, status, telemetry. Frontend-facing drone control.
 - `area_map_controller.py` — `/api/areas/*` (ADD A.5): full CRUD + `/mapping/start` and `/mapping/status` for UC1

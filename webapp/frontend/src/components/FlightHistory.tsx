@@ -21,49 +21,108 @@ function formatDate(iso: string): string {
   }
 }
 
-function statusStyle(status: string): React.CSSProperties {
+function statusMeta(status: string): { label: string; cls: string } {
   switch (status) {
-    case 'completed': return { color: '#8b9a5b', borderColor: '#6a7b4a' };
-    case 'in_progress': return { color: '#7a9a9a', borderColor: '#4a6a7b' };
-    case 'failed': return { color: '#8b4a4a', borderColor: '#7b3a3a' };
-    default: return {};
+    case 'completed':   return { label: 'COMPLETE',   cls: 'ok' };
+    case 'in_progress': return { label: 'IN PROGRESS', cls: 'live' };
+    case 'failed':      return { label: 'FAILED',     cls: 'fail' };
+    default:            return { label: status.toUpperCase(), cls: '' };
   }
 }
 
 export default function FlightHistory({ flights, onSelectFlight }: Props) {
   return (
     <div className="flight-history">
-      <h2>Detection History</h2>
+      <div className="history-header">
+        <h2>MISSION LOG</h2>
+        <div className="history-meta">
+          <span className="history-count">{flights.length} ENTR{flights.length === 1 ? 'Y' : 'IES'}</span>
+        </div>
+      </div>
+
       {flights.length === 0 ? (
-        <p className="no-flights">No detection sessions recorded</p>
+        <div className="no-flights">
+          <div className="no-flights-frame">
+            <span>NO MISSIONS LOGGED</span>
+          </div>
+        </div>
       ) : (
         <div className="flights-list">
-          {flights.map(f => (
-            <div key={f.id} className="flight-card" onClick={() => onSelectFlight(f)}>
-              <div className="flight-header">
-                <span className="flight-date">{formatDate(f.startTime)}</span>
-                <span className="flight-status" style={statusStyle(f.status)}>
-                  {f.status.replace('_', ' ')}
-                </span>
+          {flights.map((f, idx) => {
+            const meta = statusMeta(f.status);
+            const detectionDensity = f.framesProcessed > 0
+              ? Math.min(1, f.pigeonsDetected / (f.framesProcessed / 30))
+              : 0;
+            return (
+              <div
+                key={f.id}
+                className={`flight-card mission-card status-${meta.cls}`}
+                onClick={() => onSelectFlight(f)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') onSelectFlight(f); }}
+              >
+                <div className="mission-card-stripe" aria-hidden="true" />
+
+                <div className="mission-card-id">
+                  <span className="mission-card-id-label">M-{String(flights.length - idx).padStart(3, '0')}</span>
+                  <span className="mission-card-id-hash">#{f.id.substring(0, 8)}</span>
+                </div>
+
+                <div className="mission-card-body">
+                  <div className="mission-card-row">
+                    <span className="mission-card-date">{formatDate(f.startTime)}</span>
+                    <span className={`mission-card-status status-pill-${meta.cls}`}>
+                      <span className="mission-card-status-dot" />
+                      {meta.label}
+                    </span>
+                  </div>
+
+                  <div className="mission-card-stats">
+                    <Stat label="DUR" value={formatDuration(f.duration)} />
+                    <Stat label="FRAMES" value={f.framesProcessed.toLocaleString()} />
+                    <Stat
+                      label="HITS"
+                      value={f.pigeonsDetected.toString()}
+                      accent={f.pigeonsDetected > 0}
+                    />
+                  </div>
+
+                  <div className="mission-card-bar">
+                    <div className="mission-card-bar-label">DETECTION DENSITY</div>
+                    <div className="mission-card-bar-track">
+                      <div
+                        className="mission-card-bar-fill"
+                        style={{ width: `${detectionDensity * 100}%` }}
+                      />
+                      <div className="mission-card-bar-ticks">
+                        {Array.from({ length: 20 }).map((_, i) => (
+                          <span key={i} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mission-card-action" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M6 3 L11 8 L6 13" strokeLinecap="round" />
+                  </svg>
+                </div>
               </div>
-              <div className="flight-details">
-                <div className="detail">
-                  <span className="label">Duration</span>
-                  <span className="value">{formatDuration(f.duration)}</span>
-                </div>
-                <div className="detail">
-                  <span className="label">Pigeons</span>
-                  <span className="value pigeon-count">{f.pigeonsDetected}</span>
-                </div>
-                <div className="detail">
-                  <span className="label">Frames</span>
-                  <span className="value">{f.framesProcessed}</span>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className={`mission-stat ${accent ? 'mission-stat-accent' : ''}`}>
+      <span className="mission-stat-label">{label}</span>
+      <span className="mission-stat-value">{value}</span>
     </div>
   );
 }

@@ -68,13 +68,26 @@ def parse_args():
     return parser.parse_args()
 
 
-def emit_telemetry(detector: YoloDetector, distance: float, battery: float = 100.0):
-    """Print a TELEMETRY: line for webapp parsing."""
+def emit_telemetry(detector: YoloDetector, distance: float, battery: float = 100.0,
+                   altitude: float | None = None, heading: float | None = None):
+    """Print a TELEMETRY: line for webapp parsing.
+
+    Fields:
+      battery   percent 0..100 (currently hardcoded; PX4 SITL barely drains)
+      distance  Manhattan dist from takeoff in meters
+      detections cumulative pigeon hits
+      altitude  meters AGL (None when not yet known)
+      heading   yaw in degrees -180..180 (None when not yet known)
+    """
     payload = {
         "battery": round(battery, 1),
         "distance": round(distance, 2),
         "detections": detector.detections_total,
     }
+    if altitude is not None:
+        payload["altitude"] = round(altitude, 2)
+    if heading is not None:
+        payload["heading"] = round(heading, 1)
     print(f"TELEMETRY:{json.dumps(payload)}", flush=True)
 
 
@@ -123,6 +136,48 @@ async def run():
         print("ERROR: could not connect to drone")
         return
     print("Connected.")
+
+    # --- Background telemetry emitter ---
+    # Emits a TELEMETRY: line every second regardless of flight phase, so the
+    # webapp dashboard sees real altitude/heading/battery from the moment the
+    # drone is connected -- not just during the hover phase. Each field is
+    # individually try/except'd so a missing reading never blocks the others.
+    telemetry_stop = asyncio.Event()
+
+    async def telemetry_loop():
+        # Reference for the cumulative-detections field; demo's `detector`
+        # exists in the outer scope before this task starts running.
+        while not telemetry_stop.is_set():
+            try:
+                pos = await asyncio.wait_for(drone.get_position(), timeout=0.5)
+                # ground_z is set during prepare_takeoff(); fall back to 0
+                # before then so altitude is at least valid (drone is sitting
+                # on the ground, agl ~ 0).
+                ground_z = getattr(drone, "ground_z", None) or 0.0
+                altitude = -(pos.position.down_m - ground_z)
+            except Exception:
+                altitude = None
+            try:
+                heading = await asyncio.wait_for(drone.get_yaw(), timeout=0.3)
+            except Exception:
+                heading = None
+            try:
+                battery = await asyncio.wait_for(drone.get_battery(), timeout=0.3)
+            except Exception:
+                battery = None
+            emit_telemetry(
+                detector,
+                distance=0.0,           # filled in by hover loop when relevant
+                battery=battery if battery is not None else 100.0,
+                altitude=altitude,
+                heading=heading,
+            )
+            try:
+                await asyncio.wait_for(telemetry_stop.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+
+    telemetry_task = asyncio.create_task(telemetry_loop())
 
     # GPS-denied mode needs the EKF origin established before PX4's health
     # checks can converge reliably.
@@ -257,7 +312,14 @@ async def run():
                 pos = await drone.get_position()
                 distance = abs(pos.position.north_m - start_pos.position.north_m) + \
                            abs(pos.position.east_m - start_pos.position.east_m)
-                emit_telemetry(detector, distance)
+                altitude_agl = -(pos.position.down_m - drone.ground_z)
+                # Yaw is its own async stream; bail to None if it stalls so a
+                # missing reading never blocks the hover loop.
+                try:
+                    heading = await asyncio.wait_for(drone.get_yaw(), timeout=0.2)
+                except Exception:
+                    heading = None
+                emit_telemetry(detector, distance, altitude=altitude_agl, heading=heading)
                 await log_position(drone.system, f"HOVER  {time.time() - hover_start:.1f}s",
                                    drone.ground_z)
 
@@ -337,6 +399,13 @@ async def run():
             print("  WARNING: drone did not disarm cleanly -- rotors may still be spinning")
 
     finally:
+
+        # Stop the background telemetry emitter cleanly.
+        telemetry_stop.set()
+        try:
+            await asyncio.wait_for(telemetry_task, timeout=2.0)
+        except Exception:
+            pass
 
         # Safety: ensure motors are off even if the flight phase raised.
         # If disarm already succeeded in the try-block, this is a no-op.
