@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared environment for all scarecrow-drone scripts.
-# Source this file: source scripts/env.sh
+# Source this file: source scripts/shell/env.sh
 #
 # CHANGELOG
 #   2026-05-02 — On WSL2 auto-set SCARECROW_TAKEOFF_TIMEOUT=300 because the sim
