@@ -1,11 +1,8 @@
 """Area mapping unit -- records boundaries during mapping flights.
 
-Stub implementation for UC1 Map Area. Collects lidar-derived distance
-measurements at each position and computes a bounding box as the area map.
-
-Not full SLAM -- it just records "drone was at (x,y) and saw walls at these
-distances" for each sample point, then produces a rectangular envelope.
-Full SLAM is out of scope for the university project.
+This is intentionally lighter than full SLAM: it records the drone route and
+lidar-derived wall hits, then builds a rectangular wall envelope from those
+hits for room-circuit maps.
 """
 from __future__ import annotations
 
@@ -41,7 +38,7 @@ class MapUnit:
         mapper.record_position(scan, north_m=pos.north, east_m=pos.east)
         # after last waypoint:
         result = mapper.finish_mapping()
-        # result -> {"boundaries": "[{...}]", "area_size": 42.5}
+        # result -> {"boundaries": "[{...}]", "route": [{...}], "area_size": 42.5}
     """
 
     def __init__(self) -> None:
@@ -67,7 +64,7 @@ class MapUnit:
         scan: LidarScan,
         north_m: float,
         east_m: float,
-        yaw_deg: float,
+        yaw_deg: float = 0.0,
     ) -> Optional[MappingPoint]:
         """Record a measurement at the current position. No-op if not active
         or if the scan is empty. Returns the point that was recorded."""
@@ -119,17 +116,25 @@ class MapUnit:
         return hit
 
     def finish_mapping(self) -> dict:
-        """Return recorded boundaries and wall-hit points."""
+        """Return wall boundaries, drone route, and wall-hit points."""
         self.active = False
         if not self.points:
-            return {"boundaries": "[]", "wall_points": []}
+            return {
+                "boundaries": "[]",
+                "route": [],
+                "wall_points": [],
+                "area_size": 0.0,
+            }
 
-        boundaries = list(self.corners)
-        wall_points = list(self.wall_points)
+        route = list(self.corners)
+        wall_points = list(self.wall_points) or self._wall_points()
+        boundaries = self._axis_aligned_boundary(wall_points) if wall_points else route
 
         return {
             "boundaries": json.dumps(boundaries),
+            "route": route,
             "wall_points": wall_points,
+            "area_size": round(self._polygon_area(boundaries), 2),
         }
 
     # ------------------------------------------------------------------
@@ -161,9 +166,14 @@ class MapUnit:
 
         # --- extract data ---
         boundaries = data.get("boundaries", [])
+        route = data.get("route") or data.get("route_points") or []
         points = data.get("points", [])
         wall_points = data.get("wall_points", [])
         takeoff = data.get("takeoff_point", None)
+        if wall_points and not route and boundaries:
+            # Legacy maps used the route/turn points as "boundaries".
+            route = boundaries
+            boundaries = MapUnit._axis_aligned_boundary(wall_points)
 
         # --- set up figure ---
         fig, ax = plt.subplots(figsize=(10, 10))
@@ -171,21 +181,43 @@ class MapUnit:
         ax.set_facecolor("#1a1a2e")
         fig.patch.set_facecolor("#0f0f1a")
 
-        # --- boundaries polygon ---
+        # --- wall boundary polygon ---
         if boundaries:
             bx = [b["x"] for b in boundaries] + [boundaries[0]["x"]]
             by = [b["y"] for b in boundaries] + [boundaries[0]["y"]]
-            ax.plot(bx, by, color="#ffffff", linewidth=1.5, linestyle="-",
-                zorder=2, label="Boundary")
-            ax.scatter(bx[:-1], by[:-1], s=30, c="#ffffff", zorder=4,
-                   label="Boundary points")
+            ax.plot(
+                bx, by, color="#ffffff", linewidth=1.8, linestyle="-",
+                zorder=2, label="Wall boundary",
+            )
+            ax.scatter(
+                bx[:-1], by[:-1], s=30, c="#ffffff", zorder=4,
+                label="Wall boundary corners",
+            )
 
-        # --- flight points (tiny gray dots) ---
+        # --- actual recorded flight path ---
         if points:
             px = [p["x"] for p in points]
             py = [p["y"] for p in points]
+            ax.plot(
+                px, py, color="#ffd166", linewidth=1.8, alpha=0.9,
+                zorder=5, label="Drone flight path",
+            )
             ax.scatter(px, py, s=4, c="#888888", alpha=0.7, zorder=3,
                        label=f"Flight points ({len(points)})")
+
+        # --- route/turn points, kept open because the final leg may not end
+        # exactly on the first recorded point.
+        if route:
+            rx = [p["x"] for p in route]
+            ry = [p["y"] for p in route]
+            ax.plot(
+                rx, ry, color="#ffd166", linewidth=1.0, linestyle="--",
+                alpha=0.75, zorder=5, label="Turn-point route",
+            )
+            ax.scatter(
+                rx, ry, s=24, c="#ffd166", zorder=6,
+                label="Route turn points",
+            )
 
         # --- wall hit points (cyan dots) ---
         if wall_points:
@@ -247,6 +279,26 @@ class MapUnit:
             if math.isfinite(p.right_dist):
                 wall_points.append({"x": p.x + right_x * p.right_dist, "y": p.y + right_y * p.right_dist})
         return wall_points
+
+    @staticmethod
+    def _axis_aligned_boundary(points: list[dict]) -> list[dict]:
+        """Build the room wall rectangle from projected wall-hit points."""
+        if not points:
+            return []
+
+        xs = [p["x"] for p in points]
+        ys = [p["y"] for p in points]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        if math.isclose(min_x, max_x) or math.isclose(min_y, max_y):
+            return MapUnit._convex_hull(points)
+
+        return [
+            {"x": min_x, "y": max_y},
+            {"x": min_x, "y": min_y},
+            {"x": max_x, "y": min_y},
+            {"x": max_x, "y": max_y},
+        ]
 
     @staticmethod
     def _convex_hull(points: list[dict]) -> list[dict]:
