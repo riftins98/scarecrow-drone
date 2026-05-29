@@ -52,6 +52,32 @@ class TestYoloDetector:
         call_arg = callback.call_args[0][0]
         assert "detection" in call_arg
 
+    def test_detection_data_callback_receives_detections(self, tmp_path):
+        data_callback = MagicMock()
+        det = YoloDetector(
+            model_path="fake.pt",
+            output_dir=str(tmp_path),
+            on_detection_data=data_callback,
+        )
+
+        mock_box = MagicMock()
+        mock_box.xyxy = [MagicMock(tolist=MagicMock(return_value=[10, 10, 100, 100]))]
+        mock_box.conf = [MagicMock(__float__=lambda s: 0.9)]
+        mock_box.cls = [MagicMock(__int__=lambda s: 0)]
+        mock_result = MagicMock()
+        mock_result.boxes = [mock_box]
+        det._model = MagicMock(return_value=[mock_result])
+        det._model.names = {0: "pigeon"}
+        det.start()
+
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        det.process_frame(frame)
+
+        data_callback.assert_called_once()
+        detections = data_callback.call_args[0][0]
+        assert detections[0]["class"] == "pigeon"
+        assert detections[0]["center"] == (55, 55)
+
     def test_no_callback_when_no_detections(self, tmp_path):
         callback = MagicMock()
         det = YoloDetector(

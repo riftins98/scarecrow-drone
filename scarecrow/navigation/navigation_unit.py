@@ -14,10 +14,18 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import time
+from typing import Callable
 
 from ..controllers.distance_stabilizer import DistanceTargets
 from ..controllers.front_wall_detector import FrontWallDetector
 from ..controllers.rotation import rotate_90
+from ..controllers.target_pursuit import (
+    TargetPursuitConfig,
+    TargetPursuitController,
+    TargetPursuitResult,
+    TargetPursuitState,
+)
 from ..controllers.wall_follow import VelocityCommand, WallFollowController
 from ..drone import Drone
 from ..flight.stabilization import lidar_stabilize
@@ -111,6 +119,96 @@ class NavigationUnit:
         """Rotate 90 degrees using compass + lidar SVD. Delegates to existing
         `rotate_90` helper."""
         return await rotate_90(self.drone.system, self.lidar, direction=direction)
+
+    async def pursue_target(
+        self,
+        tracker,
+        config: TargetPursuitConfig | None = None,
+        on_status: Callable[[TargetPursuitResult], None] | None = None,
+    ) -> TargetPursuitResult:
+        """Pursue the latest tracked target using lidar range and camera centering.
+
+        Args:
+            tracker: Object exposing ``latest(max_age_s=None, now=None)``.
+            config: Pursuit tuning. Defaults match the original pigeon script.
+            on_status: Optional callback for each controller result.
+        """
+        cfg = config or TargetPursuitConfig()
+        controller = TargetPursuitController(cfg)
+        last_result = TargetPursuitResult(
+            state=TargetPursuitState.ALIGNING,
+            command=VelocityCommand(),
+        )
+
+        while True:
+            scan = self.lidar.get_scan()
+            if scan is None:
+                await self.drone.set_velocity(VelocityCommand())
+                await asyncio.sleep(0.05)
+                continue
+
+            loop_time = time.time()
+            observation = tracker.latest(now=loop_time)
+            result = controller.update(scan, observation, now=loop_time)
+            last_result = result
+            if on_status is not None:
+                on_status(result)
+
+            if result.done:
+                await self.drone.set_velocity(VelocityCommand())
+                return result
+
+            if result.state == TargetPursuitState.SEARCHING:
+                found = await self._run_target_search_sweep(tracker, cfg)
+                await self.drone.set_velocity(VelocityCommand())
+                if found:
+                    controller.mark_reacquired()
+                    continue
+
+                lost = TargetPursuitResult(
+                    state=TargetPursuitState.LOST,
+                    command=VelocityCommand(),
+                    done=True,
+                    reason="search_failed",
+                    elapsed_s=result.elapsed_s,
+                )
+                if on_status is not None:
+                    on_status(lost)
+                return lost
+
+            await self.drone.set_velocity(result.command)
+            await asyncio.sleep(0.05)
+
+        return last_result
+
+    async def _run_target_search_sweep(self, tracker, config: TargetPursuitConfig) -> bool:
+        """Hover, rotate right, then rotate left until target is reacquired."""
+        await self.drone.set_velocity(VelocityCommand())
+        await asyncio.sleep(0.2)
+
+        async def rotate_for(angle_deg: float, yaw_speed: float) -> bool:
+            duration = abs(angle_deg / yaw_speed)
+            cmd = VelocityCommand(yawspeed_deg_s=yaw_speed)
+            start = asyncio.get_event_loop().time()
+            while asyncio.get_event_loop().time() - start < duration:
+                now = time.time()
+                if tracker.latest(max_age_s=config.detection_miss_timeout_s, now=now) is not None:
+                    return True
+
+                scan = self.lidar.get_scan()
+                if scan is not None:
+                    if min(scan.left_distance(), scan.right_distance()) < config.min_wall_distance_m:
+                        return False
+
+                await self.drone.set_velocity(cmd)
+                await asyncio.sleep(0.05)
+
+            now = time.time()
+            return tracker.latest(max_age_s=config.detection_miss_timeout_s, now=now) is not None
+
+        if await rotate_for(config.search_right_deg, config.search_yaw_speed_deg_s):
+            return True
+        return await rotate_for(config.search_left_deg, -config.search_yaw_speed_deg_s)
 
     async def circuit(
         self,

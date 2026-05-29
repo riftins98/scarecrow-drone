@@ -26,7 +26,6 @@ import json
 import math
 import subprocess
 import sys
-import threading
 import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,10 +34,16 @@ sys.path.insert(0, REPO_ROOT)
 from mavsdk.offboard import VelocityBodyYawspeed
 
 from scarecrow.controllers.distance_stabilizer import DistanceStabilizerController, DistanceTargets
+from scarecrow.controllers.target_pursuit import (
+    TargetPursuitConfig,
+    TargetPursuitResult,
+    TargetPursuitState,
+)
 from scarecrow.controllers.wall_follow import VelocityCommand
+from scarecrow.detection.tracking import TargetTracker
 from scarecrow.detection.yolo import YoloDetector
 from scarecrow.drone import Drone
-from scarecrow.flight.helpers import get_position, log_position
+from scarecrow.flight.helpers import log_position
 from scarecrow.flight.stabilization import lidar_stabilize
 from scarecrow.navigation.navigation_unit import NavigationUnit
 from scarecrow.sensors.camera.gazebo import GazeboCamera
@@ -84,45 +89,6 @@ RETURN_KP = 0.35
 RETURN_MAX_SPEED = 0.35
 
 
-# --- Pursuit state ---
-class PursuitState:
-    """Thread-safe container for detection data shared between camera thread and
-    the async control loop."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._cx: float | None = None
-        self._cy: float | None = None
-        self._bbox: tuple | None = None
-        self._time: float = 0.0
-        self._conf: float = 0.0
-
-    def update(self, detections: list[dict]) -> None:
-        """Called from camera/YOLO thread via on_detection_data callback."""
-        if not detections:
-            return
-        # Use highest-confidence detection
-        best = max(detections, key=lambda d: d['conf'])
-        with self._lock:
-            self._cx, self._cy = best['center']
-            self._bbox = best['bbox']
-            self._time = time.time()
-            self._conf = best['conf']
-
-    def get(self) -> tuple[float | None, float | None, float, float]:
-        """Returns (cx, cy, det_time, confidence). cx/cy are None if no detection yet."""
-        with self._lock:
-            return self._cx, self._cy, self._time, self._conf
-
-    @property
-    def age(self) -> float:
-        """Seconds since last detection. inf if never detected."""
-        with self._lock:
-            if self._time == 0.0:
-                return float('inf')
-            return time.time() - self._time
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--flight-id", type=str, default=None,
@@ -144,71 +110,6 @@ def emit_telemetry(detector: YoloDetector, distance: float, battery: float = 100
         "phase": phase,
     }
     print(f"TELEMETRY:{json.dumps(payload)}", flush=True)
-
-
-def compute_pursuit_cmd(
-    front_dist: float,
-    target_dist: float,
-    scan,
-) -> VelocityCommand:
-    """Compute body-frame velocity for pigeon pursuit.
-
-    Args:
-        front_dist: Lidar front distance in meters.
-        target_dist: Desired stop distance.
-        scan: Current lidar scan for wall safety checks.
-
-    Returns:
-        VelocityCommand for the drone.
-    """
-    # --- Forward speed: proportional to remaining distance ---
-    dist_error = front_dist - target_dist
-    if dist_error <= 0:
-        # Already at or past target distance — no forward motion
-        forward = 0.0
-    else:
-        forward = min(KP_FORWARD * dist_error, MAX_PURSUIT_SPEED)
-        # Don't crawl to a halt — keep a minimum approach speed
-        forward = max(forward, MIN_PURSUIT_SPEED)
-
-    # --- Lateral safety: gentle push away from walls ---
-    right_correction = 0.0
-    if scan is not None:
-        left_dist = scan.left_distance()
-        right_dist = scan.right_distance()
-        if left_dist < MIN_WALL_DISTANCE:
-            right_correction = 0.15  # push right
-        elif right_dist < MIN_WALL_DISTANCE:
-            right_correction = -0.15  # push left
-
-    return VelocityCommand(
-        forward_m_s=forward,
-        right_m_s=right_correction,
-        down_m_s=0.0,
-        yawspeed_deg_s=0.0,
-    )
-
-
-def center_error_ratio(cx: float | None, image_cx: float) -> float | None:
-    if cx is None:
-        return None
-    return abs(cx - image_cx) / image_cx
-
-
-def is_centered(cx: float | None, image_cx: float, ratio: float) -> bool:
-    """True if target is inside the requested center band ratio."""
-    if cx is None:
-        return False
-    return abs(cx - image_cx) <= image_cx * ratio
-
-
-def compute_align_yaw(cx: float | None, image_cx: float) -> float:
-    """Yaw command that rotates target to frame center."""
-    if cx is None:
-        return 0.0
-    yaw_error = (cx - image_cx) / image_cx
-    yaw = yaw_error * YAW_KP
-    return max(-MAX_YAW_SPEED, min(MAX_YAW_SPEED, yaw))
 
 
 def _clamp(val: float, lo: float, hi: float) -> float:
@@ -245,17 +146,15 @@ async def run():
     log_event(log, "stale_mavsdk_killed")
 
     # --- Parallel warmup: YOLO model + Gazebo topic list in background ---
+    tracker = TargetTracker(image_width=IMAGE_WIDTH)
     detector = YoloDetector(
         model_path=YOLO_MODEL_PATH,
         output_dir=output_dir,
         confidence=YOLO_CONFIDENCE,
+        on_detection_data=tracker.update_from_yolo,
     )
     yolo_thread = detector.preload_async()
     gz_thread, gz_result = prefetch_gz_env_async()
-
-    # --- Pursuit state: shared between YOLO callback thread and main loop ---
-    pursuit = PursuitState()
-    detector._on_detection_data = pursuit.update
 
     # --- Connect drone in parallel ---
     drone = Drone(system_address=SYSTEM_ADDRESS)
@@ -418,6 +317,48 @@ async def run():
                           hover_elapsed=time.time() - hover_start)
                 break
 
+        async def return_to_start() -> bool:
+            """Drive back to the recorded takeoff N/E before landing."""
+            log_event(log, "phase", phase="RETURNING_HOME")
+            stable_since = None
+            return_start = time.time()
+
+            while time.time() - return_start < RETURN_TO_START_TIMEOUT:
+                pos = await drone.get_position()
+                n_err = start_pos.position.north_m - pos.position.north_m
+                e_err = start_pos.position.east_m - pos.position.east_m
+                dist = (n_err ** 2 + e_err ** 2) ** 0.5
+
+                if dist <= RETURN_TO_START_TOLERANCE:
+                    if stable_since is None:
+                        stable_since = time.time()
+                    elif time.time() - stable_since >= RETURN_STABLE_TIME:
+                        await drone.set_velocity(VelocityCommand())
+                        print(f"  [return] reached start area (err={dist:.2f}m)")
+                        return True
+                else:
+                    stable_since = None
+
+                yaw_deg = await drone.get_yaw()
+                yaw_rad = math.radians(yaw_deg)
+                fwd = n_err * math.cos(yaw_rad) + e_err * math.sin(yaw_rad)
+                right = -n_err * math.sin(yaw_rad) + e_err * math.cos(yaw_rad)
+                cmd = VelocityCommand(
+                    forward_m_s=_clamp(RETURN_KP * fwd, -RETURN_MAX_SPEED, RETURN_MAX_SPEED),
+                    right_m_s=_clamp(RETURN_KP * right, -RETURN_MAX_SPEED, RETURN_MAX_SPEED),
+                    down_m_s=0.0,
+                    yawspeed_deg_s=0.0,
+                )
+                await drone.set_velocity(cmd)
+                if int((time.time() - return_start) * 2) % 8 == 0:
+                    emit_telemetry(detector, dist, phase="RETURNING_HOME")
+                await asyncio.sleep(0.1)
+
+            await drone.set_velocity(VelocityCommand())
+            print("  [return] timeout before reaching start area")
+            log_event(log, "return_to_start_timeout")
+            return False
+
         if not pursuit_triggered:
             print(f"\n  No pigeon detected during hover. Exiting pursuit mode and landing.")
             log_event(log, "pursuit_not_started_no_detection")
@@ -431,190 +372,59 @@ async def run():
             print(f"\n--- Phase 2: Pigeon Pursuit (target: {target_dist}m) ---")
             log_event(log, "phase", phase="ALIGNING", target_dist=target_dist)
 
-            pursuit_start = time.time()
             pursuit_tick = 0
-            reached_target = False
-            image_cx = IMAGE_WIDTH / 2.0
-            phase = "ALIGNING"
-            exit_reason = ""
-            miss_count = 0
+            last_phase = None
 
-            async def run_search_sweep() -> bool:
-                """Hover, rotate +25 right then 50 left; return True if target found."""
-                nonlocal phase
-                phase = "SEARCHING"
-                log_event(log, "phase", phase="SEARCHING")
-                emit_telemetry(detector, 0.0, phase=phase)
-                await drone.set_velocity(VelocityCommand())
-                await asyncio.sleep(0.2)
-
-                async def rotate_for(angle_deg: float, yaw_speed: float) -> bool:
-                    duration = abs(angle_deg / yaw_speed)
-                    cmd = VelocityCommand(yawspeed_deg_s=yaw_speed)
-                    start = time.time()
-                    while time.time() - start < duration:
-                        if pursuit.age <= DETECTION_MISS_TIMEOUT:
-                            return True
-                        scan_r = lidar.get_scan()
-                        if scan_r is not None:
-                            if min(scan_r.left_distance(), scan_r.right_distance()) < MIN_WALL_DISTANCE:
-                                return False
-                        await drone.set_velocity(cmd)
-                        await asyncio.sleep(0.05)
-                    return pursuit.age <= DETECTION_MISS_TIMEOUT
-
-                print("  [search] target lost -> hover, rotate +25 right")
-                reacquired = await rotate_for(SEARCH_RIGHT_DEG, +SEARCH_YAW_SPEED)
-                if reacquired:
-                    return True
-
-                print("  [search] not found -> rotate 50 left")
-                reacquired = await rotate_for(SEARCH_LEFT_DEG, -SEARCH_YAW_SPEED)
-                return reacquired
-
-            async def return_to_start() -> bool:
-                """Drive back to the recorded takeoff N/E before landing."""
-                nonlocal phase
-                phase = "RETURNING_HOME"
-                log_event(log, "phase", phase=phase)
-                stable_since = None
-                return_start = time.time()
-
-                while time.time() - return_start < RETURN_TO_START_TIMEOUT:
-                    pos = await drone.get_position()
-                    n_err = start_pos.position.north_m - pos.position.north_m
-                    e_err = start_pos.position.east_m - pos.position.east_m
-                    dist = (n_err ** 2 + e_err ** 2) ** 0.5
-
-                    if dist <= RETURN_TO_START_TOLERANCE:
-                        if stable_since is None:
-                            stable_since = time.time()
-                        elif time.time() - stable_since >= RETURN_STABLE_TIME:
-                            await drone.set_velocity(VelocityCommand())
-                            print(f"  [return] reached start area (err={dist:.2f}m)")
-                            return True
-                    else:
-                        stable_since = None
-
-                    yaw_deg = await drone.get_yaw()
-                    yaw_rad = yaw_deg * 3.141592653589793 / 180.0
-                    fwd = n_err * math.cos(yaw_rad) + e_err * math.sin(yaw_rad)
-                    right = -n_err * math.sin(yaw_rad) + e_err * math.cos(yaw_rad)
-                    cmd = VelocityCommand(
-                        forward_m_s=_clamp(RETURN_KP * fwd, -RETURN_MAX_SPEED, RETURN_MAX_SPEED),
-                        right_m_s=_clamp(RETURN_KP * right, -RETURN_MAX_SPEED, RETURN_MAX_SPEED),
-                        down_m_s=0.0,
-                        yawspeed_deg_s=0.0,
-                    )
-                    await drone.set_velocity(cmd)
-                    if int((time.time() - return_start) * 2) % 8 == 0:
-                        emit_telemetry(detector, dist, phase=phase)
-                    await asyncio.sleep(0.1)
-
-                await drone.set_velocity(VelocityCommand())
-                print("  [return] timeout before reaching start area")
-                log_event(log, "return_to_start_timeout")
-                return False
-
-            while time.time() - pursuit_start < PURSUIT_TIMEOUT:
-                scan = lidar.get_scan()
-                if scan is None:
-                    await drone.set_velocity(VelocityCommand())
-                    await asyncio.sleep(0.05)
-                    continue
-
-                front_dist = scan.front_distance()
-                left_dist = scan.left_distance()
-                right_dist = scan.right_distance()
-
-                if min(left_dist, right_dist) < MIN_WALL_DISTANCE:
-                    print(f"  [pursuit] SAFETY: wall too close (L={left_dist:.1f} R={right_dist:.1f}) -- stopping")
-                    log_event(log, "pursuit_safety_wall", left=left_dist, right=right_dist)
-                    exit_reason = "wall_safety"
-                    break
-
-                if front_dist <= target_dist:
-                    print(f"\n  *** TARGET REACHED! Front distance: {front_dist:.2f}m ***")
-                    log_event(log, "pursuit_target_reached", front_dist=front_dist)
-                    reached_target = True
-                    phase = "PURSUIT_COMPLETE"
-                    exit_reason = "target_reached"
-                    await drone.set_velocity(VelocityCommand())
-                    break
-
-                cx, cy, det_time, conf = pursuit.get()
-                det_age = pursuit.age
-                if det_age > DETECTION_MISS_TIMEOUT:
-                    miss_count += 1
-                else:
-                    miss_count = 0
-
-                if miss_count >= DETECTION_MISS_COUNT_REQUIRED:
-                    reacquired = await run_search_sweep()
-                    await drone.set_velocity(VelocityCommand())
-                    if not reacquired:
-                        phase = "EXIT_HOVER"
-                        exit_reason = "search_failed"
-                        print("  [search] target not re-acquired -> exiting pursuit and hovering")
-                        log_event(log, "pursuit_exit_hover", reason=exit_reason)
-                        break
-                    print("  [search] target re-acquired -> realigning")
-                    phase = "ALIGNING"
-                    log_event(log, "phase", phase="ALIGNING")
-                    miss_count = 0
-                    continue
-
-                if phase == "APPROACHING":
-                    centered = is_centered(cx, image_cx, CENTER_EXIT_RATIO)
-                else:
-                    centered = is_centered(cx, image_cx, CENTER_ENTER_RATIO)
-
-                if not centered:
-                    if phase != "ALIGNING":
-                        phase = "ALIGNING"
-                        log_event(log, "phase", phase="ALIGNING")
-                    yaw = compute_align_yaw(cx, image_cx)
-                    await drone.set_velocity(VelocityCommand(yawspeed_deg_s=yaw))
-                else:
-                    if phase != "APPROACHING":
-                        phase = "APPROACHING"
-                        log_event(log, "phase", phase="APPROACHING")
-                    base_cmd = compute_pursuit_cmd(
-                        front_dist=front_dist,
-                        target_dist=target_dist,
-                        scan=scan,
-                    )
-                    yaw = compute_align_yaw(cx, image_cx)
-                    cmd = VelocityCommand(
-                        forward_m_s=base_cmd.forward_m_s,
-                        right_m_s=base_cmd.right_m_s,
-                        down_m_s=0.0,
-                        yawspeed_deg_s=yaw,
-                    )
-                    await drone.set_velocity(cmd)
-
+            def on_pursuit_status(result: TargetPursuitResult) -> None:
+                nonlocal pursuit_tick, last_phase
+                phase = result.state.value
+                if phase != last_phase:
+                    log_event(log, "phase", phase=phase)
+                    last_phase = phase
+                if result.state == TargetPursuitState.SEARCHING:
+                    emit_telemetry(detector, 0.0, phase=phase)
+                    print("  [search] target lost -> running search sweep")
+                    return
                 pursuit_tick += 1
                 if pursuit_tick % 20 == 0:
-                    elapsed = time.time() - pursuit_start
-                    pos = await drone.get_position()
-                    distance = abs(pos.position.north_m - start_pos.position.north_m) + \
-                               abs(pos.position.east_m - start_pos.position.east_m)
-                    emit_telemetry(detector, distance, phase=phase)
-                    cx_str = f"{cx:.0f}" if cx is not None else "?"
+                    front = result.front_distance_m
+                    front_str = "?" if front is None else f"{front:.2f}m"
+                    age = result.target_age_s
+                    age_str = "?" if age is None else f"{age:.1f}s"
                     print(
-                        f"  [{elapsed:5.1f}s] phase={phase:10s} front={front_dist:.2f}m  "
-                        f"cx={cx_str} age={det_age:.1f}s"
+                        f"  [{result.elapsed_s:5.1f}s] phase={phase:12s} "
+                        f"front={front_str} age={age_str}"
                     )
-                await asyncio.sleep(0.05)
 
-            if not reached_target and not exit_reason:
-                exit_reason = "timeout"
-                phase = "EXIT_HOVER"
-                print("\n  Pursuit timed out -> exiting pursuit and hovering")
-                log_event(log, "pursuit_exit_hover", reason=exit_reason)
-
-            # Explicitly return toward takeoff location before landing sequence.
-            await return_to_start()
+            pursuit_config = TargetPursuitConfig(
+                target_distance_m=target_dist,
+                max_forward_speed_m_s=MAX_PURSUIT_SPEED,
+                min_forward_speed_m_s=MIN_PURSUIT_SPEED,
+                kp_forward=KP_FORWARD,
+                yaw_kp=YAW_KP,
+                max_yaw_speed_deg_s=MAX_YAW_SPEED,
+                min_wall_distance_m=MIN_WALL_DISTANCE,
+                center_enter_ratio=CENTER_ENTER_RATIO,
+                center_exit_ratio=CENTER_EXIT_RATIO,
+                detection_miss_timeout_s=DETECTION_MISS_TIMEOUT,
+                detection_miss_count_required=DETECTION_MISS_COUNT_REQUIRED,
+                pursuit_timeout_s=PURSUIT_TIMEOUT,
+                search_right_deg=SEARCH_RIGHT_DEG,
+                search_left_deg=SEARCH_LEFT_DEG,
+                search_yaw_speed_deg_s=SEARCH_YAW_SPEED,
+            )
+            result = await nav.pursue_target(
+                tracker=tracker,
+                config=pursuit_config,
+                on_status=on_pursuit_status,
+            )
+            reached_target = result.reached_target
+            if reached_target:
+                print(f"\n  *** TARGET REACHED! Front distance: {result.front_distance_m:.2f}m ***")
+                log_event(log, "pursuit_target_reached", front_dist=result.front_distance_m)
+            else:
+                print(f"\n  Pursuit ended: {result.reason}")
+                log_event(log, "pursuit_exit_hover", reason=result.reason)
 
         # ====================================================================
         # Phase 2c: Hold at target
@@ -634,10 +444,11 @@ async def run():
                     fwd = min(max(KP_FORWARD * dist_error, -0.1), 0.15)
 
                     # Gentle yaw tracking to keep pigeon centered
-                    cx, cy, det_time, conf = pursuit.get()
+                    observation = tracker.latest(max_age_s=2.0)
                     yaw = 0.0
-                    if cx is not None and pursuit.age < 2.0:
-                        yaw_err = (cx - image_cx) / image_cx
+                    if observation is not None:
+                        image_cx = observation.image_width / 2.0
+                        yaw_err = (observation.center_x - image_cx) / image_cx
                         yaw = max(-10.0, min(10.0, yaw_err * YAW_KP * 0.5))
 
                     cmd = VelocityCommand(forward_m_s=fwd, yawspeed_deg_s=yaw)
@@ -658,6 +469,9 @@ async def run():
                               f"dets={detector.detections_total}")
 
                 await asyncio.sleep(0.05)
+
+        if pursuit_triggered:
+            await return_to_start()
 
         detector.stop()
         print(f"\n  Pursuit complete. Detections: {detector.detections_total}  "
