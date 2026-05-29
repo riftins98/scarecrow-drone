@@ -5,8 +5,8 @@ Sensor interface abstractions for sim and hardware. Each sensor type has a base 
 ## Subdirectories
 - `lidar/` — 2D lidar: LidarScan data class with geometry methods (distances, SVD wall alignment), GazeboLidar and RPLidar drivers (see `lidar/CLAUDE.md`)
 - `camera/` — Camera abstractions: CameraFrame, CameraSource ABC, GazeboCamera driver (see `camera/CLAUDE.md`)
+- `rangefinder/` — Single-ray rangefinder (e.g. upward ceiling clearance sensor): GazeboRangefinder driver (see `rangefinder/CLAUDE.md`)
 
 ## Files
-- `__init__.py` — Exports single-ray rangefinder support.
+- `__init__.py` — Re-exports single-ray rangefinder support (`GazeboRangefinder`, `RangefinderReading`) from the `rangefinder/` subpackage.
 - `gz_utils.py` — Gazebo CLI helpers: `get_gz_env()` auto-detects env/partition; `prefetch_gz_env_async()` + `GzPrefetchResult` runs env detection + `gz topic -l` in a background thread so flight scripts can overlap ~2s of Gazebo setup with MAVSDK handshake
-- `rangefinder.py` — `GazeboRangefinder` polls a single-ray Gazebo scan topic such as the upward ceiling rangefinder and rejects invalid `inf` / `nan` ranges.

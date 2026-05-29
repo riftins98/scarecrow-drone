@@ -118,7 +118,6 @@ export default function Dashboard() {
         headless: false,
         camera: null,
         streamUrl: null,
-        rtf: null,
       });
       setFlightStatus(null);
     } catch (e: any) {

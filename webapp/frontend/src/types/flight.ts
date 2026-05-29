@@ -28,8 +28,6 @@ export interface SimStatus {
   /** Camera flag stem currently streamed (e.g. "fixed"), null in GUI mode. */
   camera: string | null;
   streamUrl: string | null;
-  /** Gazebo real_time_factor (0..1+). null before the poller has a reading. */
-  rtf: number | null;
 }
 
 export interface FlightStatus {
@@ -39,14 +37,35 @@ export interface FlightStatus {
   flight_id: string | null;
   pigeons_detected: number;
   frames_processed: number;
-  /** Latest TELEMETRY: payload from the flight script. Empty {} before
-   *  the first emission. Fields below are present once the script runs. */
+  /** Latest TELEMETRY: payload from the flight script, enriched by the
+   *  backend log parser. Empty {} before the first emission. Which fields
+   *  are present depends on the running script (the rail hides the rest). */
   telemetry?: {
     battery?: number;        // percent 0..100
-    distance?: number;       // meters
+    distance?: number;       // meters from takeoff
     detections?: number;     // cumulative pigeon hits
-    altitude?: number;       // meters AGL
+    altitude?: number;       // meters AGL (demo flights)
     heading?: number;        // degrees -180..180
+    // --- Parsed from human log lines by the backend (DetectionService) ---
+    phase?: string;          // short uppercase phase label, e.g. "HOVER"
+    agl?: number;            // live altitude-above-ground during climb/descent
+    ceiling?: number;        // ceiling clearance, meters (ceiling scripts)
+    leg?: number;            // room-circuit leg number
+    // Lidar wall distances in meters; null means "no wall on that side" (inf).
+    front?: number | null;
+    left?: number | null;
+    right?: number | null;
+    rear?: number | null;
+    wall?: number | null;    // active-side distance in the wall-follow controllers
+    // Commanded velocities from the control loop.
+    fwd?: number;            // forward m/s
+    lat?: number;            // lateral m/s
+    yaw?: number;            // yaw deg/s
+    // Mission outcomes.
+    target?: string;         // pursuit: "REACHED" or an uppercase exit reason
+    target_dist?: number;    // pursuit: front distance at target, meters
+    stop_reason?: string;    // wall-follow terminal stop reason (uppercase)
+    fps?: number;            // detection throughput (detect_pigeons summary)
   };
 }
 

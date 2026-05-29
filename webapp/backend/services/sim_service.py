@@ -26,8 +26,6 @@ LAUNCH_STEPS = [
 
 
 _STREAM_URL_RE = re.compile(r"https?://[^\s'\"]+:\d+/?")
-# Matches the line `real_time_factor: 0.0086609...` from `gz topic -e -t /stats`
-_RTF_RE = re.compile(r"^real_time_factor:\s*([\d.]+)")
 
 # Substatus extractors: each maps to a step_id; the function takes a line
 # and returns either a short status string ("Compiling [847/1157] foo.cpp")
@@ -77,12 +75,6 @@ class SimService:
         self._headless: bool = False
         self._camera: Optional[str] = None
         self._stream_url: Optional[str] = None
-        # Most-recent Gazebo /stats real_time_factor (0..1+), or None until
-        # the poller has read at least one frame.
-        self._rtf: Optional[float] = None
-        # Subprocess running `gz topic -e -t /stats` for the lifetime of
-        # the current sim. Killed on stop().
-        self._stats_proc: Optional[subprocess.Popen] = None
 
     # Camera names we'll pass through to launch_with_stream.sh as ``--<name>``
     # flags. Anything not in this allowlist is silently rejected to keep
@@ -264,10 +256,6 @@ class SimService:
                     self._current_step = None
                     self.connected = True
                     self.launching = False
-                    # Sim is up — start the RTF poller. Cheap (single
-                    # subprocess streaming text we regex-match) so the
-                    # value updates a few times a second.
-                    self._start_rtf_poller()
                     continue
 
                 if self.process.poll() is not None:
@@ -383,54 +371,6 @@ class SimService:
         self._camera = camera
         return {"success": True, "camera": camera}
 
-    def _start_rtf_poller(self):
-        """Spawn `gz topic -e -t /stats` and parse `real_time_factor` lines
-        into ``self._rtf``. Runs forever in a background thread; killed
-        in ``stop()``. Only one poller at a time."""
-        if self._stats_proc and self._stats_proc.poll() is None:
-            return  # already running
-        env = os.environ.copy()
-        env.setdefault("GZ_PARTITION", "px4")
-        try:
-            self._stats_proc = subprocess.Popen(
-                ["gz", "topic", "-e", "-t", "/stats"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-                env=env,
-            )
-        except FileNotFoundError:
-            # `gz` not on PATH (rare; the sim wouldn't have launched).
-            # Leave RTF as None — frontend will show -- and move on.
-            return
-
-        proc = self._stats_proc
-
-        def _parse():
-            try:
-                for raw in proc.stdout:
-                    m = _RTF_RE.match(raw.strip())
-                    if m:
-                        try:
-                            self._rtf = float(m.group(1))
-                        except ValueError:
-                            pass
-            except Exception:
-                pass
-
-        threading.Thread(target=_parse, daemon=True).start()
-
-    def _stop_rtf_poller(self):
-        if self._stats_proc:
-            try:
-                self._stats_proc.kill()
-            except Exception:
-                pass
-            self._stats_proc = None
-        self._rtf = None
-
     def stop(self):
         self.connected = False
         self.launching = False
@@ -439,7 +379,6 @@ class SimService:
         self._step_substatus = {}
         self._stream_url = None
         self._camera = None
-        self._stop_rtf_poller()
         if self.process:
             try:
                 self.process.kill()
@@ -526,9 +465,3 @@ class SimService:
     def stream_url(self) -> Optional[str]:
         """Browser-viewable camera stream URL, or None for GUI mode / not ready yet."""
         return self._stream_url
-
-    @property
-    def rtf(self) -> Optional[float]:
-        """Most recent Gazebo real_time_factor (0..1+). None before the
-        poller has read the first frame or after stop()."""
-        return self._rtf
