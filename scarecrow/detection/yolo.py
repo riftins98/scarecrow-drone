@@ -29,6 +29,8 @@ class YoloDetector:
         min_interval: Minimum seconds between inferences (rate limit).
         on_detection: Optional callback(img_path) called when a detection
                       image is saved — use for DB integration, UI updates, etc.
+        on_detection_data: Optional callback(detections) called with raw
+                      detection dictionaries for navigation controllers.
     """
 
     def __init__(
@@ -38,6 +40,7 @@ class YoloDetector:
         confidence: float = 0.3,
         min_interval: float = 1.0,
         on_detection: Callable[[str], None] | None = None,
+        on_detection_data: Callable[[list[dict]], None] | None = None,
     ):
         self._model_path = model_path
         self.output_dir = output_dir
@@ -46,7 +49,7 @@ class YoloDetector:
         self._confidence = confidence
         self._min_interval = min_interval
         self._on_detection = on_detection
-        self._on_detection_data = None  # callback(detections: list[dict]) — pursuit scripts
+        self._on_detection_data = on_detection_data
 
         self.running = False
         self.detections_total = 0
@@ -54,6 +57,14 @@ class YoloDetector:
         self._model = None
         self._detect_lock = threading.Lock()
         self._last_process_time = 0.0
+
+    @property
+    def on_detection_data(self) -> Callable[[list[dict]], None] | None:
+        return self._on_detection_data
+
+    @on_detection_data.setter
+    def on_detection_data(self, callback: Callable[[list[dict]], None] | None) -> None:
+        self._on_detection_data = callback
 
     def load_model(self) -> bool:
         """Pre-load YOLO model. Safe to call from a background thread."""

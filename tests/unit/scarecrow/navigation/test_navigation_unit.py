@@ -4,6 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from scarecrow.controllers.distance_stabilizer import DistanceTargets
+from scarecrow.controllers.target_pursuit import (
+    TargetObservation,
+    TargetPursuitConfig,
+    TargetPursuitState,
+)
 
 
 def _make_drone():
@@ -119,3 +124,83 @@ async def test_circuit_returns_false_on_leg_failure(mock_lidar_scan):
     nav.wall_follow = fast_wall_follow
     result = await nav.circuit(num_legs=2)
     assert result is False
+
+
+class _Tracker:
+    def __init__(self, observation=None):
+        self.observation = observation
+
+    def latest(self, max_age_s=None, now=None):
+        if self.observation is None:
+            return None
+        if max_age_s is not None and self.observation.age(now) > max_age_s:
+            return None
+        return self.observation
+
+
+def _target_observation(now=100.0):
+    return TargetObservation(
+        center_x=640.0,
+        center_y=240.0,
+        image_width=1280.0,
+        confidence=0.9,
+        timestamp=now,
+    )
+
+
+async def test_pursue_target_stops_on_success(mock_lidar_scan):
+    drone = _make_drone()
+    scan = mock_lidar_scan(front=1.0, left=2.0, right=8.0)
+    lidar = _make_lidar_source(scan)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = await nav.pursue_target(
+        _Tracker(_target_observation()),
+        TargetPursuitConfig(target_distance_m=1.5),
+    )
+
+    assert result.reached_target
+    assert result.state == TargetPursuitState.TARGET_REACHED
+    assert drone.set_velocity.await_count >= 1
+
+
+async def test_pursue_target_stops_on_timeout(mock_lidar_scan):
+    drone = _make_drone()
+    scan = mock_lidar_scan(front=5.0, left=2.0, right=8.0)
+    lidar = _make_lidar_source(scan)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = await nav.pursue_target(
+        _Tracker(_target_observation()),
+        TargetPursuitConfig(pursuit_timeout_s=0.0),
+    )
+
+    assert result.done
+    assert result.state == TargetPursuitState.TIMEOUT
+
+
+async def test_pursue_target_returns_lost_when_search_fails(mock_lidar_scan):
+    drone = _make_drone()
+    scan = mock_lidar_scan(front=5.0, left=2.0, right=8.0)
+    lidar = _make_lidar_source(scan)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = await nav.pursue_target(
+        _Tracker(None),
+        TargetPursuitConfig(
+            detection_miss_count_required=1,
+            search_right_deg=0.01,
+            search_left_deg=0.01,
+            search_yaw_speed_deg_s=1.0,
+        ),
+    )
+
+    assert result.done
+    assert result.state == TargetPursuitState.LOST
+    assert result.reason == "search_failed"
