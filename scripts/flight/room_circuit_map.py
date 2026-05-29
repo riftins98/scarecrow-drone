@@ -22,6 +22,7 @@ from pathlib import Path
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
+from scarecrow.controllers.distance_stabilizer import DistanceStabilizerController, DistanceTargets  # noqa: E402
 from scarecrow.controllers.front_wall_detector import FrontWallDetector  # noqa: E402
 from scarecrow.controllers.rotation import rotate_90 # noqa: E402
 from scarecrow.controllers.wall_follow import WallFollowController, VelocityCommand # noqa: E402
@@ -34,7 +35,7 @@ from scarecrow.sensors.lidar.gazebo import GazeboLidar # noqa: E402
 SYSTEM_ADDRESS = "udpin://0.0.0.0:14540"
 TARGET_ALT = 2.5
 WALL_DISTANCE = 2.0
-FORWARD_SPEED = 0.6
+FORWARD_SPEED = 0.3
 FRONT_STOP_DISTANCE = 2.0
 NUM_LEGS = 4
 TURN_DIRECTION = "right"
@@ -48,6 +49,9 @@ WALL_FIND_SPEED = 0.5
 CORNER_FIND_SPEED = 0.4
 MAP_MIN_DIST = 0.2
 MAP_MAX_DIST = 20.0
+POST_TURN_TOLERANCE = 0.05
+POST_TURN_STABLE_TIME = 0.7
+POST_TURN_TIMEOUT = 10.0
 
 
 def faster_forward_speed(base_speed: float, multiplier: float = 1.5, max_speed: float = 0.8) -> float:
@@ -58,31 +62,22 @@ def faster_forward_speed(base_speed: float, multiplier: float = 1.5, max_speed: 
 def _build_map_payload(mapper: MapUnit, output_dir: Path) -> dict:
     result = mapper.finish_mapping()
     boundaries_json = result.get("boundaries", "[]")
+    route = result.get("route", [])
     wall_points = result.get("wall_points", [])
     try:
         boundaries = json.loads(boundaries_json)
     except json.JSONDecodeError:
         boundaries = []
     points = [asdict(p) for p in mapper.points]
-    created_at = datetime.now(timezone.utc).isoformat()
-    map_path = output_dir / "map.json"
-
     payload = {
-        "created_at": created_at,
         "boundaries": boundaries,
         "boundaries_json": boundaries_json,
-        "area_size": result.get("area_size", 0.0),
-        "point_count": len(points),
-        "map_path": str(map_path),
+        "route": route,
+        "route_json": json.dumps(route),
         "takeoff_point": mapper.takeoff_point,
         "points": points,
         "wall_points": wall_points,
-        "metadata": {
-            "target_alt": TARGET_ALT,
-            "wall_distance": WALL_DISTANCE,
-            "forward_speed": FORWARD_SPEED,
-            "system_address": SYSTEM_ADDRESS,
-        },
+        "area_size": result.get("area_size", 0.0),
     }
     return payload
 
@@ -156,6 +151,43 @@ async def _move_until_wall(drone: Drone, lidar: GazeboLidar, *, axis: str, speed
         await asyncio.sleep(0.05)
 
     await drone.set_velocity(VelocityCommand())
+    return False
+
+
+async def _stabilize_after_turn(drone: Drone, lidar: GazeboLidar) -> bool:
+    """Hold the next-leg start at left=2m and rear=2m after a 90° turn.
+
+    Mapping points are intentionally not recorded here; this phase only
+    removes rotation drift before the next wall-follow leg starts.
+    """
+    stabilizer = DistanceStabilizerController(
+        targets=DistanceTargets(rear=FRONT_STOP_DISTANCE, left=WALL_DISTANCE),
+        max_forward_speed=0.20,
+        max_lateral_speed=0.20,
+        tolerance=POST_TURN_TOLERANCE,
+        stable_time=POST_TURN_STABLE_TIME,
+    )
+    started = time.time()
+    while time.time() - started < POST_TURN_TIMEOUT:
+        scan = lidar.get_scan()
+        if scan is None:
+            await drone.set_velocity(VelocityCommand())
+            await asyncio.sleep(0.05)
+            continue
+
+        cmd = stabilizer.update(scan)
+        await drone.set_velocity(cmd)
+        if stabilizer.done:
+            await drone.set_velocity(VelocityCommand())
+            print(
+                f"  Stabilized after turn: left={scan.left_distance():.2f}m "
+                f"rear={scan.rear_distance():.2f}m"
+            )
+            return True
+        await asyncio.sleep(0.05)
+
+    await drone.set_velocity(VelocityCommand())
+    print("  Stabilization after turn timed out — continuing")
     return False
 
 
@@ -303,16 +335,29 @@ async def run() -> None:
             lidar.stop()
         return
 
+    print("\n--- Stabilizing Mapping Start ---")
+    if not await _stabilize_after_turn(drone, lidar):
+        print("  ERROR: Could not stabilize mapping start")
+        await drone.emergency_land()
+        if lidar is not None:
+            lidar.stop()
+        return
+
     mapper.start_mapping()
     output_dir = OUTPUT_ROOT / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     pos = await drone.get_position()
     mapper.record_corner(pos.position.north_m, pos.position.east_m)
 
-    forward_speed = faster_forward_speed(FORWARD_SPEED)
+    forward_speed = FORWARD_SPEED
     controller = WallFollowController(
         target_distance=WALL_DISTANCE,
         forward_speed=forward_speed,
         front_stop_distance=FRONT_STOP_DISTANCE,
+        kp=0.75,
+        kd=0.22,
+        max_lateral_speed=0.24,
+        yaw_kp=2.0,
+        max_yaw_speed=8.0,
     )
     front_detector = FrontWallDetector(stop_distance_m=FRONT_STOP_DISTANCE)
 
@@ -338,6 +383,7 @@ async def run() -> None:
                     cmd = controller.update(
                         left_dist,
                         front_state.robust_front_m,
+                        wall_angle_error=scan.left_wall_angle_error(),
                         front_wall_confirmed=front_state.front_wall_visible,
                         front_stop_reached=front_state.stop_confirmed,
                     )
@@ -346,13 +392,22 @@ async def run() -> None:
 
                     if step % MAP_RECORD_EVERY == 0 and _scan_valid_for_map(scan):
                         pos = await drone.get_position()
-                        mapper.record_position(scan, pos.position.north_m, pos.position.east_m)
+                        yaw_deg = await drone.get_yaw()
+                        mapper.record_position(scan, pos.position.north_m, pos.position.east_m, yaw_deg)
+                        mapper.record_left_wall_hit(
+                            scan,
+                            pos.position.north_m,
+                            pos.position.east_m,
+                            yaw_deg,
+                            min_m=MAP_MIN_DIST,
+                            max_m=MAP_MAX_DIST,
+                        )
 
                     if step % 10 == 0:
                         elapsed = time.time() - start_time
                         print(
                             f"  [{elapsed:5.1f}s] fwd={cmd.forward_m_s:+.2f} "
-                            f"lat={cmd.right_m_s:+.2f} | left={left_dist:.1f}m "
+                            f"lat={cmd.right_m_s:+.2f} yaw={cmd.yawspeed_deg_s:+.1f} | left={left_dist:.1f}m "
                             f"front={front_state.robust_front_m:.1f}m"
                         )
 
@@ -362,7 +417,16 @@ async def run() -> None:
                 scan = lidar.get_scan()
                 if _scan_valid_for_map(scan):
                     pos = await drone.get_position()
-                    mapper.record_position(scan, pos.position.north_m, pos.position.east_m)
+                    yaw_deg = await drone.get_yaw()
+                    mapper.record_position(scan, pos.position.north_m, pos.position.east_m, yaw_deg)
+                    mapper.record_left_wall_hit(
+                        scan,
+                        pos.position.north_m,
+                        pos.position.east_m,
+                        yaw_deg,
+                        min_m=MAP_MIN_DIST,
+                        max_m=MAP_MAX_DIST,
+                    )
 
                 pos = await drone.get_position()
                 mapper.record_corner(pos.position.north_m, pos.position.east_m)
@@ -372,6 +436,7 @@ async def run() -> None:
                 ok = await rotate_90(drone.system, lidar, direction=TURN_DIRECTION)
                 if not ok:
                     raise RuntimeError("rotation_failed")
+                await _stabilize_after_turn(drone, lidar)
             circuits_done += 1
 
     except KeyboardInterrupt:
@@ -384,9 +449,9 @@ async def run() -> None:
         map_path = _save_map(payload, output_dir)
         summary = {
             "boundaries": payload.get("boundaries_json", "[]"),
-            "area_size": payload.get("area_size", 0.0),
             "map_path": str(map_path),
-            "point_count": payload.get("point_count", 0),
+            "point_count": len(payload.get("points", [])),
+            "wall_point_count": len(payload.get("wall_points", [])),
         }
         print(f"MAP_RESULT:{json.dumps(summary)}", flush=True)
 

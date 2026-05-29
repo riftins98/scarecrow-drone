@@ -3,7 +3,7 @@ from scarecrow.navigation.map_unit import MapUnit
 
 if __name__ == "__main__":
     MapUnit.annotate_map(
-        "/home/itamar_hadida/scarecrow-drone/scarecrow/mapped_env/20260512_092337/map.json",
+        "/home/itamar_hadida/scarecrow-drone/scarecrow/mapped_env/20260529_145401/map.json",
         show=True,
     )
     print("Map annotated successfully")
