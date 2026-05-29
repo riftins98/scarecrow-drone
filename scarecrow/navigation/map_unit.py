@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
@@ -286,10 +287,16 @@ class MapUnit:
         if not points:
             return []
 
-        xs = [p["x"] for p in points]
-        ys = [p["y"] for p in points]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
+        xs = sorted(p["x"] for p in points)
+        ys = sorted(p["y"] for p in points)
+        if len(xs) < 4 or len(ys) < 4:
+            return MapUnit._convex_hull(points)
+
+        trim = max(1, int(len(xs) * 0.1))
+        min_x = statistics.fmean(xs[:trim])
+        max_x = statistics.fmean(xs[-trim:])
+        min_y = statistics.fmean(ys[:trim])
+        max_y = statistics.fmean(ys[-trim:])
         if math.isclose(min_x, max_x) or math.isclose(min_y, max_y):
             return MapUnit._convex_hull(points)
 
