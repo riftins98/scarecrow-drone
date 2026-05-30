@@ -401,6 +401,12 @@ class SimService:
         subprocess.run(["pkill", "-x", "px4"], capture_output=True)
         # Also kill stream camera workers spawned by launch_with_stream.sh
         subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
+        # And any flight script / its mavsdk_server still running, so tearing
+        # the sim down mid-flight doesn't orphan a script that then squats on
+        # port 14540 and blocks the next sim's flights.
+        flight_dir = os.path.join("scripts", "flight")
+        subprocess.run(["pkill", "-9", "-f", f"{flight_dir}.*\\.py"], capture_output=True)
+        subprocess.run(["pkill", "-9", "-f", "mavsdk_server"], capture_output=True)
         for f in ["/tmp/px4_lock-0", "/tmp/px4-sock-0"]:
             try:
                 os.remove(f)

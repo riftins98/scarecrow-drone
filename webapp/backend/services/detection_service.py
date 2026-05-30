@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -11,6 +12,36 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 
 DEFAULT_SCRIPT = "demo_flight_v2.py"
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts", "flight")
+
+
+def _sweep_flight_processes() -> int:
+    """Kill any stray flight-script / mavsdk_server processes left behind by a
+    crashed, detached, or panic-killed run. Without this, an orphaned flight
+    script keeps holding the MAVSDK port (udp 14540), so the next flight can
+    never connect to PX4 and the drone just sits there.
+
+    Patterns are scoped tightly so we only ever hit our own flight subprocesses
+    and the MAVSDK server they spawn — never PX4, Gazebo, or the backend.
+    POSIX-only (the webapp backend runs under WSL/macOS); a no-op elsewhere.
+    Returns the number of pkill invocations that reported a kill (best-effort).
+    """
+    if os.name != "posix":
+        return 0
+    killed = 0
+    patterns = [
+        # Any python flight mission under scripts/flight/.
+        f"python3? .*{re.escape(os.path.join('scripts', 'flight'))}.*\\.py",
+        # The MAVSDK server the flight scripts auto-spawn (binds udp 14540).
+        "mavsdk_server",
+    ]
+    for pat in patterns:
+        try:
+            res = subprocess.run(["pkill", "-9", "-f", pat], capture_output=True)
+            if res.returncode == 0:
+                killed += 1
+        except FileNotFoundError:
+            break  # no pkill (non-WSL Windows) — nothing we can do, bail
+    return killed
 
 # --- Log-line parsers -------------------------------------------------------
 # Flight scripts print rich human-readable status to stdout in addition to the
@@ -190,6 +221,19 @@ class DetectionService:
         if not any(arg == "--flight-id" for arg in cmd):
             cmd.extend(["--flight-id", flight_id])
 
+        # Clean slate: reap any orphaned flight script / mavsdk_server from a
+        # previous run that crashed or was panic-killed, so this flight gets a
+        # free MAVSDK port (udp 14540) and can actually connect to PX4.
+        _sweep_flight_processes()
+
+        # start_new_session puts the script + its child mavsdk_server in their
+        # own process group, so kill() can take down the whole tree at once
+        # (otherwise the mavsdk_server child outlives a killed script and keeps
+        # squatting on port 14540). POSIX only; harmless kwarg elsewhere.
+        popen_kwargs = {}
+        if os.name == "posix":
+            popen_kwargs["start_new_session"] = True
+
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -198,6 +242,7 @@ class DetectionService:
             bufsize=1,
             env=env,
             cwd=REPO_ROOT,
+            **popen_kwargs,
         )
 
         self.running = True
@@ -429,11 +474,25 @@ class DetectionService:
         proc = self.process
         had_proc = proc is not None
         if proc is not None:
+            # Kill the whole process group (script + its mavsdk_server child),
+            # not just the script — otherwise the server outlives it and keeps
+            # holding port 14540, blocking the next flight's connection.
             try:
-                proc.kill()
+                if os.name == "posix":
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                else:
+                    proc.kill()
             except Exception:
-                pass
+                # Fall back to a direct kill if the group lookup failed.
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
         self.process = None
+
+        # Backstop: reap any stray flight script / mavsdk_server that escaped
+        # the group kill (e.g. a double-spawn), so the next flight starts clean.
+        _sweep_flight_processes()
 
         # Wipe flight state so the UI no longer shows a stale flight and
         # start() isn't confused by leftover ids/telemetry.
