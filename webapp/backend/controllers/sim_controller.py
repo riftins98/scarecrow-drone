@@ -7,7 +7,12 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from dependencies import sim_service, detection_service, flight_service
-from services.sim_service import SPAWN_BOUNDS, SPAWN_WORLD
+from services.sim_service import (
+    SPAWN_BOUNDS,
+    SPAWN_WORLD,
+    SPAWN_OBSTACLES,
+    SPAWN_OBSTACLE_MARGIN,
+)
 from services.script_metadata import (
     list_flight_scripts,
     list_worlds,
@@ -310,8 +315,11 @@ async def sim_options():
     return {
         "worlds": [world_info_to_dict(w) for w in list_worlds(WORLDS_DIR)],
         "scripts": [script_info_to_dict(s) for s in list_flight_scripts(SCRIPTS_DIR, fast=fast_metadata)],
-        # The world the spawn picker applies to, and its valid interior (meters,
-        # >=3m from every wall). The frontend draws the picker from these.
+        # The world the spawn picker applies to, its valid interior (meters,
+        # >=3m from every wall), and the parked-aircraft footprints to block
+        # (with the clearance margin). The frontend draws the picker from these.
         "spawnWorld": SPAWN_WORLD,
         "spawnBounds": SPAWN_BOUNDS,
+        "spawnObstacles": SPAWN_OBSTACLES,
+        "spawnObstacleMargin": SPAWN_OBSTACLE_MARGIN,
     }

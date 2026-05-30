@@ -32,6 +32,16 @@ export interface SpawnBounds {
   yMax: number;
 }
 
+/** A parked-aircraft obstacle: a rotated rectangle the drone may not spawn in
+ *  (center, yaw, and half-extents in meters). From SimOptions.spawnObstacles. */
+export interface SpawnObstacle {
+  cx: number;
+  cy: number;
+  yaw: number;   // radians
+  halfW: number; // half-width along the craft's local x (wingspan/2)
+  halfL: number; // half-length along the craft's local y (fuselage/2)
+}
+
 export interface SimStatus {
   connected: boolean;
   launching: boolean;
@@ -127,6 +137,10 @@ export interface SimOptions {
   spawnWorld?: string;
   /** Valid spawn rectangle for that world (meters, >=3m from every wall). */
   spawnBounds?: SpawnBounds;
+  /** Parked-aircraft footprints to keep clear of (rotated rectangles). */
+  spawnObstacles?: SpawnObstacle[];
+  /** Required clearance (meters) outside each obstacle footprint. */
+  spawnObstacleMargin?: number;
 }
 
 export interface ConnectSimParams {

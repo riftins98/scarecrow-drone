@@ -1,15 +1,32 @@
 import React, { useRef } from 'react';
-import { SpawnBounds, SpawnPoint } from '../types/flight';
+import { SpawnBounds, SpawnObstacle, SpawnPoint } from '../types/flight';
 
 interface Props {
   /** Valid interior rectangle (meters). */
   bounds: SpawnBounds;
+  /** Parked-aircraft footprints to block (rotated rectangles). */
+  obstacles?: SpawnObstacle[];
+  /** Clearance (meters) required outside each obstacle. */
+  obstacleMargin?: number;
   /** Currently selected spawn (meters), or null for none yet. */
   value: SpawnPoint | null;
   /** Called with a valid (x, y) when the user clicks inside the allowed zone. */
   onChange: (p: SpawnPoint) => void;
   /** Disable interaction (e.g. while connecting / flying). */
   disabled?: boolean;
+}
+
+/** Is (x, y) inside an aircraft's rotated footprint, expanded by margin?
+ *  Mirrors the backend's _in_obstacle so the UI blocks exactly what the API
+ *  would reject. */
+function inObstacle(x: number, y: number, o: SpawnObstacle, margin: number): boolean {
+  const dx = x - o.cx;
+  const dy = y - o.cy;
+  const c = Math.cos(-o.yaw);
+  const s = Math.sin(-o.yaw);
+  const lx = dx * c - dy * s;
+  const ly = dx * s + dy * c;
+  return Math.abs(lx) <= o.halfW + margin && Math.abs(ly) <= o.halfL + margin;
 }
 
 // Full room (garage) in meters: 24m (x) by 15m (y), centered on the origin,
@@ -49,7 +66,9 @@ function clamp(v: number, lo: number, hi: number): number {
  * shaded red and clicks there are snapped back / rejected so you can only land
  * the marker on a legal spot. X,Y only — the drone always faces north.
  */
-export default function SpawnPicker({ bounds, value, onChange, disabled }: Props) {
+export default function SpawnPicker({
+  bounds, obstacles = [], obstacleMargin = 0, value, onChange, disabled,
+}: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
 
   const handleClick = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -61,17 +80,40 @@ export default function SpawnPicker({ bounds, value, onChange, disabled }: Props
     const sx = ((e.clientX - rect.left) / rect.width) * VIEW_W;
     const sy = ((e.clientY - rect.top) / rect.height) * VIEW_H;
     const world = svgToWorld(sx, sy);
-    // Hard rule: only accept points inside the valid rectangle.
-    if (
-      world.x < bounds.xMin || world.x > bounds.xMax ||
-      world.y < bounds.yMin || world.y > bounds.yMax
-    ) {
-      return; // click in the wall margin — rejected
+    // Round to 0.1m, then validate the rounded point (so what we accept is
+    // exactly what we send / what the backend re-checks).
+    const x = Math.round(clamp(world.x, bounds.xMin, bounds.xMax) * 10) / 10;
+    const y = Math.round(clamp(world.y, bounds.yMin, bounds.yMax) * 10) / 10;
+    // Hard rule 1: inside the valid (wall-margin) rectangle.
+    if (x < bounds.xMin || x > bounds.xMax || y < bounds.yMin || y > bounds.yMax) {
+      return; // wall margin — rejected
     }
-    onChange({
-      x: Math.round(clamp(world.x, bounds.xMin, bounds.xMax) * 10) / 10,
-      y: Math.round(clamp(world.y, bounds.yMin, bounds.yMax) * 10) / 10,
-    });
+    // Hard rule 2: clear of every parked aircraft.
+    if (obstacles.some((o) => inObstacle(x, y, o, obstacleMargin))) {
+      return; // on/too close to an aircraft — rejected
+    }
+    onChange({ x, y });
+  };
+
+  // Build an SVG polygon for a rotated aircraft footprint (+margin) so we can
+  // draw the no-spawn zone exactly where clicks are blocked.
+  const obstaclePolygon = (o: SpawnObstacle): string => {
+    const hw = o.halfW + obstacleMargin;
+    const hl = o.halfL + obstacleMargin;
+    const c = Math.cos(o.yaw);
+    const s = Math.sin(o.yaw);
+    // Local corners (lx, ly) -> world -> SVG.
+    const corners: Array<[number, number]> = [
+      [-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl],
+    ];
+    return corners
+      .map(([lx, ly]) => {
+        const wx = o.cx + lx * c - ly * s;
+        const wy = o.cy + lx * s + ly * c;
+        const p = worldToSvg(wx, wy);
+        return `${p.sx},${p.sy}`;
+      })
+      .join(' ');
   };
 
   // Room outer rect (walls) and the valid inner rect, in SVG units.
@@ -118,6 +160,17 @@ export default function SpawnPicker({ bounds, value, onChange, disabled }: Props
           fill="rgba(139,154,91,0.10)" stroke="#8b9a5b" strokeWidth="1"
           strokeDasharray="3 2"
         />
+
+        {/* Parked-aircraft no-spawn footprints (rotated rectangles, red). */}
+        {obstacles.map((o, i) => (
+          <polygon
+            key={i}
+            points={obstaclePolygon(o)}
+            fill="rgba(160,90,90,0.22)"
+            stroke="#a05a5a"
+            strokeWidth="1"
+          />
+        ))}
 
         {/* North indicator (top = +x, the drone's facing). */}
         <text x={VIEW_W / 2} y={PAD - 1} textAnchor="middle"

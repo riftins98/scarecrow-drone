@@ -315,6 +315,8 @@ export default function SimControl({
                     <span className="form-label">Spawn location</span>
                     <SpawnPicker
                       bounds={spawnBounds}
+                      obstacles={options?.spawnObstacles}
+                      obstacleMargin={options?.spawnObstacleMargin}
                       value={spawn}
                       onChange={setSpawn}
                       disabled={isConnecting}
@@ -417,6 +419,8 @@ export default function SimControl({
           <div className="form-label">Re-spawn location</div>
           <SpawnPicker
             bounds={spawnBounds}
+            obstacles={options?.spawnObstacles}
+            obstacleMargin={options?.spawnObstacleMargin}
             value={spawn}
             onChange={setSpawn}
             disabled={respawning}

@@ -35,16 +35,44 @@ SPAWN_BOUNDS = {
     "yMax": 7.5 - SPAWN_WALL_MARGIN,    #  4.5
 }
 
+# Parked RQ-7B "Shadow" aircraft props — large obstacles the drone must not
+# spawn on top of. Each is the military_drone model's footprint: a 6m (wingspan,
+# local x) by 9m (fuselage, local y) box, at the world pose/yaw from the world
+# SDF. Spawn points must stay SPAWN_OBSTACLE_MARGIN outside each footprint.
+SPAWN_OBSTACLE_MARGIN = 0.3
+SPAWN_OBSTACLES = [
+    # cx, cy (meters), yaw (radians), half-width (local x), half-length (local y)
+    {"cx": -5.0, "cy": 0.0, "yaw": 0.7419, "halfW": 3.0, "halfL": 4.5},
+    {"cx": 5.0, "cy": 0.0, "yaw": 1.2015, "halfW": 3.0, "halfL": 4.5},
+]
+
+
+def _in_obstacle(x: float, y: float, obs: dict, margin: float) -> bool:
+    """Is (x, y) inside an aircraft's rotated footprint, expanded by margin?"""
+    import math
+    dx, dy = x - obs["cx"], y - obs["cy"]
+    # Rotate the point into the aircraft's local frame (undo its yaw).
+    c, s = math.cos(-obs["yaw"]), math.sin(-obs["yaw"])
+    lx = dx * c - dy * s
+    ly = dx * s + dy * c
+    return abs(lx) <= obs["halfW"] + margin and abs(ly) <= obs["halfL"] + margin
+
 
 def validate_spawn(x: float, y: float):
-    """Check an (x, y) spawn against the garage's valid interior (>=3m from
-    every wall). Returns (ok: bool, error: str|None)."""
+    """Check an (x, y) spawn against the garage's valid interior: >=3m from
+    every wall AND outside the parked-aircraft footprints (+0.3m). Returns
+    (ok: bool, error: str|None)."""
     b = SPAWN_BOUNDS
     if not (b["xMin"] <= x <= b["xMax"] and b["yMin"] <= y <= b["yMax"]):
         return False, (
             f"spawn ({x:.1f}, {y:.1f}) is too close to a wall — must be within "
             f"x [{b['xMin']:.1f}, {b['xMax']:.1f}], y [{b['yMin']:.1f}, {b['yMax']:.1f}]"
         )
+    for obs in SPAWN_OBSTACLES:
+        if _in_obstacle(x, y, obs, SPAWN_OBSTACLE_MARGIN):
+            return False, (
+                f"spawn ({x:.1f}, {y:.1f}) is on/too close to a parked aircraft"
+            )
     return True, None
 
 LAUNCH_STEPS = [

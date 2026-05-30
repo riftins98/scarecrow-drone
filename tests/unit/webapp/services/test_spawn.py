@@ -11,20 +11,36 @@ from services.sim_service import (
     DEFAULT_SPAWN_POSE,
     SPAWN_BOUNDS,
     SPAWN_WORLD,
+    SPAWN_OBSTACLES,
     validate_spawn,
 )
 
+# A point that is inside the valid box AND clear of both parked aircraft.
+# (The room center is occupied by the two Shadow aircraft, so tests must use a
+# corner.) Corners like (-8, 4) / (8, 4) are clear.
+CLEAR = (-8.0, 4.0)
+
 
 class TestValidateSpawn:
-    def test_center_and_edges_ok(self):
-        assert validate_spawn(0, 0) == (True, None)
-        assert validate_spawn(SPAWN_BOUNDS["xMax"], SPAWN_BOUNDS["yMax"])[0] is True
+    def test_clear_corners_ok(self):
+        assert validate_spawn(-8.0, 4.0) == (True, None)
+        assert validate_spawn(8.0, 4.0)[0] is True
+        # The far corners of the valid box are clear of the central aircraft.
+        assert validate_spawn(SPAWN_BOUNDS["xMin"], SPAWN_BOUNDS["yMax"])[0] is True
         assert validate_spawn(SPAWN_BOUNDS["xMin"], SPAWN_BOUNDS["yMin"])[0] is True
 
     def test_too_close_to_wall_rejected(self):
-        assert validate_spawn(SPAWN_BOUNDS["xMax"] + 0.1, 0)[0] is False
-        assert validate_spawn(0, SPAWN_BOUNDS["yMax"] + 0.1)[0] is False
-        assert validate_spawn(SPAWN_BOUNDS["xMin"] - 0.1, 0)[0] is False
+        assert validate_spawn(SPAWN_BOUNDS["xMax"] + 0.1, 4.0)[0] is False
+        assert validate_spawn(-8.0, SPAWN_BOUNDS["yMax"] + 0.1)[0] is False
+        assert validate_spawn(SPAWN_BOUNDS["xMin"] - 0.1, 4.0)[0] is False
+
+    def test_on_aircraft_rejected(self):
+        # Both aircraft centers (and the room center between them) are blocked.
+        for obs in SPAWN_OBSTACLES:
+            ok, err = validate_spawn(obs["cx"], obs["cy"])
+            assert ok is False
+            assert "aircraft" in err
+        assert validate_spawn(0.0, 0.0)[0] is False  # center, between the craft
 
     def test_error_message_mentions_bounds(self):
         ok, err = validate_spawn(99, 99)
@@ -41,8 +57,8 @@ class TestLaunchSpawn:
              patch("services.sim_service.os.path.exists", return_value=True), \
              patch("services.sim_service.subprocess.Popen"), \
              patch("services.sim_service.threading.Thread"):
-            svc.launch(world=SPAWN_WORLD, spawn={"x": 2.0, "y": 1.5})
-            assert svc._spawn_pose == "2.0,1.5,0,0,0,0"
+            svc.launch(world=SPAWN_WORLD, spawn={"x": -8.0, "y": 4.0})
+            assert svc._spawn_pose == "-8.0,4.0,0,0,0,0"
 
     def test_invalid_spawn_raises(self):
         svc = SimService()
@@ -71,7 +87,7 @@ class TestLaunchSpawn:
              patch("services.sim_service.os.path.exists", return_value=True), \
              patch("services.sim_service.subprocess.Popen"), \
              patch("services.sim_service.threading.Thread"):
-            svc.launch(world="some_other_world", spawn={"x": 2.0, "y": 1.5})
+            svc.launch(world="some_other_world", spawn={"x": -8.0, "y": 4.0})
             assert svc._spawn_pose == DEFAULT_SPAWN_POSE
 
 
@@ -81,12 +97,12 @@ class TestSetSpawn:
         svc._world = SPAWN_WORLD
         with patch.object(SimService, "_teleport_to",
                           return_value={"success": True, "model": "holybro_x500_0"}) as mock_tp:
-            res = svc.set_spawn(3.0, 2.0)
+            res = svc.set_spawn(-8.0, 4.0)
             assert res["success"] is True
-            assert res["spawn"] == {"x": 3.0, "y": 2.0}
+            assert res["spawn"] == {"x": -8.0, "y": 4.0}
             # Panic reset must now return to the NEW spot.
-            assert svc._spawn_pose == "3.0,2.0,0,0,0,0"
-            mock_tp.assert_called_once_with("3.0,2.0,0,0,0,0")
+            assert svc._spawn_pose == "-8.0,4.0,0,0,0,0"
+            mock_tp.assert_called_once_with("-8.0,4.0,0,0,0,0")
 
     def test_set_spawn_rejects_out_of_bounds_without_teleport(self):
         svc = SimService()
@@ -110,7 +126,7 @@ class TestSetSpawn:
         svc._spawn_pose = DEFAULT_SPAWN_POSE
         with patch.object(SimService, "_teleport_to",
                           return_value={"success": False, "error": "no model"}):
-            res = svc.set_spawn(3.0, 2.0)
+            res = svc.set_spawn(-8.0, 4.0)
             assert res["success"] is False
             assert svc._spawn_pose == DEFAULT_SPAWN_POSE  # unchanged
 
