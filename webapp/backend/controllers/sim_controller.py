@@ -80,30 +80,39 @@ async def reset_drone():
     if not sim_service.is_connected:
         return {"success": False, "error": "Simulation not running"}
 
-    # 1. Kill the flight script (if any) so it stops sending setpoints.
-    flight_id = detection_service.flight_id
-    killed = detection_service.kill()
+    # The reset is several seconds of blocking work (pkill, MAVSDK disarm,
+    # gz set_pose). Offload it to a worker thread so we don't stall the event
+    # loop (and so force_disarm's own event loop has a thread without a running
+    # loop to run on — calling it inline from this async handler would raise
+    # "cannot be called from a running event loop").
+    def _do_reset() -> dict:
+        # 1. Kill the flight script (if any) so it stops sending setpoints.
+        flight_id = detection_service.flight_id
+        killed = detection_service.kill()
 
-    # 2. Best-effort force-disarm before we move the model.
-    disarmed = drone_service.force_disarm()
+        # 2. Best-effort force-disarm + hold before we move the model.
+        disarmed = drone_service.force_disarm()
 
-    # 3. Teleport back to spawn.
-    teleport = sim_service.reset_drone_pose()
+        # 3. Teleport back to spawn.
+        teleport = sim_service.reset_drone_pose()
 
-    # 4. Mark the flight aborted so history reflects the panic stop.
-    if flight_id:
-        try:
-            flight_service.abort_flight(flight_id)
-        except Exception:
-            pass
+        # 4. Mark the flight aborted so history reflects the panic stop.
+        if flight_id:
+            try:
+                flight_service.abort_flight(flight_id)
+            except Exception:
+                pass
 
-    return {
-        "success": bool(teleport.get("success")),
-        "killedFlight": killed,
-        "disarmed": disarmed,
-        "teleport": teleport,
-        "error": teleport.get("error"),
-    }
+        return {
+            "success": bool(teleport.get("success")),
+            "killedFlight": killed,
+            "disarmed": disarmed,
+            "teleport": teleport,
+            "error": teleport.get("error"),
+        }
+
+    import asyncio
+    return await asyncio.to_thread(_do_reset)
 
 
 @router.get("/status")

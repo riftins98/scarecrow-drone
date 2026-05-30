@@ -61,64 +61,81 @@ class DroneService:
         the vehicle exits offboard (otherwise it keeps chasing its last
         setpoint), then kill the motors so it can't fly back up.
 
-        Runs the async MAVSDK calls on a private event loop, so it's safe to
-        call from a sync FastAPI handler. Returns True if at least the kill was
-        acknowledged; False on any failure (the caller still proceeds with the
-        teleport — disarm is best-effort)."""
+        Runs the blocking MAVSDK work on a private event loop **in a dedicated
+        worker thread**. This is required because the FastAPI reset handler is
+        ``async`` — calling ``loop.run_until_complete()`` directly from it would
+        raise "cannot be called from a running event loop" (which previously got
+        swallowed, so the disarm silently never ran and the drone kept flying
+        after the teleport). A fresh thread has no running loop, so it works.
+
+        Returns True if at least the kill/disarm was acknowledged; False on any
+        failure (the caller still proceeds with the teleport — best-effort)."""
         import asyncio
+        import threading
 
         try:
             from mavsdk import System
         except ImportError:
             return False
 
-        # Bind the embedded mavsdk_server to a non-default port so it never
-        # collides with one a flight script may still be tearing down.
-        system = System(port=50061)
+        result = {"ok": False}
 
-        async def _stop() -> bool:
-            # Listen on the SDK stream PX4 broadcasts to (same as the scripts).
-            # MAVSDK requires an explicit interface (0.0.0.0 = all).
-            await system.connect(system_address="udpin://0.0.0.0:14540")
-            try:
-                async for state in system.core.connection_state():
-                    if state.is_connected:
-                        break
-            except Exception:
-                return False
+        def _worker():
+            # Bind the embedded mavsdk_server to a non-default port so it never
+            # collides with one a flight script may still be tearing down.
+            system = System(port=50061)
 
-            # 1. Exit offboard: command Hold so PX4 stops chasing setpoints.
-            try:
-                await system.action.hold()
-            except Exception:
-                pass  # not fatal; the kill below is what guarantees motors off
-
-            # 2. Force motors off. Try kill (instant), fall back to disarm.
-            try:
-                await system.action.kill()
-                return True
-            except Exception:
+            async def _stop() -> bool:
+                # Listen on the SDK stream PX4 broadcasts to (same as scripts).
+                # MAVSDK requires an explicit interface (0.0.0.0 = all).
+                await system.connect(system_address="udpin://0.0.0.0:14540")
                 try:
-                    await system.action.disarm()
-                    return True
+                    async for state in system.core.connection_state():
+                        if state.is_connected:
+                            break
                 except Exception:
                     return False
 
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(asyncio.wait_for(_stop(), timeout))
-        except Exception:
-            return False
-        finally:
-            loop.close()
-            # MAVSDK spawns a mavsdk_server subprocess that would otherwise leak
-            # (and keep its port held) on every reset. Terminate it explicitly.
-            proc = getattr(system, "_server_process", None)
-            if proc is not None:
+                # 1. Exit offboard: command Hold so PX4 stops chasing setpoints.
                 try:
-                    proc.terminate()
+                    await system.action.hold()
                 except Exception:
-                    pass
+                    pass  # not fatal; the kill below guarantees motors off
+
+                # 2. Force motors off. Try kill (instant), fall back to disarm.
+                try:
+                    await system.action.kill()
+                    return True
+                except Exception:
+                    try:
+                        await system.action.disarm()
+                        return True
+                    except Exception:
+                        return False
+
+            loop = asyncio.new_event_loop()
+            try:
+                result["ok"] = loop.run_until_complete(
+                    asyncio.wait_for(_stop(), timeout)
+                )
+            except Exception:
+                result["ok"] = False
+            finally:
+                loop.close()
+                # MAVSDK spawns a mavsdk_server subprocess that would otherwise
+                # leak (and keep its port held) on every reset. Kill it.
+                proc = getattr(system, "_server_process", None)
+                if proc is not None:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        # Give the worker a little longer than its own timeout to finish.
+        t.join(timeout + 5)
+        return bool(result["ok"])
 
     def return_home(self) -> bool:
         """Command return-to-home. Stub: Phase 6 implements RTL via MAVSDK."""
