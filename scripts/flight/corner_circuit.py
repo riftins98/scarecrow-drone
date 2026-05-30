@@ -513,14 +513,20 @@ async def run() -> None:
             print("  WARNING: leg ended early")
             break
 
+        # Pause detection during turn to avoid false positives
+        detector.stop()
+
         print("  Turning right...")
-        ok = await _rotate_relative_simple(drone, 90.0)
+        ok = await rotate_90(drone.system, lidar, direction="right")
         if not ok:
             print("  ERROR: rotation failed")
             break
 
         print("  Stabilizing corner...")
         await _stabilize_corner(drone, lidar, timeout_s=CORNER_TIMEOUT_S)
+
+        # Resume detection for next leg
+        detector.start()
 
     # --- Land ---
     print("\n--- Landing ---")
