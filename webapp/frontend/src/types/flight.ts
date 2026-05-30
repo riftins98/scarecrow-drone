@@ -18,6 +18,20 @@ export interface LaunchStep {
   substatus?: string;
 }
 
+export interface SpawnPoint {
+  x: number;
+  y: number;
+}
+
+/** Valid interior rectangle (meters) the drone may spawn in — >=3m from every
+ *  wall. Returned in SimOptions.spawnBounds for the garage world. */
+export interface SpawnBounds {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+}
+
 export interface SimStatus {
   connected: boolean;
   launching: boolean;
@@ -28,6 +42,8 @@ export interface SimStatus {
   /** Camera flag stem currently streamed (e.g. "fixed"), null in GUI mode. */
   camera: string | null;
   streamUrl: string | null;
+  /** Current session spawn point (meters). */
+  spawn?: SpawnPoint;
 }
 
 export interface FlightStatus {
@@ -107,6 +123,10 @@ export interface ScriptInfo {
 export interface SimOptions {
   worlds: WorldInfo[];
   scripts: ScriptInfo[];
+  /** Name of the world the spawn picker applies to (others use default spawn). */
+  spawnWorld?: string;
+  /** Valid spawn rectangle for that world (meters, >=3m from every wall). */
+  spawnBounds?: SpawnBounds;
 }
 
 export interface ConnectSimParams {
@@ -115,6 +135,8 @@ export interface ConnectSimParams {
   /** Headless-only. Picks which streamable camera the launcher points the
    *  WebRTC stream at. Backend silently falls back to "fixed" if invalid. */
   camera?: string;
+  /** Custom start location (garage world only); omit for the default spawn. */
+  spawn?: SpawnPoint;
 }
 
 // Map of {arg_name: value} sent to /api/flight/start.

@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from dependencies import sim_service, detection_service, flight_service
+from services.sim_service import SPAWN_BOUNDS, SPAWN_WORLD
 from services.script_metadata import (
     list_flight_scripts,
     list_worlds,
@@ -21,10 +22,16 @@ WORLDS_DIR = os.path.join(REPO_ROOT, "worlds")
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts", "flight")
 
 
+class SpawnPoint(BaseModel):
+    x: float
+    y: float
+
+
 class ConnectRequest(BaseModel):
     world: Optional[str] = None
     headless: Optional[bool] = False
     camera: Optional[str] = None  # e.g. "fixed", "center" — headless only
+    spawn: Optional[SpawnPoint] = None  # custom start location (garage world)
 
 
 @router.post("/connect")
@@ -32,17 +39,29 @@ async def connect_sim(req: Optional[ConnectRequest] = None):
     """Launch PX4 + Gazebo (non-blocking, poll /api/sim/status for progress).
 
     Optional body:
-        {"world": "drone_garage_pigeon_3d", "headless": false, "camera": "fixed"}
-    Defaults match the legacy behavior (drone_garage_pigeon_3d, GUI).
+        {"world": "drone_garage_pigeon_3d", "headless": false, "camera": "fixed",
+         "spawn": {"x": 5, "y": -4.5}}
+    Defaults match the legacy behavior (drone_garage_pigeon_3d, GUI, default spawn).
     """
     try:
         world = (req.world if req else None) or "drone_garage_pigeon_3d"
         headless = bool(req.headless) if req else False
         camera = req.camera if req else None
-        sim_service.launch(world=world, headless=headless, camera=camera)
+        spawn = (req.spawn.model_dump() if req and req.spawn else None)
+        sim_service.launch(world=world, headless=headless, camera=camera, spawn=spawn)
         return {"success": True, "message": "Simulation launching..."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@router.post("/spawn")
+async def set_spawn(req: SpawnPoint):
+    """Re-spawn the drone at (x, y) on a running sim (garage world only).
+    Validates the >=3m wall margin, teleports the drone there, and updates the
+    spawn the panic reset returns to. Returns {success, error?, spawn?}."""
+    if not sim_service.is_connected:
+        return {"success": False, "error": "Simulation not running"}
+    return sim_service.set_spawn(req.x, req.y)
 
 
 @router.delete("/connect")
@@ -128,6 +147,7 @@ async def sim_status():
         "headless": sim_service.headless,
         "camera": sim_service.camera,
         "streamUrl": sim_service.stream_url,
+        "spawn": sim_service.spawn,
     }
 
 
@@ -290,4 +310,8 @@ async def sim_options():
     return {
         "worlds": [world_info_to_dict(w) for w in list_worlds(WORLDS_DIR)],
         "scripts": [script_info_to_dict(s) for s in list_flight_scripts(SCRIPTS_DIR, fast=fast_metadata)],
+        # The world the spawn picker applies to, and its valid interior (meters,
+        # >=3m from every wall). The frontend draws the picker from these.
+        "spawnWorld": SPAWN_WORLD,
+        "spawnBounds": SPAWN_BOUNDS,
     }

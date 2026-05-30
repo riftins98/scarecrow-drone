@@ -10,8 +10,10 @@ import {
   StartFlightParams,
   WorldInfo,
   CameraInfo,
+  SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
+import SpawnPicker from './SpawnPicker';
 
 interface Props {
   simStatus: SimStatus | null;
@@ -46,10 +48,16 @@ export default function SimControl({
   // Camera the user picked from the dropdown (only meaningful in headless mode).
   // Empty string -> "let backend default it" (currently "fixed").
   const [selectedCamera, setSelectedCamera] = useState<string>('');
+  // Custom spawn point (meters) the user picked on the map. null = use default.
+  const [spawn, setSpawn] = useState<SpawnPoint | null>(null);
 
   // Post-connect form state
   const [selectedScript, setSelectedScript] = useState<string>(DEFAULT_SCRIPT);
   const [scriptArgValues, setScriptArgValues] = useState<ScriptArgValues>({});
+
+  // Post-connect re-spawn state.
+  const [respawning, setRespawning] = useState<boolean>(false);
+  const [respawnMsg, setRespawnMsg] = useState<string | null>(null);
 
   // Panic reset state.
   const [resetting, setResetting] = useState<boolean>(false);
@@ -112,6 +120,15 @@ export default function SimControl({
     // the available-set changes (world swap), not on every user click.
   }, [selectedWorld, options]);
 
+  // Seed the spawn marker from the live session spawn once connected, so the
+  // post-connect picker shows where the drone currently is (until the user
+  // picks somewhere else).
+  useEffect(() => {
+    if (connected && spawn === null && simStatus?.spawn) {
+      setSpawn({ x: simStatus.spawn.x, y: simStatus.spawn.y });
+    }
+  }, [connected, simStatus, spawn]);
+
   // When the selected script changes, reset arg values to that script's defaults
   // (so the form fields reflect the new arg set, not stale values from another script).
   useEffect(() => {
@@ -145,12 +162,38 @@ export default function SimControl({
     return () => clearInterval(interval);
   }, [flightStartTime]);
 
+  // Spawn picking is only supported for the world the backend reports bounds
+  // for (the garage). Other worlds hide the picker and use their default spawn.
+  const spawnWorld = options?.spawnWorld;
+  const spawnBounds = options?.spawnBounds;
+  const spawnSupported = !!spawnBounds && selectedWorld === spawnWorld;
+
   const handleConnect = () => {
     const params: ConnectSimParams = { world: selectedWorld, headless };
     if (headless && selectedCamera) {
       params.camera = selectedCamera;
     }
+    if (spawnSupported && spawn) {
+      params.spawn = spawn;
+    }
     onConnect(params);
+  };
+
+  const handleRespawn = async () => {
+    if (!spawn || respawning) return;
+    setRespawnMsg(null);
+    setRespawning(true);
+    try {
+      const res = await api.setSpawn(spawn.x, spawn.y);
+      setRespawnMsg(res.success
+        ? `Drone moved to X ${spawn.x.toFixed(1)} Y ${spawn.y.toFixed(1)}.`
+        : `Re-spawn failed: ${res.error || 'unknown error'}`);
+    } catch (e) {
+      setRespawnMsg(`Re-spawn failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRespawning(false);
+      window.setTimeout(() => setRespawnMsg(null), 5000);
+    }
   };
 
   const handleStart = () => {
@@ -266,6 +309,22 @@ export default function SimControl({
                     )}
                   </label>
                 )}
+
+                {spawnSupported && spawnBounds && (
+                  <div className="form-row form-row-stacked">
+                    <span className="form-label">Spawn location</span>
+                    <SpawnPicker
+                      bounds={spawnBounds}
+                      value={spawn}
+                      onChange={setSpawn}
+                      disabled={isConnecting}
+                    />
+                    <span className="form-hint">
+                      Click to choose where the drone starts (must stay ≥3m from
+                      every wall). Leave unset for the default position.
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="control-buttons">
@@ -347,6 +406,30 @@ export default function SimControl({
                 ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Re-spawn: move the drone to a new start location without relaunching.
+          Hidden while flying (don't teleport a flight in progress). Also updates
+          where the panic RESET returns to. */}
+      {spawnSupported && spawnBounds && !flying && (
+        <div className="respawn-panel">
+          <div className="form-label">Re-spawn location</div>
+          <SpawnPicker
+            bounds={spawnBounds}
+            value={spawn}
+            onChange={setSpawn}
+            disabled={respawning}
+          />
+          <button
+            className="btn btn-respawn"
+            onClick={handleRespawn}
+            disabled={!spawn || respawning}
+            title="Teleport the drone to the selected spot (also where RESET returns to)."
+          >
+            {respawning ? 'MOVING…' : 'Move Drone Here'}
+          </button>
+          {respawnMsg && <div className="panic-msg">{respawnMsg}</div>}
         </div>
       )}
 

@@ -360,6 +360,71 @@ body {
   color: #c89090;
 }
 
+/* Spawn picker — top-down room map for choosing the drone start location. */
+.form-row-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.spawn-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.spawn-picker-svg {
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  background: #0d1208;
+  border: 1px solid #2f2f2f;
+  border-radius: 3px;
+  cursor: crosshair;
+}
+.spawn-picker-disabled .spawn-picker-svg {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.spawn-picker-readout {
+  font-family: 'Courier New', monospace;
+  font-size: 0.78rem;
+  letter-spacing: 1px;
+  color: #b6c57a;
+}
+
+/* Post-connect re-spawn panel. */
+.respawn-panel {
+  margin-top: 14px;
+  padding: 12px;
+  background: rgba(20, 24, 14, 0.5);
+  border: 1px solid #2f2f2f;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.btn-respawn {
+  width: 100%;
+  padding: 10px 0;
+  background: linear-gradient(180deg, #4a6a7b 0%, #3a5a6b 50%, #2a4a5a 100%);
+  color: #cfe6e6;
+  border: 1px solid #5a7a8b;
+  letter-spacing: 3px;
+}
+.btn-respawn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5a7a8b 0%, #4a6a7b 50%, #3a5a6b 100%);
+  box-shadow: 0 0 12px rgba(122, 154, 154, 0.4);
+}
+.btn-respawn:disabled {
+  background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+  color: #555;
+  border-color: #2a2a2a;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .btn-connect {
   background: linear-gradient(180deg, #3a5a6b 0%, #2a4a5a 50%, #1a3a4a 100%);
   color: #b0d0d0;

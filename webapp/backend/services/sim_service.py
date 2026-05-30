@@ -11,15 +11,41 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 
 DEFAULT_WORLD = "drone_garage_pigeon_3d"
 
-# Drone spawn pose, "x,y,z,roll,pitch,yaw" — 5m in front of the pigeon
-# billboard, facing the north wall (+x, heading 0). This is the single source
-# of truth used both to launch the sim (PX4_GZ_MODEL_POSE) and to teleport the
-# drone back here on a panic reset. Keep them in sync via this constant.
-SPAWN_POSE = "5,-4.5,0,0,0,0"
+# Default drone spawn pose, "x,y,z,roll,pitch,yaw" — 5m in front of the pigeon
+# billboard, facing the north wall (+x, heading 0). Used when the user hasn't
+# picked a custom spawn. The active pose lives per-session on the instance
+# (``_spawn_pose``) so launch, the spawn picker, and the panic-reset teleport
+# all share one source of truth.
+DEFAULT_SPAWN_POSE = "5,-4.5,0,0,0,0"
 
 # Gazebo model-name prefix for the drone (the running model gets a numeric
 # suffix like holybro_x500_0; we discover the full name at reset time).
 DRONE_MODEL_PREFIX = "holybro_x500"
+
+# Custom spawn picking is currently only wired for the main garage world,
+# whose geometry we know. The room floor is 24m x 15m centered on the origin,
+# with walls at x=+-12 / y=+-7.5 (inner faces). Keeping the drone center >=3m
+# from every wall gives this valid interior rectangle (meters).
+SPAWN_WORLD = "drone_garage_pigeon_3d"
+SPAWN_WALL_MARGIN = 3.0
+SPAWN_BOUNDS = {
+    "xMin": -12.0 + SPAWN_WALL_MARGIN,  # -9.0
+    "xMax": 12.0 - SPAWN_WALL_MARGIN,   #  9.0
+    "yMin": -7.5 + SPAWN_WALL_MARGIN,   # -4.5
+    "yMax": 7.5 - SPAWN_WALL_MARGIN,    #  4.5
+}
+
+
+def validate_spawn(x: float, y: float):
+    """Check an (x, y) spawn against the garage's valid interior (>=3m from
+    every wall). Returns (ok: bool, error: str|None)."""
+    b = SPAWN_BOUNDS
+    if not (b["xMin"] <= x <= b["xMax"] and b["yMin"] <= y <= b["yMax"]):
+        return False, (
+            f"spawn ({x:.1f}, {y:.1f}) is too close to a wall — must be within "
+            f"x [{b['xMin']:.1f}, {b['xMax']:.1f}], y [{b['yMin']:.1f}, {b['yMax']:.1f}]"
+        )
+    return True, None
 
 LAUNCH_STEPS = [
     ("cleanup", "Cleaning up old sessions"),
@@ -86,6 +112,10 @@ class SimService:
         self._headless: bool = False
         self._camera: Optional[str] = None
         self._stream_url: Optional[str] = None
+        # Active spawn pose "x,y,z,roll,pitch,yaw" for the current session.
+        # Set at launch (from the user's pick or the default) and read by the
+        # panic-reset teleport so reset returns to wherever the drone started.
+        self._spawn_pose: str = DEFAULT_SPAWN_POSE
 
     # Camera names we'll pass through to launch_with_stream.sh as ``--<name>``
     # flags. Anything not in this allowlist is silently rejected to keep
@@ -94,7 +124,8 @@ class SimService:
     _DEFAULT_CAMERA = "fixed"
 
     def launch(self, world: str = DEFAULT_WORLD, headless: bool = False,
-               camera: Optional[str] = None) -> bool:
+               camera: Optional[str] = None,
+               spawn: Optional[dict] = None) -> bool:
         """Launch PX4 + Gazebo in background.
 
         Args:
@@ -105,11 +136,29 @@ class SimService:
             camera: Which streamable camera to point the headless stream
                 worker at (e.g. "fixed", "center"). Ignored when not
                 headless. Defaults to "fixed" if omitted or invalid.
+            spawn: Optional ``{"x": float, "y": float}`` start location (garage
+                world only). Validated to be >=3m from every wall; an invalid
+                or absent spawn falls back to the default pose.
+
+        Raises:
+            ValueError: if ``spawn`` is given for the garage world but fails
+                the wall-clearance check.
         """
         if self.connected and self.process and self.process.poll() is None:
             return True
         if self.launching:
             return False
+
+        # Resolve the spawn pose for this session. Custom spawn is only honored
+        # for the garage world (the only one with known geometry).
+        self._spawn_pose = DEFAULT_SPAWN_POSE
+        if spawn is not None and world == SPAWN_WORLD:
+            x, y = float(spawn["x"]), float(spawn["y"])
+            ok, err = validate_spawn(x, y)
+            if not ok:
+                raise ValueError(err)
+            # Keep level + facing north (yaw 0), matching the default.
+            self._spawn_pose = f"{x},{y},0,0,0,0"
 
         self.stop()
         time.sleep(1)
@@ -135,8 +184,8 @@ class SimService:
         env = os.environ.copy()
         env.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
         env.setdefault("__NV_PRIME_RENDER_OFFLOAD", "1")
-        # Spawn drone 5m in front of pigeon billboard, facing north wall (+x, heading=0)
-        env["PX4_GZ_MODEL_POSE"] = SPAWN_POSE
+        # Spawn at the session's chosen pose (custom pick or default).
+        env["PX4_GZ_MODEL_POSE"] = self._spawn_pose
 
         self.process = subprocess.Popen(
             ["bash", launch_script, *launch_args],
@@ -492,14 +541,10 @@ class SimService:
                 return name
         return None
 
-    def reset_drone_pose(self) -> dict:
-        """Panic reset: teleport the drone model back to its spawn pose in
-        Gazebo via the world's ``set_pose`` service. Does NOT disarm or stop
-        the flight script — the caller (controller) handles killing the flight
-        first so the autopilot isn't fighting the teleport.
-
-        Returns ``{"success": bool, "error"?: str, "model"?: str}``.
-        """
+    def _teleport_to(self, pose_str: str) -> dict:
+        """Teleport the drone model to ``pose_str`` ("x,y,z,roll,pitch,yaw")
+        via the world's ``set_pose`` service. Shared by the panic reset and the
+        re-spawn control. Returns ``{success, error?, model?}``."""
         if not self.is_connected:
             return {"success": False, "error": "Simulation not running"}
 
@@ -507,16 +552,15 @@ class SimService:
         if not model:
             return {"success": False, "error": "drone model not found in Gazebo"}
 
-        # Parse "x,y,z,roll,pitch,yaw". The spawn pose is level (roll=pitch=0),
+        # Parse "x,y,z,roll,pitch,yaw". Poses here are level (roll=pitch=0),
         # so only yaw contributes to the orientation quaternion (0, 0, qz, qw).
         try:
-            x, y, z, _roll, _pitch, yaw = (float(v) for v in SPAWN_POSE.split(","))
+            x, y, z, _roll, _pitch, yaw = (float(v) for v in pose_str.split(","))
         except ValueError:
-            return {"success": False, "error": f"bad SPAWN_POSE: {SPAWN_POSE!r}"}
+            return {"success": False, "error": f"bad pose: {pose_str!r}"}
 
         qz = math.sin(yaw / 2.0)
         qw = math.cos(yaw / 2.0)
-        # gz.msgs.Pose request: name + position + yaw-only orientation quaternion.
         req = (
             f'name: "{model}", '
             f'position: {{x: {x}, y: {y}, z: {z}}}, '
@@ -546,6 +590,44 @@ class SimService:
                 "error": (result.stdout or result.stderr or "set_pose returned false").strip(),
             }
         return {"success": True, "model": model}
+
+    def reset_drone_pose(self) -> dict:
+        """Panic reset: teleport the drone back to the session's spawn pose
+        (the user's chosen start location, or the default). Does NOT disarm or
+        stop the flight script — the caller handles that first so the autopilot
+        isn't fighting the teleport.
+
+        Returns ``{"success": bool, "error"?: str, "model"?: str}``.
+        """
+        return self._teleport_to(self._spawn_pose)
+
+    def set_spawn(self, x: float, y: float) -> dict:
+        """Re-spawn the drone at (x, y) on a running sim: validate against the
+        wall margin, update the session spawn (so a later panic reset returns
+        here too), and teleport the drone there now. Garage world only.
+
+        Returns ``{success, error?, spawn?}``.
+        """
+        if self._world != SPAWN_WORLD:
+            return {"success": False, "error": f"custom spawn not supported for world {self._world!r}"}
+        ok, err = validate_spawn(x, y)
+        if not ok:
+            return {"success": False, "error": err}
+        pose = f"{x},{y},0,0,0,0"
+        res = self._teleport_to(pose)
+        if res.get("success"):
+            self._spawn_pose = pose  # panic reset now returns to the new spot
+            res["spawn"] = {"x": x, "y": y}
+        return res
+
+    @property
+    def spawn(self) -> dict:
+        """Current session spawn as ``{"x": float, "y": float}``."""
+        parts = self._spawn_pose.split(",")
+        try:
+            return {"x": float(parts[0]), "y": float(parts[1])}
+        except (ValueError, IndexError):
+            return {"x": 0.0, "y": 0.0}
 
     @property
     def is_connected(self) -> bool:
