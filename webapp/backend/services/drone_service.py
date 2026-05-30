@@ -80,10 +80,20 @@ class DroneService:
 
         result = {"ok": False}
 
+        # Pick a fresh, currently-free port for the embedded mavsdk_server.
+        # Hardcoding one (e.g. 50061) made the SECOND reset hang forever in
+        # System.connect(), because the previous call's server hadn't fully
+        # released the port. Ask the OS for an unused port each time.
+        import socket
+        _s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            _s.bind(("127.0.0.1", 0))
+            server_port = _s.getsockname()[1]
+        finally:
+            _s.close()
+
         def _worker():
-            # Bind the embedded mavsdk_server to a non-default port so it never
-            # collides with one a flight script may still be tearing down.
-            system = System(port=50061)
+            system = System(port=server_port)
 
             async def _stop() -> bool:
                 # Listen on the SDK stream PX4 broadcasts to (same as scripts).
