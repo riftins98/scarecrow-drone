@@ -15,29 +15,33 @@ from services.sim_service import SimService
 
 
 class TestSendPxhCommand:
-    def test_prefers_process_stdin(self):
+    def test_prefers_fifo_over_process_stdin(self):
+        # The live FIFO is the path PX4 actually reads from; process.stdin only
+        # feeds launch.sh (which redirects PX4's stdin from the FIFO, NOT its
+        # own). So the FIFO must win even when a process pipe is present.
         svc = SimService()
         svc.process = MagicMock()
         svc.process.stdin = MagicMock()
-        assert svc._send_pxh_command("commander disarm -f") is True
-        svc.process.stdin.write.assert_called_once_with("commander disarm -f\n")
-        svc.process.stdin.flush.assert_called_once()
-
-    def test_falls_back_to_fifo_when_no_process(self):
-        svc = SimService()
-        svc.process = None
         with patch("services.sim_service.os.name", "posix"), \
              patch.object(SimService, "_find_pxh_fifo", return_value="/tmp/scarecrow_pxh.AB.fifo"), \
-             patch("services.sim_service.os.open", return_value=7) as mock_open, \
+             patch("services.sim_service.os.open", return_value=7), \
              patch("services.sim_service.os.write") as mock_write, \
-             patch("services.sim_service.os.close") as mock_close:
+             patch("services.sim_service.os.close"):
             assert svc._send_pxh_command("commander disarm -f") is True
-            mock_open.assert_called_once()
             mock_write.assert_called_once()
-            assert b"commander disarm -f" in mock_write.call_args.args[1]
-            mock_close.assert_called_once_with(7)
+            svc.process.stdin.write.assert_not_called()
 
-    def test_returns_false_when_no_pipe_and_no_fifo(self):
+    def test_falls_back_to_process_stdin_when_no_fifo(self):
+        svc = SimService()
+        svc.process = MagicMock()
+        svc.process.stdin = MagicMock()
+        with patch("services.sim_service.os.name", "posix"), \
+             patch.object(SimService, "_find_pxh_fifo", return_value=None):
+            assert svc._send_pxh_command("commander disarm -f") is True
+            svc.process.stdin.write.assert_called_once_with("commander disarm -f\n")
+            svc.process.stdin.flush.assert_called_once()
+
+    def test_returns_false_when_no_fifo_and_no_pipe(self):
         svc = SimService()
         svc.process = None
         with patch("services.sim_service.os.name", "posix"), \

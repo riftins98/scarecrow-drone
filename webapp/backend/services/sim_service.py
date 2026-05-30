@@ -284,25 +284,17 @@ class SimService:
     def _send_pxh_command(self, cmd: str) -> bool:
         """Send a command to PX4's pxh console. Returns True if it was written.
 
-        Two delivery paths, tried in order:
-        1. ``self.process.stdin`` — works when THIS backend launched the sim
-           (launch() wires the launcher's stdin to a PIPE).
-        2. The launcher's pxh FIFO on disk (``/tmp/scarecrow_pxh.*.fifo``) —
-           used when the sim was launched by an external process (e.g.
-           ``Start Scarecrow.bat``), so the backend has no process handle but
-           the FIFO still feeds PX4's stdin.
+        The launcher's pxh **FIFO** on disk (``/tmp/scarecrow_pxh.*.fifo``) is
+        the canonical path PX4 actually reads from, so it is tried FIRST. The
+        ``self.process.stdin`` pipe is only a fallback: when the sim was started
+        externally (``Start Scarecrow.bat``) ``self.process`` is None, and even
+        when this backend launched the sim, the live FIFO is the reliable feed
+        (writing to a stale/superseded ``process.stdin`` pipe silently goes
+        nowhere — that bug made the reset's disarm a no-op while still reporting
+        success). POSIX only — Windows has no FIFOs.
         """
-        # Path 1: our own subprocess pipe.
-        if self.process and self.process.stdin:
-            try:
-                self.process.stdin.write(cmd + "\n")
-                self.process.stdin.flush()
-                return True
-            except Exception:
-                pass
-
-        # Path 2: the launcher's pxh FIFO (POSIX only — Windows has no FIFOs).
-        # Open non-blocking so we never hang if no reader is attached.
+        # Path 1 (preferred): the launcher's live pxh FIFO. Open non-blocking
+        # so we never hang if no reader is attached.
         if os.name == "posix":
             fifo = self._find_pxh_fifo()
             if fifo:
@@ -316,6 +308,15 @@ class SimService:
                         os.close(fd)
                 except OSError:
                     pass
+
+        # Path 2 (fallback): our own subprocess pipe, if we launched the sim.
+        if self.process and self.process.stdin:
+            try:
+                self.process.stdin.write(cmd + "\n")
+                self.process.stdin.flush()
+                return True
+            except Exception:
+                pass
         return False
 
     @staticmethod
