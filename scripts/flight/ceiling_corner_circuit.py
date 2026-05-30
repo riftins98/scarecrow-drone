@@ -27,8 +27,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, REPO_ROOT)
 
 from scarecrow.controllers.distance_stabilizer import DistanceStabilizerController, DistanceTargets
+from scarecrow.controllers.front_wall_detector import FrontWallDetector
 from scarecrow.controllers.rotation import rotate_90
-from scarecrow.controllers.wall_follow import VelocityCommand
+from scarecrow.controllers.wall_follow import VelocityCommand, WallFollowController
 from scarecrow.detection.yolo import YoloDetector
 from scarecrow.drone import Drone
 from scarecrow.sensors.camera.gazebo import GazeboCamera
@@ -196,8 +197,8 @@ async def _rotate_to_face(drone: Drone, lidar: GazeboLidar, direction: str) -> b
 
 
 async def _stabilize_corner(drone: Drone, lidar: GazeboLidar, timeout_s: float) -> bool:
-    """Move until front and right distances match the target."""
-    targets = DistanceTargets(front=WALL_DISTANCE, right=WALL_DISTANCE)
+    """Move until front and left distances match the target."""
+    targets = DistanceTargets(front=WALL_DISTANCE, left=WALL_DISTANCE)
     stabilizer = DistanceStabilizerController(
         targets=targets,
         max_forward_speed=0.30,
@@ -251,7 +252,15 @@ async def _run_leg(drone: Drone, lidar: GazeboLidar, leg_idx: int) -> bool:
     """Run one wall-facing circuit leg."""
     step = 0
     start = time.time()
-    right_confirm = 0
+    controller = WallFollowController(
+        side="left",
+        target_distance=WALL_DISTANCE,
+        forward_speed=MAX_FORWARD,
+        front_stop_distance=WALL_DISTANCE,
+        max_lateral_speed=0.3,
+        min_safe_distance=MIN_FRONT_DISTANCE,
+    )
+    front_detector = FrontWallDetector(stop_distance_m=WALL_DISTANCE)
 
     while time.time() - start < LEG_TIMEOUT_S:
         scan = lidar.get_scan()
@@ -260,41 +269,26 @@ async def _run_leg(drone: Drone, lidar: GazeboLidar, leg_idx: int) -> bool:
             await asyncio.sleep(0.05)
             continue
 
+        left_dist = scan.left_distance()
         front_dist = scan.front_distance()
-        right_dist = scan.right_distance()
-
-        if front_dist <= MIN_FRONT_DISTANCE:
-            await drone.set_velocity(VelocityCommand())
-            return False
-
-        if right_dist <= WALL_DISTANCE + RIGHT_STOP_TOL:
-            right_confirm += 1
-        else:
-            right_confirm = 0
-
-        if right_confirm >= RIGHT_STOP_CONFIRM:
-            await drone.set_velocity(VelocityCommand())
-            return True
-
-        forward = _clamp((front_dist - WALL_DISTANCE) * FRONT_KP, -MAX_FORWARD, MAX_FORWARD)
-        tilt = scan.get_front_wall_tilt()
-        yaw_speed = 0.0
-        if tilt is not None:
-            yaw_speed = _clamp(-math.degrees(tilt) * YAW_KP, -MAX_YAW_SPEED, MAX_YAW_SPEED)
-
-        cmd = VelocityCommand(
-            forward_m_s=forward,
-            right_m_s=LATERAL_SPEED,
-            down_m_s=0.0,
-            yawspeed_deg_s=yaw_speed,
+        front_state = front_detector.update(scan)
+        cmd = controller.update(
+            left_dist,
+            front_state.robust_front_m,
+            front_wall_confirmed=front_state.front_wall_visible,
+            front_stop_reached=front_state.stop_confirmed,
         )
         await drone.set_velocity(cmd)
+
+        if controller.done:
+            await drone.set_velocity(VelocityCommand())
+            return True
 
         if step % 20 == 0:
             elapsed = time.time() - start
             print(
                 f"  [leg {leg_idx}] {elapsed:5.1f}s front={front_dist:.2f}m "
-                f"right={right_dist:.2f}m fwd={forward:+.2f} yaw={yaw_speed:+.1f}"
+                f"left={left_dist:.2f}m fwd={cmd.forward_m_s:+.2f} yaw={cmd.yawspeed_deg_s:+.1f}"
             )
 
         step += 1
@@ -323,6 +317,7 @@ async def run() -> None:
         model_path=YOLO_MODEL_PATH,
         output_dir=output_dir,
         confidence=YOLO_CONFIDENCE,
+        min_interval=1.0,
     )
     yolo_thread = detector.preload_async()
     gz_thread, gz_result = prefetch_gz_env_async()

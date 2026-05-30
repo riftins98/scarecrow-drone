@@ -213,11 +213,11 @@
     </light>
 
     <!-- Keep target and observer cameras aligned to hangar_1 spawn line (y=-4.5) -->
-    <!-- <include>
+    <include>
       <uri>model://pigeon_3d</uri>
       <name>pigeon_1</name>
       <pose>10 -5.5 2.5 0 0 0</pose>
-    </include> -->
+    </include>
 
     <include>
       <uri>model://mono_cam_hd</uri>
@@ -226,12 +226,12 @@
       <static>true</static>
     </include>
 
-    <include>
+    <!-- <include>
       <uri>model://mono_cam_hd</uri>
       <name>center_cam</name>
       <pose>6 -3.5 7.7 0 1.5708 0</pose>
       <static>true</static>
-    </include>
+    </include> -->
 
     <include>
       <uri>model://holybro_x500</uri>
