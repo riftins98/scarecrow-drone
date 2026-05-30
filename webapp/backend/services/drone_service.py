@@ -51,33 +51,46 @@ class DroneService:
         self.detection_service.stop()
         return True
 
-    def force_disarm(self, timeout: float = 6.0) -> bool:
-        """Best-effort force-disarm for a panic reset: connect to the SITL
-        MAVSDK endpoint and issue ``action.kill()`` so the motors stop and the
-        autopilot won't fly back up after we teleport it to the ground.
+    def force_disarm(self, timeout: float = 10.0) -> bool:
+        """Best-effort force-stop for a panic reset: connect to PX4 and put it
+        in a state where it won't fly the drone after we teleport it.
 
-        Runs the async MAVSDK calls on a private event loop in this thread, so
-        it's safe to call from a sync FastAPI handler. Returns True if the kill
-        command was acknowledged; False on any failure (the caller still
-        proceeds with the teleport — disarm is best-effort)."""
+        Connects on udpin://:14540 — the same stream the flight scripts use.
+        PX4 keeps broadcasting to 14540 even after the script that was listening
+        there dies, so a fresh listener reconnects. We first switch to Hold so
+        the vehicle exits offboard (otherwise it keeps chasing its last
+        setpoint), then kill the motors so it can't fly back up.
+
+        Runs the async MAVSDK calls on a private event loop, so it's safe to
+        call from a sync FastAPI handler. Returns True if at least the kill was
+        acknowledged; False on any failure (the caller still proceeds with the
+        teleport — disarm is best-effort)."""
         import asyncio
 
-        async def _kill() -> bool:
+        async def _stop() -> bool:
             try:
                 from mavsdk import System
             except ImportError:
                 return False
-            system = System()
-            # Same endpoint the flight scripts use (honors the optional
-            # externally-launched mavsdk_server env vars).
-            await system.connect(system_address="udp://:14540")
-            # Wait briefly for a connection before commanding.
+            # Bind the embedded mavsdk_server to a non-default port so it never
+            # collides with one a flight script may still be tearing down.
+            system = System(port=50061)
+            # Listen on the SDK stream PX4 broadcasts to (same as the scripts).
+            await system.connect(system_address="udpin://:14540")
             try:
                 async for state in system.core.connection_state():
                     if state.is_connected:
                         break
             except Exception:
                 return False
+
+            # 1. Exit offboard: command Hold so PX4 stops chasing setpoints.
+            try:
+                await system.action.hold()
+            except Exception:
+                pass  # not fatal; the kill below is what guarantees motors off
+
+            # 2. Force motors off. Try kill (instant), fall back to disarm.
             try:
                 await system.action.kill()
                 return True
@@ -91,7 +104,7 @@ class DroneService:
         try:
             loop = asyncio.new_event_loop()
             try:
-                return loop.run_until_complete(asyncio.wait_for(_kill(), timeout))
+                return loop.run_until_complete(asyncio.wait_for(_stop(), timeout))
             finally:
                 loop.close()
         except Exception:

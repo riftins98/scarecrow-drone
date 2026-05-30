@@ -420,17 +420,36 @@ class DetectionService:
         subprocess immediately so it stops commanding the drone — the caller is
         about to teleport / disarm and doesn't want the script fighting it.
 
+        Also clears the per-flight state (flight_id, telemetry, counters, log)
+        so the app returns to a clean pre-flight condition and a new flight can
+        be started right away.
+
         Returns True if a process was running and got killed."""
         self.running = False
         proc = self.process
-        if proc is None:
-            return False
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        had_proc = proc is not None
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
         self.process = None
-        return True
+
+        # Wipe flight state so the UI no longer shows a stale flight and
+        # start() isn't confused by leftover ids/telemetry.
+        self.flight_id = None
+        self.current_script = None
+        self.current_script_args = {}
+        self.latest_telemetry = {}
+        self.pigeons_detected = 0
+        self.frames_processed = 0
+        self.detection_images = []
+        self.video_path = None
+        with self._output_lock:
+            self._output_lines = []
+            self._output_offset = 0
+
+        return had_proc
 
     @property
     def status(self) -> dict:
