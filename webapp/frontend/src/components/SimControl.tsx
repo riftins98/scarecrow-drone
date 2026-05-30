@@ -55,10 +55,6 @@ export default function SimControl({
   const [selectedScript, setSelectedScript] = useState<string>(DEFAULT_SCRIPT);
   const [scriptArgValues, setScriptArgValues] = useState<ScriptArgValues>({});
 
-  // Post-connect re-spawn state.
-  const [respawning, setRespawning] = useState<boolean>(false);
-  const [respawnMsg, setRespawnMsg] = useState<string | null>(null);
-
   // Panic reset state.
   const [resetting, setResetting] = useState<boolean>(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
@@ -120,15 +116,6 @@ export default function SimControl({
     // the available-set changes (world swap), not on every user click.
   }, [selectedWorld, options]);
 
-  // Seed the spawn marker from the live session spawn once connected, so the
-  // post-connect picker shows where the drone currently is (until the user
-  // picks somewhere else).
-  useEffect(() => {
-    if (connected && spawn === null && simStatus?.spawn) {
-      setSpawn({ x: simStatus.spawn.x, y: simStatus.spawn.y });
-    }
-  }, [connected, simStatus, spawn]);
-
   // When the selected script changes, reset arg values to that script's defaults
   // (so the form fields reflect the new arg set, not stale values from another script).
   useEffect(() => {
@@ -177,23 +164,6 @@ export default function SimControl({
       params.spawn = spawn;
     }
     onConnect(params);
-  };
-
-  const handleRespawn = async () => {
-    if (!spawn || respawning) return;
-    setRespawnMsg(null);
-    setRespawning(true);
-    try {
-      const res = await api.setSpawn(spawn.x, spawn.y);
-      setRespawnMsg(res.success
-        ? `Drone moved to X ${spawn.x.toFixed(1)} Y ${spawn.y.toFixed(1)}.`
-        : `Re-spawn failed: ${res.error || 'unknown error'}`);
-    } catch (e) {
-      setRespawnMsg(`Re-spawn failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setRespawning(false);
-      window.setTimeout(() => setRespawnMsg(null), 5000);
-    }
   };
 
   const handleStart = () => {
@@ -411,32 +381,6 @@ export default function SimControl({
                 ))}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Re-spawn: move the drone to a new start location without relaunching.
-          Hidden while flying (don't teleport a flight in progress). Also updates
-          where the panic RESET returns to. */}
-      {spawnSupported && spawnBounds && !flying && (
-        <div className="respawn-panel">
-          <div className="form-label">Re-spawn location</div>
-          <SpawnPicker
-            bounds={spawnBounds}
-            obstacles={options?.spawnObstacles}
-            obstacleMargin={options?.spawnObstacleMargin}
-            value={spawn}
-            onChange={setSpawn}
-            disabled={respawning}
-          />
-          <button
-            className="btn btn-respawn"
-            onClick={handleRespawn}
-            disabled={!spawn || respawning}
-            title="Teleport the drone to the selected spot (also where RESET returns to)."
-          >
-            {respawning ? 'MOVING…' : 'Move Drone Here'}
-          </button>
-          {respawnMsg && <div className="panic-msg">{respawnMsg}</div>}
         </div>
       )}
 

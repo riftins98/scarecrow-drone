@@ -143,6 +143,17 @@ async def reset_drone():
 
 @router.get("/status")
 async def sim_status():
+    # The live drone pose is a BLOCKING subprocess call (two `gz` invocations,
+    # up to 5s each). Running it directly in this async route would block the
+    # whole event loop and stall every other request — that's what was starving
+    # POST /api/flight/start. Offload it to a thread so the loop stays free.
+    import asyncio
+    drone_pose = None
+    if sim_service.is_connected:
+        try:
+            drone_pose = await asyncio.to_thread(sim_service.drone_pose)
+        except Exception:
+            drone_pose = None
     return {
         "connected": sim_service.is_connected,
         "launching": sim_service.launching,
@@ -155,7 +166,7 @@ async def sim_status():
         "spawn": sim_service.spawn,
         # Live drone world pose for the map (None if unavailable -> map falls
         # back to the spawn point). Only queried while connected.
-        "dronePose": sim_service.drone_pose() if sim_service.is_connected else None,
+        "dronePose": drone_pose,
     }
 
 

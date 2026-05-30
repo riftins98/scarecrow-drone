@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import SimControl from '../components/SimControl';
 import FlightHistory from '../components/FlightHistory';
 import FlightModal from '../components/FlightModal';
@@ -6,6 +6,7 @@ import HudHeader from '../components/HudHeader';
 import Sidebar from '../components/Sidebar';
 import TelemetryRail from '../components/TelemetryRail';
 import Minimap from '../components/Minimap';
+import RespawnPanel from '../components/RespawnPanel';
 import CameraStream from '../components/CameraStream';
 import SystemLog from '../components/SystemLog';
 import Ticker from '../components/Ticker';
@@ -38,12 +39,17 @@ export default function Dashboard() {
   // On transient fetch errors, keep the last good state instead of nuking it
   // back to "Offline" — that previously bounced users to the pre-connect form
   // mid-launch on a single hiccup.
+  // While a disconnect is in flight, freeze the status poller so a stale
+  // snapshot captured *before* the DELETE can't bounce the UI back to
+  // "connected" right after the user clicks Disconnect.
+  const disconnectingRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     const fetchOnce = async () => {
+      if (disconnectingRef.current) return; // suppressed during disconnect
       try {
         const status = await api.getSimStatus();
-        if (!cancelled) setSimStatus(status);
+        if (!cancelled && !disconnectingRef.current) setSimStatus(status);
       } catch {
         // ignore — keep last known state
       }
@@ -107,21 +113,32 @@ export default function Dashboard() {
   }, [isConnecting, simStatus?.launching, simStatus?.connected]);
 
   const handleDisconnect = useCallback(async () => {
+    // Freeze the status poller so an in-flight (pre-DELETE) status snapshot
+    // can't flip the UI back to "connected" after we tear down.
+    disconnectingRef.current = true;
+    const offline = {
+      connected: false,
+      launching: false,
+      log: [],
+      progress: { steps: [] },
+      world: '',
+      headless: false,
+      camera: null,
+      streamUrl: null,
+    };
     try {
       await api.disconnectSim();
-      setSimStatus({
-        connected: false,
-        launching: false,
-        log: [],
-        progress: { steps: [] },
-        world: '',
-        headless: false,
-        camera: null,
-        streamUrl: null,
-      });
+      setSimStatus(offline);
       setFlightStatus(null);
     } catch (e: any) {
       setError(e.message);
+      // Even if the request errored, reflect the user's intent locally so the
+      // button doesn't appear dead; the next poll will reconcile.
+      setSimStatus(offline);
+    } finally {
+      // Let the DELETE settle on the backend, then re-enable polling. A short
+      // delay covers any status request that was already in flight.
+      window.setTimeout(() => { disconnectingRef.current = false; }, 1500);
     }
   }, []);
 
@@ -166,6 +183,13 @@ export default function Dashboard() {
   const connected = !!simStatus?.connected;
   const launching = !!simStatus?.launching;
   const flying = !!flightStatus?.isFlying;
+  // The Re-spawn card only shows for the garage world (the world the backend
+  // reports spawn bounds for), while connected and on the ground. Drive the
+  // grid column off the SAME condition so we don't reserve an empty column.
+  const respawnVisible =
+    connected && !flying &&
+    !!simOptions?.spawnBounds &&
+    simStatus?.world === simOptions?.spawnWorld;
 
   return (
     <div className="dashboard">
@@ -196,7 +220,14 @@ export default function Dashboard() {
 
           {activeTab === 'control' && (
             <>
-              <div className="control-grid">
+              <div className={`control-grid ${respawnVisible ? 'with-respawn' : ''}`}>
+                {respawnVisible && (
+                  <RespawnPanel
+                    simStatus={simStatus}
+                    flightStatus={flightStatus}
+                    options={simOptions}
+                  />
+                )}
                 <SimControl
                   simStatus={simStatus}
                   flightStatus={flightStatus}

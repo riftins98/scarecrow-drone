@@ -116,22 +116,27 @@ export default function SpawnPicker({
           strokeDasharray="3 2"
         />
 
-        {/* Parked aircraft: faint clearance halo (the actual no-spawn zone)
-            with an airplane silhouette on top so it reads as a plane. */}
+        {/* Parked aircraft: the full footprint+margin rectangle is the real
+            no-spawn zone, so paint it solid red + hatched (clearly off-limits),
+            then draw the airplane silhouette on top so it still reads as a plane
+            parked inside that blocked box. */}
         {obstacles.map((o, i) => (
           <g key={i}>
             <polygon
               points={clearancePolygon(o)}
-              fill="rgba(160,90,90,0.10)"
-              stroke="rgba(160,90,90,0.35)"
-              strokeWidth="0.75"
-              strokeDasharray="2 2"
+              fill="rgba(160,90,90,0.22)"
+              stroke="#c97a7a"
+              strokeWidth="1"
+            />
+            <polygon
+              points={clearancePolygon(o)}
+              fill="url(#sp-hatch)"
             />
             <path
               d={airplanePath(o)}
-              fill="rgba(160,90,90,0.5)"
-              stroke="#c97a7a"
-              strokeWidth="0.8"
+              fill="rgba(90,40,40,0.65)"
+              stroke="#e0a0a0"
+              strokeWidth="0.9"
               strokeLinejoin="round"
             />
           </g>

@@ -144,6 +144,11 @@ class SimService:
         # Set at launch (from the user's pick or the default) and read by the
         # panic-reset teleport so reset returns to wherever the drone started.
         self._spawn_pose: str = DEFAULT_SPAWN_POSE
+        # Cached drone model name (e.g. "holybro_x500_0"). The model name never
+        # changes during a session, so we resolve it once and reuse it — this
+        # avoids a `gz model --list` subprocess on every single pose query.
+        # Cleared on stop() so the next session re-discovers it.
+        self._drone_model: Optional[str] = None
 
     # Camera names we'll pass through to launch_with_stream.sh as ``--<name>``
     # flags. Anything not in this allowlist is silently rejected to keep
@@ -528,6 +533,7 @@ class SimService:
         self._step_substatus = {}
         self._stream_url = None
         self._camera = None
+        self._drone_model = None  # re-discover for the next session
         if self.process:
             try:
                 self.process.kill()
@@ -554,7 +560,13 @@ class SimService:
     def _discover_drone_model(self) -> Optional[str]:
         """Find the running drone model's full Gazebo name (e.g.
         ``holybro_x500_0``) by listing models in the current world. Returns
-        None if Gazebo isn't reachable or no matching model is found."""
+        None if Gazebo isn't reachable or no matching model is found.
+
+        The result is cached for the session (the model name doesn't change),
+        so repeated callers (the live-pose poll) don't keep spawning a
+        ``gz model --list`` subprocess. Cleared on stop()."""
+        if self._drone_model:
+            return self._drone_model
         try:
             result = subprocess.run(
                 ["gz", "model", "--list"],
@@ -566,6 +578,7 @@ class SimService:
         for raw in result.stdout.splitlines():
             name = raw.strip().lstrip("- ").strip()
             if name.startswith(DRONE_MODEL_PREFIX):
+                self._drone_model = name
                 return name
         return None
 
