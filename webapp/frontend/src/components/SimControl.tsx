@@ -251,7 +251,26 @@ export default function SimControl({
                 </div>
               )}
 
-              <div className="sim-config-form">
+              <div className={`sim-config-layout ${spawnSupported ? 'with-spawn' : ''}`}>
+                {spawnSupported && spawnBounds && (
+                  <div className="sim-config-spawn">
+                    <span className="form-label">Spawn location</span>
+                    <SpawnPicker
+                      bounds={spawnBounds}
+                      obstacles={options?.spawnObstacles}
+                      obstacleMargin={options?.spawnObstacleMargin}
+                      value={spawn}
+                      onChange={setSpawn}
+                      disabled={isConnecting}
+                    />
+                    <span className="form-hint">
+                      Click to choose where the drone starts (clear of walls and
+                      the parked aircraft). Leave unset for the default position.
+                    </span>
+                  </div>
+                )}
+
+                <div className="sim-config-form">
                 <label className="form-row">
                   <span className="form-label">World</span>
                   <select
@@ -310,23 +329,7 @@ export default function SimControl({
                   </label>
                 )}
 
-                {spawnSupported && spawnBounds && (
-                  <div className="form-row form-row-stacked">
-                    <span className="form-label">Spawn location</span>
-                    <SpawnPicker
-                      bounds={spawnBounds}
-                      obstacles={options?.spawnObstacles}
-                      obstacleMargin={options?.spawnObstacleMargin}
-                      value={spawn}
-                      onChange={setSpawn}
-                      disabled={isConnecting}
-                    />
-                    <span className="form-hint">
-                      Click to choose where the drone starts (must stay ≥3m from
-                      every wall). Leave unset for the default position.
-                    </span>
-                  </div>
-                )}
+                </div>
               </div>
 
               <div className="control-buttons">

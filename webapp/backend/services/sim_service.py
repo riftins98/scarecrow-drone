@@ -569,6 +569,43 @@ class SimService:
                 return name
         return None
 
+    def drone_pose(self) -> Optional[dict]:
+        """Query the drone model's live world pose from Gazebo for the map.
+        Returns ``{"x": float, "y": float, "heading": float_deg}`` or None if
+        Gazebo isn't reachable / the model isn't found / the output can't be
+        parsed. Best-effort: callers fall back to the spawn point.
+
+        ``gz model -m <name> -p`` prints the pose as two bracketed triples:
+        position [x y z] then orientation [roll pitch yaw] (radians). We pull
+        the first two bracketed groups of numbers and take x, y, and yaw.
+        """
+        if not self.is_connected:
+            return None
+        model = self._discover_drone_model()
+        if not model:
+            return None
+        try:
+            result = subprocess.run(
+                ["gz", "model", "-m", model, "-p"],
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, "GZ_PARTITION": os.environ.get("GZ_PARTITION", "px4")},
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+
+        # Find bracketed numeric triples like "[5.00 -4.50 0.20]".
+        groups = re.findall(r"\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\]",
+                            result.stdout)
+        if len(groups) < 2:
+            return None
+        try:
+            x, y, _z = (float(v) for v in groups[0])
+            _roll, _pitch, yaw = (float(v) for v in groups[1])
+        except ValueError:
+            return None
+        return {"x": round(x, 2), "y": round(y, 2),
+                "heading": round(math.degrees(yaw), 1)}
+
     def _teleport_to(self, pose_str: str) -> dict:
         """Teleport the drone model to ``pose_str`` ("x,y,z,roll,pitch,yaw")
         via the world's ``set_pose`` service. Shared by the panic reset and the

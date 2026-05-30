@@ -208,7 +208,11 @@ export default function Dashboard() {
                   flightStartTime={flightStartTime}
                 />
                 <div className="control-side-stack">
-                  <Minimap active={connected} />
+                  <Minimap
+                    simStatus={simStatus}
+                    flightStatus={flightStatus}
+                    options={simOptions}
+                  />
                   {simStatus?.headless && (
                     <CameraStream
                       streamUrl={simStatus.streamUrl}

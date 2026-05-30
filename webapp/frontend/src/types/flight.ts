@@ -54,6 +54,8 @@ export interface SimStatus {
   streamUrl: string | null;
   /** Current session spawn point (meters). */
   spawn?: SpawnPoint;
+  /** Live drone world pose for the map; null when unavailable. */
+  dronePose?: { x: number; y: number; heading: number } | null;
 }
 
 export interface FlightStatus {

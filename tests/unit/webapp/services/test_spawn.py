@@ -136,3 +136,36 @@ class TestSpawnProperty:
         svc = SimService()
         svc._spawn_pose = "1.5,-2.5,0,0,0,0"
         assert svc.spawn == {"x": 1.5, "y": -2.5}
+
+
+class TestDronePose:
+    SAMPLE = (
+        "Name: holybro_x500_0\n"
+        "  - Pose [ XYZ (m) ] [ RPY (rad) ]:\n"
+        "  - [5.00 -4.50 0.20]\n"
+        "  - [0.00 0.00 1.5708]\n"
+    )
+
+    def test_parses_xy_and_heading(self):
+        from unittest.mock import MagicMock
+        svc = SimService()
+        with patch.object(SimService, "is_connected", True), \
+             patch.object(SimService, "_discover_drone_model", return_value="holybro_x500_0"), \
+             patch("services.sim_service.subprocess.run",
+                   return_value=MagicMock(stdout=self.SAMPLE)):
+            pose = svc.drone_pose()
+            assert pose == {"x": 5.0, "y": -4.5, "heading": 90.0}
+
+    def test_none_when_unparseable(self):
+        from unittest.mock import MagicMock
+        svc = SimService()
+        with patch.object(SimService, "is_connected", True), \
+             patch.object(SimService, "_discover_drone_model", return_value="holybro_x500_0"), \
+             patch("services.sim_service.subprocess.run",
+                   return_value=MagicMock(stdout="no pose here")):
+            assert svc.drone_pose() is None
+
+    def test_none_when_not_connected(self):
+        svc = SimService()
+        with patch.object(SimService, "is_connected", False):
+            assert svc.drone_pose() is None

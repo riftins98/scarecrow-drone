@@ -153,6 +153,9 @@ async def sim_status():
         "camera": sim_service.camera,
         "streamUrl": sim_service.stream_url,
         "spawn": sim_service.spawn,
+        # Live drone world pose for the map (None if unavailable -> map falls
+        # back to the spawn point). Only queried while connected.
+        "dronePose": sim_service.drone_pose() if sim_service.is_connected else None,
     }
 
 

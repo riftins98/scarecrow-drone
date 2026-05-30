@@ -1,5 +1,9 @@
 import React, { useRef } from 'react';
 import { SpawnBounds, SpawnObstacle, SpawnPoint } from '../types/flight';
+import {
+  ROOM_X, ROOM_Y, PAD, VIEW_W, VIEW_H,
+  worldToSvg, svgToWorld, clamp, inObstacle, airplanePath,
+} from './garageMap';
 
 interface Props {
   /** Valid interior rectangle (meters). */
@@ -14,50 +18,6 @@ interface Props {
   onChange: (p: SpawnPoint) => void;
   /** Disable interaction (e.g. while connecting / flying). */
   disabled?: boolean;
-}
-
-/** Is (x, y) inside an aircraft's rotated footprint, expanded by margin?
- *  Mirrors the backend's _in_obstacle so the UI blocks exactly what the API
- *  would reject. */
-function inObstacle(x: number, y: number, o: SpawnObstacle, margin: number): boolean {
-  const dx = x - o.cx;
-  const dy = y - o.cy;
-  const c = Math.cos(-o.yaw);
-  const s = Math.sin(-o.yaw);
-  const lx = dx * c - dy * s;
-  const ly = dx * s + dy * c;
-  return Math.abs(lx) <= o.halfW + margin && Math.abs(ly) <= o.halfL + margin;
-}
-
-// Full room (garage) in meters: 24m (x) by 15m (y), centered on the origin,
-// walls at x=+-12 / y=+-7.5. We render it top-down with +x pointing UP (north
-// at the top), to match the drone's default "facing north" heading.
-const ROOM_X = 12;   // half-extent along x (north/south), meters
-const ROOM_Y = 7.5;  // half-extent along y (east/west), meters
-const PAD = 10;      // SVG padding around the room, in SVG units
-const SCALE = 14;    // SVG units per meter (room ~ 210 x 336 + padding... see below)
-
-// SVG canvas size derived from the room + padding. World y maps to SVG x
-// (horizontal), world x maps to SVG y (vertical, inverted so +x is up).
-const VIEW_W = ROOM_Y * 2 * SCALE + PAD * 2;
-const VIEW_H = ROOM_X * 2 * SCALE + PAD * 2;
-
-/** World (x,y) meters -> SVG (sx, sy). +x up (north top), +y right. */
-function worldToSvg(x: number, y: number): { sx: number; sy: number } {
-  const sx = PAD + (y + ROOM_Y) * SCALE;
-  const sy = PAD + (ROOM_X - x) * SCALE; // invert x so +x is at the top
-  return { sx, sy };
-}
-
-/** SVG (sx, sy) -> world (x,y) meters (inverse of worldToSvg). */
-function svgToWorld(sx: number, sy: number): SpawnPoint {
-  const y = (sx - PAD) / SCALE - ROOM_Y;
-  const x = ROOM_X - (sy - PAD) / SCALE;
-  return { x, y };
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }
 
 /**
@@ -95,22 +55,17 @@ export default function SpawnPicker({
     onChange({ x, y });
   };
 
-  // Build an SVG polygon for a rotated aircraft footprint (+margin) so we can
-  // draw the no-spawn zone exactly where clicks are blocked.
-  const obstaclePolygon = (o: SpawnObstacle): string => {
+  // Clearance halo: the rotated footprint expanded by the margin, drawn faintly
+  // so the actual no-spawn zone (which the click check uses) is visible behind
+  // the airplane silhouette.
+  const clearancePolygon = (o: SpawnObstacle): string => {
     const hw = o.halfW + obstacleMargin;
     const hl = o.halfL + obstacleMargin;
     const c = Math.cos(o.yaw);
     const s = Math.sin(o.yaw);
-    // Local corners (lx, ly) -> world -> SVG.
-    const corners: Array<[number, number]> = [
-      [-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl],
-    ];
-    return corners
+    return ([[-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl]] as Array<[number, number]>)
       .map(([lx, ly]) => {
-        const wx = o.cx + lx * c - ly * s;
-        const wy = o.cy + lx * s + ly * c;
-        const p = worldToSvg(wx, wy);
+        const p = worldToSvg(o.cx + lx * c - ly * s, o.cy + lx * s + ly * c);
         return `${p.sx},${p.sy}`;
       })
       .join(' ');
@@ -161,15 +116,25 @@ export default function SpawnPicker({
           strokeDasharray="3 2"
         />
 
-        {/* Parked-aircraft no-spawn footprints (rotated rectangles, red). */}
+        {/* Parked aircraft: faint clearance halo (the actual no-spawn zone)
+            with an airplane silhouette on top so it reads as a plane. */}
         {obstacles.map((o, i) => (
-          <polygon
-            key={i}
-            points={obstaclePolygon(o)}
-            fill="rgba(160,90,90,0.22)"
-            stroke="#a05a5a"
-            strokeWidth="1"
-          />
+          <g key={i}>
+            <polygon
+              points={clearancePolygon(o)}
+              fill="rgba(160,90,90,0.10)"
+              stroke="rgba(160,90,90,0.35)"
+              strokeWidth="0.75"
+              strokeDasharray="2 2"
+            />
+            <path
+              d={airplanePath(o)}
+              fill="rgba(160,90,90,0.5)"
+              stroke="#c97a7a"
+              strokeWidth="0.8"
+              strokeLinejoin="round"
+            />
+          </g>
         ))}
 
         {/* North indicator (top = +x, the drone's facing). */}

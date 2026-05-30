@@ -882,11 +882,43 @@ body {
 }
 
 /* --- Sim configuration form (pre-connect) --- */
+/* Pre-connect: spawn map (left) beside the config form (right). */
+.sim-config-layout {
+  margin: 18px 0 22px;
+}
+.sim-config-layout.with-spawn {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.sim-config-spawn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sim-config-spawn .form-label {
+  font-size: 0.85em;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.sim-config-spawn .form-hint {
+  font-size: 0.76em;
+  color: #808080;
+  font-style: italic;
+}
+/* Stack to one column on narrow panels. */
+@media (max-width: 720px) {
+  .sim-config-layout.with-spawn {
+    grid-template-columns: 1fr;
+  }
+}
+
 .sim-config-form {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin: 18px 0 22px;
 }
 .sim-config-form .form-row {
   display: flex;
@@ -2535,6 +2567,16 @@ body {
   letter-spacing: 3px;
   font-weight: 700;
   text-shadow: 0 0 6px rgba(139,154,91,0.3);
+}
+.minimap-live {
+  font-size: 0.62rem;
+  letter-spacing: 2px;
+  color: #707070;
+  font-family: 'Courier New', monospace;
+}
+.minimap-live.live {
+  color: #b6c57a;
+  text-shadow: 0 0 6px rgba(139,154,91,0.4);
 }
 .minimap-tag {
   color: #909090;
