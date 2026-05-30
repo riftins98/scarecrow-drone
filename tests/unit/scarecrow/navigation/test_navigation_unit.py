@@ -63,6 +63,151 @@ async def test_wall_follow_times_out_when_no_stop(mock_lidar_scan):
     assert result is False
 
 
+async def test_wall_follow_until_interrupts_on_stop_condition(mock_lidar_scan):
+    drone = _make_drone()
+    scan = mock_lidar_scan(front=10.0, left=2.0)
+    lidar = _make_lidar_source(scan)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    calls = 0
+
+    def stop_condition():
+        nonlocal calls
+        calls += 1
+        return calls >= 2
+
+    result = await nav.wall_follow_until(
+        side="left",
+        target_distance=2.0,
+        front_stop_distance=2.0,
+        timeout=1.0,
+        stop_condition=stop_condition,
+    )
+
+    assert result.done
+    assert result.reason == "interrupted"
+    assert drone.set_velocity.await_count >= 2
+
+
+async def test_wall_follow_until_reports_front_wall(mock_lidar_scan):
+    drone = _make_drone()
+    scan = mock_lidar_scan(front=1.0, left=2.0)
+    lidar = _make_lidar_source(scan)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = await nav.wall_follow_until(
+        side="left",
+        target_distance=2.0,
+        front_stop_distance=2.0,
+        timeout=1.0,
+    )
+
+    assert result.done
+    assert result.reason == "front_wall"
+    assert result.front_distance_m is not None
+
+
+async def test_wall_follow_until_reports_timeout(mock_lidar_scan):
+    drone = _make_drone()
+    scan = mock_lidar_scan(front=10.0, left=2.0)
+    lidar = _make_lidar_source(scan)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = await nav.wall_follow_until(
+        side="left",
+        target_distance=2.0,
+        front_stop_distance=2.0,
+        timeout=0.0,
+    )
+
+    assert not result.done
+    assert result.reason == "timeout"
+
+
+async def test_hover_sends_zero_velocity():
+    drone = _make_drone()
+    lidar = _make_lidar_source(None)
+
+    from scarecrow.controllers.wall_follow import VelocityCommand
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    await nav.hover(0.0)
+
+    drone.set_velocity.assert_awaited()
+    cmd = drone.set_velocity.await_args.args[0]
+    assert isinstance(cmd, VelocityCommand)
+    assert cmd.is_zero
+
+
+class _Rangefinder:
+    def __init__(self, readings):
+        self.readings = list(readings)
+
+    def get_distance_m(self):
+        if len(self.readings) > 1:
+            return self.readings.pop(0)
+        if self.readings:
+            return self.readings[0]
+        return None
+
+
+def test_check_ceiling_clearance_returns_safe():
+    drone = _make_drone()
+    lidar = _make_lidar_source(None)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = nav.check_ceiling_clearance(
+        _Rangefinder([2.0]),
+        min_clearance_m=1.5,
+    )
+
+    assert result.done
+    assert result.reason == "safe"
+    assert result.clearance_m == 2.0
+
+
+def test_check_ceiling_clearance_reports_safety_stop():
+    drone = _make_drone()
+    lidar = _make_lidar_source(None)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = nav.check_ceiling_clearance(
+        _Rangefinder([1.0]),
+        min_clearance_m=1.5,
+    )
+
+    assert not result.done
+    assert result.reason == "ceiling_safety"
+    assert result.clearance_m == 1.0
+
+
+def test_check_ceiling_clearance_reports_missing_data():
+    drone = _make_drone()
+    lidar = _make_lidar_source(None)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = nav.check_ceiling_clearance(
+        _Rangefinder([]),
+        min_clearance_m=1.5,
+    )
+
+    assert not result.done
+    assert result.reason == "no_data"
+
+
 async def test_stabilize_delegates(mock_lidar_scan):
     drone = _make_drone()
     lidar = _make_lidar_source(mock_lidar_scan(front=5.0))
