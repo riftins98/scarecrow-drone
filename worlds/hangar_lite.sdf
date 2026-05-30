@@ -233,6 +233,12 @@
       <static>true</static>
     </include>
 
+    <include>
+      <uri>model://holybro_x500</uri>
+      <name>holybro_x500_0</name>
+      <pose>5 -4.5 0 0 0 0</pose>
+    </include>
+
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
       <latitude_deg>0</latitude_deg>
