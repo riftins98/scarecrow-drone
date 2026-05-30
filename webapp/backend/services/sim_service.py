@@ -281,13 +281,71 @@ class SimService:
                     print(f"  {line}", flush=True)
             self.launching = False
 
-    def _send_pxh_command(self, cmd: str):
+    def _send_pxh_command(self, cmd: str) -> bool:
+        """Send a command to PX4's pxh console. Returns True if it was written.
+
+        Two delivery paths, tried in order:
+        1. ``self.process.stdin`` — works when THIS backend launched the sim
+           (launch() wires the launcher's stdin to a PIPE).
+        2. The launcher's pxh FIFO on disk (``/tmp/scarecrow_pxh.*.fifo``) —
+           used when the sim was launched by an external process (e.g.
+           ``Start Scarecrow.bat``), so the backend has no process handle but
+           the FIFO still feeds PX4's stdin.
+        """
+        # Path 1: our own subprocess pipe.
         if self.process and self.process.stdin:
             try:
                 self.process.stdin.write(cmd + "\n")
                 self.process.stdin.flush()
+                return True
             except Exception:
                 pass
+
+        # Path 2: the launcher's pxh FIFO. Open non-blocking so we never hang
+        # if no reader is attached, then write the command line.
+        fifo = self._find_pxh_fifo()
+        if fifo:
+            try:
+                fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+                try:
+                    os.write(fd, (cmd + "\n").encode())
+                    return True
+                finally:
+                    os.close(fd)
+            except OSError:
+                pass
+        return False
+
+    @staticmethod
+    def _find_pxh_fifo() -> Optional[str]:
+        """Locate the launcher's pxh command FIFO (created as
+        ``/tmp/scarecrow_pxh.XXXXXX.fifo``). Returns the newest match, or None.
+        """
+        import glob
+        import stat
+        tmp = os.environ.get("TMPDIR", "/tmp")
+        candidates = glob.glob(os.path.join(tmp, "scarecrow_pxh.*.fifo"))
+        # Keep only actual FIFOs, newest first.
+        fifos = []
+        for p in candidates:
+            try:
+                if stat.S_ISFIFO(os.stat(p).st_mode):
+                    fifos.append((os.stat(p).st_mtime, p))
+            except OSError:
+                continue
+        if not fifos:
+            return None
+        fifos.sort(reverse=True)
+        return fifos[0][1]
+
+    def disarm_via_console(self) -> bool:
+        """Panic disarm using PX4's console (no MAVLink, no mavsdk_server, no
+        connection race). Exits offboard to Hold, then force-disarms. Instant
+        and robust — this is the mechanism the reset button relies on.
+        """
+        ok_hold = self._send_pxh_command("commander mode auto:hold")
+        ok_disarm = self._send_pxh_command("commander disarm -f")
+        return ok_hold or ok_disarm
 
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.

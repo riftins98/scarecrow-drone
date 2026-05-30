@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from dependencies import sim_service, detection_service, drone_service, flight_service
+from dependencies import sim_service, detection_service, flight_service
 from services.script_metadata import (
     list_flight_scripts,
     list_worlds,
@@ -90,8 +90,10 @@ async def reset_drone():
         flight_id = detection_service.flight_id
         killed = detection_service.kill()
 
-        # 2. Best-effort force-disarm + hold before we move the model.
-        disarmed = drone_service.force_disarm()
+        # 2. Disarm via PX4's console (commander disarm -f) — instant and
+        #    race-free, vs. opening a competing MAVLink connection. Exits
+        #    offboard to Hold first so PX4 stops chasing its last setpoint.
+        disarmed = sim_service.disarm_via_console()
 
         # 3. Teleport back to spawn.
         teleport = sim_service.reset_drone_pose()
