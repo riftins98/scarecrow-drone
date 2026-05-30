@@ -78,7 +78,8 @@ class DroneService:
 
         async def _stop() -> bool:
             # Listen on the SDK stream PX4 broadcasts to (same as the scripts).
-            await system.connect(system_address="udpin://:14540")
+            # MAVSDK requires an explicit interface (0.0.0.0 = all).
+            await system.connect(system_address="udpin://0.0.0.0:14540")
             try:
                 async for state in system.core.connection_state():
                     if state.is_connected:
