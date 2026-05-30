@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from dependencies import sim_service
+from dependencies import sim_service, detection_service, drone_service, flight_service
 from services.script_metadata import (
     list_flight_scripts,
     list_worlds,
@@ -63,6 +63,47 @@ async def switch_camera(req: CameraSwitchRequest):
     /api/sim/status reflect the new camera on the next poll.
     """
     return sim_service.switch_camera(req.camera)
+
+
+@router.post("/reset")
+async def reset_drone():
+    """Panic reset: stop everything and snap the drone back to its spawn pose.
+
+    Sequence (each step best-effort so a partial failure still resets the pose):
+      1. Hard-kill the running flight script (it stops commanding the drone).
+      2. Force-disarm via MAVSDK so the autopilot won't fly back up.
+      3. Teleport the Gazebo model back to the spawn pose.
+      4. Mark the in-progress flight aborted in the DB.
+
+    Returns {success, killedFlight, disarmed, teleport, error?}.
+    """
+    if not sim_service.is_connected:
+        return {"success": False, "error": "Simulation not running"}
+
+    # 1. Kill the flight script (if any) so it stops sending setpoints.
+    flight_id = detection_service.flight_id
+    killed = detection_service.kill()
+
+    # 2. Best-effort force-disarm before we move the model.
+    disarmed = drone_service.force_disarm()
+
+    # 3. Teleport back to spawn.
+    teleport = sim_service.reset_drone_pose()
+
+    # 4. Mark the flight aborted so history reflects the panic stop.
+    if flight_id:
+        try:
+            flight_service.abort_flight(flight_id)
+        except Exception:
+            pass
+
+    return {
+        "success": bool(teleport.get("success")),
+        "killedFlight": killed,
+        "disarmed": disarmed,
+        "teleport": teleport,
+        "error": teleport.get("error"),
+    }
 
 
 @router.get("/status")

@@ -36,3 +36,42 @@ def test_sim_disconnect(api_client):
         assert response.status_code == 200
         assert response.json()["success"] is True
         mock_stop.assert_called_once()
+
+
+def test_sim_reset_fails_when_not_connected(api_client):
+    response = api_client.post("/api/sim/reset")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "not running" in data["error"].lower()
+
+
+def test_sim_reset_orchestrates_kill_disarm_teleport(api_client):
+    with patch("services.sim_service.SimService.is_connected", True), \
+         patch("services.detection_service.DetectionService.kill", return_value=True) as mock_kill, \
+         patch("services.drone_service.DroneService.force_disarm", return_value=True) as mock_disarm, \
+         patch("services.sim_service.SimService.reset_drone_pose",
+               return_value={"success": True, "model": "holybro_x500_0"}) as mock_teleport:
+        response = api_client.post("/api/sim/reset")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["killedFlight"] is True
+        assert data["disarmed"] is True
+        assert data["teleport"]["model"] == "holybro_x500_0"
+        mock_kill.assert_called_once()
+        mock_disarm.assert_called_once()
+        mock_teleport.assert_called_once()
+
+
+def test_sim_reset_reports_teleport_failure(api_client):
+    with patch("services.sim_service.SimService.is_connected", True), \
+         patch("services.detection_service.DetectionService.kill", return_value=False), \
+         patch("services.drone_service.DroneService.force_disarm", return_value=False), \
+         patch("services.sim_service.SimService.reset_drone_pose",
+               return_value={"success": False, "error": "drone model not found in Gazebo"}):
+        response = api_client.post("/api/sim/reset")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "not found" in data["error"]

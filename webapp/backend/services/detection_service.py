@@ -414,6 +414,24 @@ class DetectionService:
 
         return result
 
+    def kill(self) -> bool:
+        """Hard-stop the flight script for a panic reset. Unlike stop() (which
+        detaches and lets the script land itself), this terminates the
+        subprocess immediately so it stops commanding the drone — the caller is
+        about to teleport / disarm and doesn't want the script fighting it.
+
+        Returns True if a process was running and got killed."""
+        self.running = False
+        proc = self.process
+        if proc is None:
+            return False
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        self.process = None
+        return True
+
     @property
     def status(self) -> dict:
         with self._output_lock:

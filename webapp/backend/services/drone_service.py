@@ -51,6 +51,52 @@ class DroneService:
         self.detection_service.stop()
         return True
 
+    def force_disarm(self, timeout: float = 6.0) -> bool:
+        """Best-effort force-disarm for a panic reset: connect to the SITL
+        MAVSDK endpoint and issue ``action.kill()`` so the motors stop and the
+        autopilot won't fly back up after we teleport it to the ground.
+
+        Runs the async MAVSDK calls on a private event loop in this thread, so
+        it's safe to call from a sync FastAPI handler. Returns True if the kill
+        command was acknowledged; False on any failure (the caller still
+        proceeds with the teleport — disarm is best-effort)."""
+        import asyncio
+
+        async def _kill() -> bool:
+            try:
+                from mavsdk import System
+            except ImportError:
+                return False
+            system = System()
+            # Same endpoint the flight scripts use (honors the optional
+            # externally-launched mavsdk_server env vars).
+            await system.connect(system_address="udp://:14540")
+            # Wait briefly for a connection before commanding.
+            try:
+                async for state in system.core.connection_state():
+                    if state.is_connected:
+                        break
+            except Exception:
+                return False
+            try:
+                await system.action.kill()
+                return True
+            except Exception:
+                try:
+                    await system.action.disarm()
+                    return True
+                except Exception:
+                    return False
+
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(asyncio.wait_for(_kill(), timeout))
+            finally:
+                loop.close()
+        except Exception:
+            return False
+
     def return_home(self) -> bool:
         """Command return-to-home. Stub: Phase 6 implements RTL via MAVSDK."""
         return self.abort()

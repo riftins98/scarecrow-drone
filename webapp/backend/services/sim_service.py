@@ -1,4 +1,5 @@
 """Manages Gazebo simulation lifecycle."""
+import math
 import re
 import subprocess
 import os
@@ -9,6 +10,16 @@ from typing import Optional
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 DEFAULT_WORLD = "drone_garage_pigeon_3d"
+
+# Drone spawn pose, "x,y,z,roll,pitch,yaw" — 5m in front of the pigeon
+# billboard, facing the north wall (+x, heading 0). This is the single source
+# of truth used both to launch the sim (PX4_GZ_MODEL_POSE) and to teleport the
+# drone back here on a panic reset. Keep them in sync via this constant.
+SPAWN_POSE = "5,-4.5,0,0,0,0"
+
+# Gazebo model-name prefix for the drone (the running model gets a numeric
+# suffix like holybro_x500_0; we discover the full name at reset time).
+DRONE_MODEL_PREFIX = "holybro_x500"
 
 LAUNCH_STEPS = [
     ("cleanup", "Cleaning up old sessions"),
@@ -125,7 +136,7 @@ class SimService:
         env.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
         env.setdefault("__NV_PRIME_RENDER_OFFLOAD", "1")
         # Spawn drone 5m in front of pigeon billboard, facing north wall (+x, heading=0)
-        env["PX4_GZ_MODEL_POSE"] = "5,-4.5,0,0,0,0"
+        env["PX4_GZ_MODEL_POSE"] = SPAWN_POSE
 
         self.process = subprocess.Popen(
             ["bash", launch_script, *launch_args],
@@ -395,6 +406,79 @@ class SimService:
                 os.remove(f)
             except OSError:
                 pass
+
+    def _discover_drone_model(self) -> Optional[str]:
+        """Find the running drone model's full Gazebo name (e.g.
+        ``holybro_x500_0``) by listing models in the current world. Returns
+        None if Gazebo isn't reachable or no matching model is found."""
+        try:
+            result = subprocess.run(
+                ["gz", "model", "--list"],
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, "GZ_PARTITION": os.environ.get("GZ_PARTITION", "px4")},
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        for raw in result.stdout.splitlines():
+            name = raw.strip().lstrip("- ").strip()
+            if name.startswith(DRONE_MODEL_PREFIX):
+                return name
+        return None
+
+    def reset_drone_pose(self) -> dict:
+        """Panic reset: teleport the drone model back to its spawn pose in
+        Gazebo via the world's ``set_pose`` service. Does NOT disarm or stop
+        the flight script — the caller (controller) handles killing the flight
+        first so the autopilot isn't fighting the teleport.
+
+        Returns ``{"success": bool, "error"?: str, "model"?: str}``.
+        """
+        if not self.is_connected:
+            return {"success": False, "error": "Simulation not running"}
+
+        model = self._discover_drone_model()
+        if not model:
+            return {"success": False, "error": "drone model not found in Gazebo"}
+
+        # Parse "x,y,z,roll,pitch,yaw". The spawn pose is level (roll=pitch=0),
+        # so only yaw contributes to the orientation quaternion (0, 0, qz, qw).
+        try:
+            x, y, z, _roll, _pitch, yaw = (float(v) for v in SPAWN_POSE.split(","))
+        except ValueError:
+            return {"success": False, "error": f"bad SPAWN_POSE: {SPAWN_POSE!r}"}
+
+        qz = math.sin(yaw / 2.0)
+        qw = math.cos(yaw / 2.0)
+        # gz.msgs.Pose request: name + position + yaw-only orientation quaternion.
+        req = (
+            f'name: "{model}", '
+            f'position: {{x: {x}, y: {y}, z: {z}}}, '
+            f'orientation: {{x: 0, y: 0, z: {qz}, w: {qw}}}'
+        )
+        try:
+            result = subprocess.run(
+                [
+                    "gz", "service", "-s", f"/world/{self._world}/set_pose",
+                    "--reqtype", "gz.msgs.Pose",
+                    "--reptype", "gz.msgs.Boolean",
+                    "--timeout", "3000",
+                    "--req", req,
+                ],
+                capture_output=True, text=True, timeout=8,
+                env={**os.environ, "GZ_PARTITION": os.environ.get("GZ_PARTITION", "px4")},
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            return {"success": False, "error": f"set_pose call failed: {e}"}
+
+        # gz prints "data: true" on success.
+        ok = "true" in result.stdout.lower()
+        if not ok:
+            return {
+                "success": False,
+                "model": model,
+                "error": (result.stdout or result.stderr or "set_pose returned false").strip(),
+            }
+        return {"success": True, "model": model}
 
     @property
     def is_connected(self) -> bool:

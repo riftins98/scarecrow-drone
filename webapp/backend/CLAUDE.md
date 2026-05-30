@@ -25,7 +25,7 @@ HTTP Request
 
 ## API Endpoint Coverage (40 routes)
 - `/api/health` — health check
-- `/api/sim/*` — A.1 simulation lifecycle (4 routes: connect, disconnect, status, options)
+- `/api/sim/*` — A.1 simulation lifecycle (connect, disconnect, status, options, camera, reset, log)
 - `/api/connection/*` — A.2 connection status (6 routes, mocked for sim)
 - `/api/drone/*` — A.3 drone control (6 routes)
 - `/api/flights/*`, `/api/flight/*` — A.4 flight history (9 routes + 3 legacy)

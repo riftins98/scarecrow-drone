@@ -51,6 +51,30 @@ export default function SimControl({
   const [selectedScript, setSelectedScript] = useState<string>(DEFAULT_SCRIPT);
   const [scriptArgValues, setScriptArgValues] = useState<ScriptArgValues>({});
 
+  // Panic reset state.
+  const [resetting, setResetting] = useState<boolean>(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+
+  const handleReset = async () => {
+    if (resetting) return;
+    setResetMsg(null);
+    setResetting(true);
+    try {
+      const res = await api.resetDrone();
+      if (res.success) {
+        setResetMsg('Drone reset to spawn.');
+      } else {
+        setResetMsg(`Reset failed: ${res.error || 'unknown error'}`);
+      }
+    } catch (e) {
+      setResetMsg(`Reset failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setResetting(false);
+      // Auto-clear the status line after a few seconds.
+      window.setTimeout(() => setResetMsg(null), 5000);
+    }
+  };
+
   useEffect(() => {
     api.getSimOptions()
       .then((data: SimOptions) => {
@@ -340,6 +364,18 @@ export default function SimControl({
           Disconnect
         </button>
       </div>
+
+      {/* Panic reset — always available while connected (even mid-flight).
+          Kills the flight, force-disarms, and teleports the drone to spawn. */}
+      <button
+        className="btn btn-panic"
+        onClick={handleReset}
+        disabled={resetting}
+        title="Emergency: stop the flight, disarm, and snap the drone back to its spawn position."
+      >
+        {resetting ? 'RESETTING…' : '⟲ RESET DRONE'}
+      </button>
+      {resetMsg && <div className="panic-msg">{resetMsg}</div>}
 
       {flying && (
         <div className="flight-status">

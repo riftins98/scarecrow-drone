@@ -10,7 +10,7 @@ FastAPI router modules. One controller per ADD Appendix A section. Each module e
 
 ## Files
 - `__init__.py` — Re-exports all controller modules for `from controllers import *`
-- `sim_controller.py` — `/api/sim/*` (ADD A.1): connect (POST body `{world, headless}`), disconnect, status (includes `world`, `headless`, `streamUrl`), and **`/api/sim/options`** which lists every world in `worlds/` and every flight script in `scripts/flight/` (with parsed argparse metadata so the frontend can render a parameter form).
+- `sim_controller.py` — `/api/sim/*` (ADD A.1): connect (POST body `{world, headless}`), disconnect, status (includes `world`, `headless`, `streamUrl`), camera (live stream swap), **`/api/sim/options`** (lists every world in `worlds/` + every flight script in `scripts/flight/` with parsed argparse metadata), and **`/api/sim/reset`** — the panic reset: hard-kills the flight script (`detection_service.kill()`), force-disarms (`drone_service.force_disarm()`), teleports the drone to spawn (`sim_service.reset_drone_pose()`), and marks the flight aborted. Each step is best-effort so a partial failure still resets the pose.
 - `flight_controller.py` — `/api/flights/*` (ADD A.4) + legacy `/api/flight/start|stop|status`. The legacy routes stay for frontend compatibility until the React side is updated.
 - `drone_controller.py` — `/api/drone/*` (ADD A.3): start, stop, abort, return-home, status, telemetry. Frontend-facing drone control.
 - `area_map_controller.py` — `/api/areas/*` (ADD A.5): full CRUD + `/mapping/start` and `/mapping/status` for UC1

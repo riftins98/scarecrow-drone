@@ -50,6 +50,16 @@ export const startFlight = (params?: StartFlightParams) =>
 export const stopFlight = () => fetchJson('/api/flight/stop', { method: 'POST' });
 export const getFlightStatus = () => fetchJson('/api/flight/status');
 
+/** Panic reset: hard-kill the flight, force-disarm, and teleport the drone
+ *  back to its spawn pose in the world. */
+export const resetDrone = (): Promise<{
+  success: boolean;
+  killedFlight?: boolean;
+  disarmed?: boolean;
+  teleport?: { success: boolean; model?: string; error?: string };
+  error?: string;
+}> => postJson('/api/sim/reset');
+
 // Sim launcher stdout. Polled by SystemLog with the last cursor.
 // Shows PX4 build, Gazebo start, and other launcher output during connect.
 export const getSimLog = (since: number = 0): Promise<{
