@@ -51,27 +51,33 @@ class DroneService:
         self.detection_service.stop()
         return True
 
-    def force_disarm(self, timeout: float = 10.0) -> bool:
+    def force_disarm(self, attempts: int = 3, connect_timeout: float = 8.0,
+                     settle: float = 2.0) -> bool:
         """Best-effort force-stop for a panic reset: connect to PX4 and put it
-        in a state where it won't fly the drone after we teleport it.
+        in a state where it won't fly the drone after we teleport it. First
+        commands Hold (exit offboard so it stops chasing setpoints), then kills
+        the motors so it can't fly back up.
 
-        Connects on udpin://:14540 — the same stream the flight scripts use.
-        PX4 keeps broadcasting to 14540 even after the script that was listening
-        there dies, so a fresh listener reconnects. We first switch to Hold so
-        the vehicle exits offboard (otherwise it keeps chasing its last
-        setpoint), then kill the motors so it can't fly back up.
+        Connects on udpin://0.0.0.0:14540 — the same SDK stream the flight
+        scripts use; PX4 keeps broadcasting there after the script that was
+        listening dies, so a fresh listener reconnects.
 
-        Runs the blocking MAVSDK work on a private event loop **in a dedicated
-        worker thread**. This is required because the FastAPI reset handler is
-        ``async`` — calling ``loop.run_until_complete()`` directly from it would
-        raise "cannot be called from a running event loop" (which previously got
-        swallowed, so the disarm silently never ran and the drone kept flying
-        after the teleport). A fresh thread has no running loop, so it works.
+        Robustness details, each a bug found the hard way:
+        - Runs in a dedicated worker THREAD: the FastAPI reset handler is async,
+          and ``run_until_complete`` can't run inside an already-running loop.
+        - Uses a FRESH OS-assigned server port per attempt: a hardcoded port
+          made the next reset hang in ``connect()`` while the prior server was
+          still releasing it.
+        - RETRIES with a settle delay: right after one connect/disconnect, PX4
+          SITL may briefly refuse a new SDK connection, so a rapid second reset
+          would otherwise fail.
 
-        Returns True if at least the kill/disarm was acknowledged; False on any
-        failure (the caller still proceeds with the teleport — best-effort)."""
+        Returns True once Hold/kill is acknowledged; False if all attempts fail
+        (the caller still proceeds with the teleport — best-effort)."""
         import asyncio
+        import socket
         import threading
+        import time
 
         try:
             from mavsdk import System
@@ -80,60 +86,36 @@ class DroneService:
 
         result = {"ok": False}
 
-        # Pick a fresh, currently-free port for the embedded mavsdk_server.
-        # Hardcoding one (e.g. 50061) made the SECOND reset hang forever in
-        # System.connect(), because the previous call's server hadn't fully
-        # released the port. Ask the OS for an unused port each time.
-        import socket
-        _s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            _s.bind(("127.0.0.1", 0))
-            server_port = _s.getsockname()[1]
-        finally:
-            _s.close()
+        def _free_port() -> int:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+            finally:
+                s.close()
 
-        def _worker():
-            system = System(port=server_port)
-
-            async def _stop() -> bool:
-                # Listen on the SDK stream PX4 broadcasts to (same as scripts).
-                # MAVSDK requires an explicit interface (0.0.0.0 = all).
+        async def _attempt() -> bool:
+            system = System(port=_free_port())
+            try:
                 await system.connect(system_address="udpin://0.0.0.0:14540")
-                try:
-                    async for state in system.core.connection_state():
-                        if state.is_connected:
-                            break
-                except Exception:
-                    return False
-
-                # 1. Exit offboard: command Hold so PX4 stops chasing setpoints.
+                async for state in system.core.connection_state():
+                    if state.is_connected:
+                        break
+                # 1. Exit offboard so PX4 stops chasing its last setpoint.
                 try:
                     await system.action.hold()
                 except Exception:
-                    pass  # not fatal; the kill below guarantees motors off
-
-                # 2. Force motors off. Try kill (instant), fall back to disarm.
+                    pass  # the kill below is what guarantees motors off
+                # 2. Force motors off. kill() is instant; disarm() is the fallback.
                 try:
                     await system.action.kill()
                     return True
                 except Exception:
-                    try:
-                        await system.action.disarm()
-                        return True
-                    except Exception:
-                        return False
-
-            loop = asyncio.new_event_loop()
-            try:
-                result["ok"] = loop.run_until_complete(
-                    asyncio.wait_for(_stop(), timeout)
-                )
-            except Exception:
-                result["ok"] = False
+                    await system.action.disarm()
+                    return True
             finally:
-                loop.close()
-                # MAVSDK spawns a mavsdk_server subprocess that would otherwise
-                # leak (and keep its port held) on every reset. Kill it.
+                # MAVSDK spawns a mavsdk_server subprocess; terminate it so it
+                # doesn't leak or hold its port for the next attempt/reset.
                 proc = getattr(system, "_server_process", None)
                 if proc is not None:
                     try:
@@ -141,10 +123,27 @@ class DroneService:
                     except Exception:
                         pass
 
+        def _worker():
+            for i in range(attempts):
+                loop = asyncio.new_event_loop()
+                try:
+                    if loop.run_until_complete(
+                        asyncio.wait_for(_attempt(), connect_timeout)
+                    ):
+                        result["ok"] = True
+                        return
+                except Exception:
+                    pass
+                finally:
+                    loop.close()
+                # Let PX4 settle before retrying (and the server fully release).
+                if i < attempts - 1:
+                    time.sleep(settle)
+
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
-        # Give the worker a little longer than its own timeout to finish.
-        t.join(timeout + 5)
+        # Allow for all attempts + their settle delays, plus a little slack.
+        t.join(attempts * connect_timeout + (attempts - 1) * settle + 3)
         return bool(result["ok"])
 
     def return_home(self) -> bool:
