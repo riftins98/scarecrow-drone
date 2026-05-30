@@ -51,7 +51,7 @@ class DroneService:
         self.detection_service.stop()
         return True
 
-    def force_disarm(self, attempts: int = 3, connect_timeout: float = 8.0,
+    def force_disarm(self, attempts: int = 3, connect_timeout: float = 14.0,
                      settle: float = 2.0) -> bool:
         """Best-effort force-stop for a panic reset: connect to PX4 and put it
         in a state where it won't fly the drone after we teleport it. First
