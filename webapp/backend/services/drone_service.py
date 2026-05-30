@@ -94,28 +94,41 @@ class DroneService:
             finally:
                 s.close()
 
-        async def _attempt() -> bool:
+        async def _run() -> bool:
+            # Spawn ONE mavsdk_server and connect ONCE (the ~9s cold start is
+            # the slow part, so we pay it a single time), then retry only the
+            # connect-wait + commands, which are fast.
             system = System(port=_free_port())
             try:
                 await system.connect(system_address="udpin://0.0.0.0:14540")
-                async for state in system.core.connection_state():
-                    if state.is_connected:
-                        break
-                # 1. Exit offboard so PX4 stops chasing its last setpoint.
-                try:
-                    await system.action.hold()
-                except Exception:
-                    pass  # the kill below is what guarantees motors off
-                # 2. Force motors off. kill() is instant; disarm() is the fallback.
-                try:
-                    await system.action.kill()
-                    return True
-                except Exception:
-                    await system.action.disarm()
-                    return True
+                for i in range(attempts):
+                    try:
+                        # Wait for the link to come up (bounded so a stalled
+                        # attempt can fall through to a retry).
+                        async with asyncio.timeout(connect_timeout):
+                            async for state in system.core.connection_state():
+                                if state.is_connected:
+                                    break
+                        # 1. Exit offboard so PX4 stops chasing its setpoint.
+                        try:
+                            await system.action.hold()
+                        except Exception:
+                            pass  # the kill below guarantees motors off
+                        # 2. Force motors off. kill() instant; disarm() fallback.
+                        try:
+                            await system.action.kill()
+                        except Exception:
+                            await system.action.disarm()
+                        return True
+                    except Exception:
+                        # PX4 may briefly refuse right after a prior connection;
+                        # settle and retry on the same server connection.
+                        if i < attempts - 1:
+                            await asyncio.sleep(settle)
+                return False
             finally:
                 # MAVSDK spawns a mavsdk_server subprocess; terminate it so it
-                # doesn't leak or hold its port for the next attempt/reset.
+                # doesn't leak or hold its port for the next reset.
                 proc = getattr(system, "_server_process", None)
                 if proc is not None:
                     try:
@@ -124,26 +137,21 @@ class DroneService:
                         pass
 
         def _worker():
-            for i in range(attempts):
-                loop = asyncio.new_event_loop()
-                try:
-                    if loop.run_until_complete(
-                        asyncio.wait_for(_attempt(), connect_timeout)
-                    ):
-                        result["ok"] = True
-                        return
-                except Exception:
-                    pass
-                finally:
-                    loop.close()
-                # Let PX4 settle before retrying (and the server fully release).
-                if i < attempts - 1:
-                    time.sleep(settle)
+            loop = asyncio.new_event_loop()
+            try:
+                # Overall budget: cold start + all attempt/settle cycles.
+                budget = connect_timeout + attempts * (connect_timeout + settle)
+                result["ok"] = loop.run_until_complete(
+                    asyncio.wait_for(_run(), budget)
+                )
+            except Exception:
+                result["ok"] = False
+            finally:
+                loop.close()
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
-        # Allow for all attempts + their settle delays, plus a little slack.
-        t.join(attempts * connect_timeout + (attempts - 1) * settle + 3)
+        t.join(connect_timeout + attempts * (connect_timeout + settle) + 5)
         return bool(result["ok"])
 
     def return_home(self) -> bool:
