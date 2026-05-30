@@ -301,19 +301,21 @@ class SimService:
             except Exception:
                 pass
 
-        # Path 2: the launcher's pxh FIFO. Open non-blocking so we never hang
-        # if no reader is attached, then write the command line.
-        fifo = self._find_pxh_fifo()
-        if fifo:
-            try:
-                fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+        # Path 2: the launcher's pxh FIFO (POSIX only — Windows has no FIFOs).
+        # Open non-blocking so we never hang if no reader is attached.
+        if os.name == "posix":
+            fifo = self._find_pxh_fifo()
+            if fifo:
                 try:
-                    os.write(fd, (cmd + "\n").encode())
-                    return True
-                finally:
-                    os.close(fd)
-            except OSError:
-                pass
+                    flags = os.O_WRONLY | getattr(os, "O_NONBLOCK", 0)
+                    fd = os.open(fifo, flags)
+                    try:
+                        os.write(fd, (cmd + "\n").encode())
+                        return True
+                    finally:
+                        os.close(fd)
+                except OSError:
+                    pass
         return False
 
     @staticmethod
