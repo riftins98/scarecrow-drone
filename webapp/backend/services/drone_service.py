@@ -67,14 +67,16 @@ class DroneService:
         teleport — disarm is best-effort)."""
         import asyncio
 
+        try:
+            from mavsdk import System
+        except ImportError:
+            return False
+
+        # Bind the embedded mavsdk_server to a non-default port so it never
+        # collides with one a flight script may still be tearing down.
+        system = System(port=50061)
+
         async def _stop() -> bool:
-            try:
-                from mavsdk import System
-            except ImportError:
-                return False
-            # Bind the embedded mavsdk_server to a non-default port so it never
-            # collides with one a flight script may still be tearing down.
-            system = System(port=50061)
             # Listen on the SDK stream PX4 broadcasts to (same as the scripts).
             await system.connect(system_address="udpin://:14540")
             try:
@@ -101,14 +103,21 @@ class DroneService:
                 except Exception:
                     return False
 
+        loop = asyncio.new_event_loop()
         try:
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(asyncio.wait_for(_stop(), timeout))
-            finally:
-                loop.close()
+            return loop.run_until_complete(asyncio.wait_for(_stop(), timeout))
         except Exception:
             return False
+        finally:
+            loop.close()
+            # MAVSDK spawns a mavsdk_server subprocess that would otherwise leak
+            # (and keep its port held) on every reset. Terminate it explicitly.
+            proc = getattr(system, "_server_process", None)
+            if proc is not None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
 
     def return_home(self) -> bool:
         """Command return-to-home. Stub: Phase 6 implements RTL via MAVSDK."""
