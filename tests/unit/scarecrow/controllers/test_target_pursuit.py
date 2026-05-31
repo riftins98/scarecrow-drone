@@ -53,6 +53,19 @@ def test_front_distance_at_target_stops_successfully(mock_lidar_scan):
     assert result.command.is_zero
 
 
+def test_target_reached_takes_priority_over_side_wall_safety(mock_lidar_scan):
+    scan = mock_lidar_scan(front=1.4, left=0.4, right=8.0)
+    controller = TargetPursuitController(
+        TargetPursuitConfig(target_distance_m=1.5, min_wall_distance_m=0.8)
+    )
+
+    result = controller.update(scan, _observation(), now=100.0)
+
+    assert result.done
+    assert result.reached_target
+    assert result.state == TargetPursuitState.TARGET_REACHED
+
+
 def test_missing_target_transitions_to_search(mock_lidar_scan):
     scan = mock_lidar_scan(front=5.0, left=2.0, right=8.0)
     controller = TargetPursuitController(

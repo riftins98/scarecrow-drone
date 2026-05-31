@@ -114,21 +114,21 @@ class TargetPursuitController:
         left_dist = scan.left_distance()
         right_dist = scan.right_distance()
 
-        if min(left_dist, right_dist) < self.config.min_wall_distance_m:
-            self.state = TargetPursuitState.WALL_SAFETY
-            return self._result(
-                done=True,
-                reason="wall_safety",
-                front_distance=front_dist,
-                elapsed=elapsed,
-            )
-
         if front_dist <= self.config.target_distance_m:
             self.state = TargetPursuitState.TARGET_REACHED
             return self._result(
                 done=True,
                 reached_target=True,
                 reason="target_reached",
+                front_distance=front_dist,
+                elapsed=elapsed,
+            )
+
+        if min(left_dist, right_dist) < self.config.min_wall_distance_m:
+            self.state = TargetPursuitState.WALL_SAFETY
+            return self._result(
+                done=True,
+                reason="wall_safety",
                 front_distance=front_dist,
                 elapsed=elapsed,
             )

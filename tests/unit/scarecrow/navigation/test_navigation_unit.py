@@ -146,6 +146,49 @@ async def test_hover_sends_zero_velocity():
     assert cmd.is_zero
 
 
+async def test_land_with_lidar_hold_descends_then_lands(mock_lidar_scan):
+    drone = _make_drone()
+    drone.stop_offboard = AsyncMock()
+    drone.land = AsyncMock()
+    drone.disarm = AsyncMock(return_value=True)
+    drone.ground_z = 0.0
+
+    def pos_at_agl(agl):
+        pos = MagicMock()
+        pos.position.down_m = -agl
+        return pos
+
+    drone.get_position = AsyncMock(
+        side_effect=[
+            pos_at_agl(1.0),
+            pos_at_agl(0.3),
+            pos_at_agl(0.1),
+        ]
+    )
+    lidar = _make_lidar_source(mock_lidar_scan(rear=3.0, left=3.0))
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = await nav.land_with_lidar_hold(
+        DistanceTargets(rear=3.0, left=3.0),
+        stabilize_first=False,
+        descent_timeout_s=2.0,
+    )
+
+    assert result.done
+    assert result.touchdown_confirmed
+    assert result.disarmed
+    drone.stop_offboard.assert_awaited_once()
+    drone.land.assert_awaited_once()
+    drone.disarm.assert_awaited_once_with(force_kill_on_failure=True)
+    descent_commands = [
+        call.args[0] for call in drone.set_velocity.await_args_list
+        if call.args and getattr(call.args[0], "down_m_s", 0.0) > 0
+    ]
+    assert descent_commands
+
+
 class _Rangefinder:
     def __init__(self, readings):
         self.readings = list(readings)

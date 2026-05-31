@@ -124,9 +124,13 @@ class Drone:
         """Check PX4 params are configured for GPS-denied navigation.
 
         Required params:
-          EKF2_GPS_CTRL = 0  (GPS disabled)
-          EKF2_OF_CTRL  = 1  (Optical flow enabled)
-          SYS_HAS_GPS   = 0  (GPS hardware disabled)
+          EKF2_GPS_CTRL = 0      (GPS disabled)
+          EKF2_OF_CTRL  = 1      (Optical flow enabled)
+          EKF2_OF_QMIN  = 30     (Reject low-quality flow)
+          EKF2_OF_POS_*          (Optical-flow focal point offset)
+          EKF2_RNG_CTRL = 1      (Rangefinder height aiding enabled)
+          EKF2_RNG_POS_*         (Downward rangefinder origin offset)
+          SYS_HAS_GPS   = 0      (GPS hardware disabled)
 
         Returns True if all params match expected values. Does NOT modify
         params -- per project constraint, EKF2 params must not be set at runtime.
@@ -134,13 +138,27 @@ class Drone:
         Args:
             verbose: Print each param check to stdout.
         """
-        expected = {
+        expected_ints = {
             "EKF2_GPS_CTRL": (0, "GPS disabled"),
             "EKF2_OF_CTRL": (1, "Optical flow enabled"),
+            "EKF2_OF_QMIN": (30, "Optical flow quality gate"),
+            "EKF2_RNG_CTRL": (1, "Rangefinder height aiding"),
+            "EKF2_HGT_REF": (0, "Barometer height reference"),
             "SYS_HAS_GPS": (0, "GPS hardware disabled"),
         }
+        expected_floats = {
+            "EKF2_OF_POS_X": (0.030, "Optical flow X offset"),
+            "EKF2_OF_POS_Y": (0.000, "Optical flow Y offset"),
+            "EKF2_OF_POS_Z": (0.100, "Optical flow Z offset"),
+            "EKF2_RNG_POS_X": (0.000, "Rangefinder X offset"),
+            "EKF2_RNG_POS_Y": (0.000, "Rangefinder Y offset"),
+            "EKF2_RNG_POS_Z": (0.079, "Rangefinder Z offset"),
+        }
+        diagnostic_floats = {
+            "SENS_FLOW_SCALE": "Optical flow scale factor",
+        }
         all_ok = True
-        for name, (want, desc) in expected.items():
+        for name, (want, desc) in expected_ints.items():
             try:
                 val = int(await self._system.param.get_param_int(name))
             except Exception as e:
@@ -153,6 +171,28 @@ class Drone:
                 print(f"  [{'OK' if ok else 'FAIL'}] {name} = {val} -- {desc}")
             if not ok:
                 all_ok = False
+        for name, (want, desc) in expected_floats.items():
+            try:
+                val = float(await self._system.param.get_param_float(name))
+            except Exception as e:
+                if verbose:
+                    print(f"  [FAIL] {name} read error: {e}")
+                all_ok = False
+                continue
+            ok = abs(val - want) <= 0.001
+            if verbose:
+                print(f"  [{'OK' if ok else 'FAIL'}] {name} = {val:.3f} -- {desc}")
+            if not ok:
+                all_ok = False
+        for name, desc in diagnostic_floats.items():
+            try:
+                val = float(await self._system.param.get_param_float(name))
+            except Exception as e:
+                if verbose:
+                    print(f"  [INFO] {name} read error: {e}")
+                continue
+            if verbose:
+                print(f"  [INFO] {name} = {val:.3f} -- {desc}")
         return all_ok
 
     # -- Basic commands --

@@ -22,6 +22,7 @@ def fake_mavsdk_system():
     sys.offboard.start = AsyncMock()
     sys.offboard.stop = AsyncMock()
     sys.param.get_param_int = AsyncMock()
+    sys.param.get_param_float = AsyncMock()
     return sys
 
 
@@ -115,30 +116,71 @@ async def test_set_ekf_origin_swallows_error(drone):
 
 
 async def test_verify_gps_denied_params_returns_true_on_correct_config(drone):
-    """EKF2_GPS_CTRL=0, EKF2_OF_CTRL=1, SYS_HAS_GPS=0 -> True."""
-    expected = {
+    """GPS-denied EKF + sensor-offset params match the airframe -> True."""
+    expected_ints = {
         "EKF2_GPS_CTRL": 0,
         "EKF2_OF_CTRL": 1,
+        "EKF2_OF_QMIN": 30,
+        "EKF2_RNG_CTRL": 1,
+        "EKF2_HGT_REF": 0,
         "SYS_HAS_GPS": 0,
     }
-    async def fake_get(name):
-        return expected[name]
-    drone._system.param.get_param_int = AsyncMock(side_effect=fake_get)
+    expected_floats = {
+        "EKF2_OF_POS_X": 0.030,
+        "EKF2_OF_POS_Y": 0.000,
+        "EKF2_OF_POS_Z": 0.100,
+        "EKF2_RNG_POS_X": 0.000,
+        "EKF2_RNG_POS_Y": 0.000,
+        "EKF2_RNG_POS_Z": 0.079,
+        "SENS_FLOW_SCALE": 1.0,
+    }
+
+    async def fake_get_int(name):
+        return expected_ints[name]
+
+    async def fake_get_float(name):
+        return expected_floats[name]
+
+    drone._system.param.get_param_int = AsyncMock(side_effect=fake_get_int)
+    drone._system.param.get_param_float = AsyncMock(side_effect=fake_get_float)
     ok = await drone.verify_gps_denied_params(verbose=False)
     assert ok is True
 
 
 async def test_verify_gps_denied_params_returns_false_when_gps_enabled(drone):
     """EKF2_GPS_CTRL=1 (wrong) -> False."""
-    wrong = {"EKF2_GPS_CTRL": 1, "EKF2_OF_CTRL": 1, "SYS_HAS_GPS": 0}
+    wrong = {
+        "EKF2_GPS_CTRL": 1,
+        "EKF2_OF_CTRL": 1,
+        "EKF2_OF_QMIN": 30,
+        "EKF2_RNG_CTRL": 1,
+        "EKF2_HGT_REF": 0,
+        "SYS_HAS_GPS": 0,
+    }
+    floats = {
+        "EKF2_OF_POS_X": 0.030,
+        "EKF2_OF_POS_Y": 0.000,
+        "EKF2_OF_POS_Z": 0.100,
+        "EKF2_RNG_POS_X": 0.000,
+        "EKF2_RNG_POS_Y": 0.000,
+        "EKF2_RNG_POS_Z": 0.079,
+        "SENS_FLOW_SCALE": 1.0,
+    }
+
     async def fake_get(name):
         return wrong[name]
+
+    async def fake_get_float(name):
+        return floats[name]
+
     drone._system.param.get_param_int = AsyncMock(side_effect=fake_get)
+    drone._system.param.get_param_float = AsyncMock(side_effect=fake_get_float)
     ok = await drone.verify_gps_denied_params(verbose=False)
     assert ok is False
 
 
 async def test_verify_gps_denied_params_returns_false_on_read_error(drone):
     drone._system.param.get_param_int = AsyncMock(side_effect=RuntimeError("connection lost"))
+    drone._system.param.get_param_float = AsyncMock(side_effect=RuntimeError("connection lost"))
     ok = await drone.verify_gps_denied_params(verbose=False)
     assert ok is False

@@ -11,5 +11,5 @@ Python package for drone flight controllers, sensor interfaces, detection, and n
 
 ## Files
 - `__init__.py` — Package init
-- `drone.py` — Drone class wrapping MAVSDK: connect, arm (with retries + already-armed kill recovery), disarm (with action.kill fallback), takeoff (split into prepare_takeoff pre-arm + takeoff post-arm), offboard control, telemetry, verify_gps_denied_params, set_ekf_origin, emergency_land. Honors `MAVSDK_SERVER_ADDRESS` / `MAVSDK_SERVER_PORT` env vars to connect to an externally-launched `mavsdk_server` (used for debugging server crashes).
+- `drone.py` — Drone class wrapping MAVSDK: connect, arm (with retries + already-armed kill recovery), disarm (with action.kill fallback), takeoff (split into prepare_takeoff pre-arm + takeoff post-arm), offboard control, telemetry, verify_gps_denied_params for GPS-denied optical-flow/rangefinder configuration, set_ekf_origin, emergency_land. Honors `MAVSDK_SERVER_ADDRESS` / `MAVSDK_SERVER_PORT` env vars to connect to an externally-launched `mavsdk_server` (used for debugging server crashes).
 - `logging_setup.py` — Structured logger factory: `get_logger(name, run_id, prefix)` returns a logger that writes JSON-ish event lines to `output/logs/<prefix>_<timestamp>Z.log` and stderr. Helpers: `log_event(logger, event, **fields)`, `Timer(logger, "label", **fields)` context manager, `log_run_file_path()`.

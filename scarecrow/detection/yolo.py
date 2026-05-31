@@ -66,6 +66,14 @@ class YoloDetector:
     def on_detection_data(self, callback: Callable[[list[dict]], None] | None) -> None:
         self._on_detection_data = callback
 
+    @property
+    def confidence(self) -> float:
+        return self._confidence
+
+    @confidence.setter
+    def confidence(self, value: float) -> None:
+        self._confidence = max(0.0, min(1.0, float(value)))
+
     def load_model(self) -> bool:
         """Pre-load YOLO model. Safe to call from a background thread."""
         print("Loading YOLO model...")
@@ -120,19 +128,23 @@ class YoloDetector:
 
         results = self._model(
             frame,
-            conf=self._confidence,
+            conf=0.01,
             iou=0.45,
             imgsz=1280,
             verbose=False
         )
 
         detections = []
+        best_candidate_conf = 0.0
         for result in results:
             if result.boxes is None:
                 continue
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf = float(box.conf[0])
+                best_candidate_conf = max(best_candidate_conf, conf)
+                if conf < self._confidence:
+                    continue
                 cls_name = self._model.names[int(box.cls[0])]
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
                 detections.append({'class': cls_name, 'conf': conf,
@@ -163,4 +175,7 @@ class YoloDetector:
         else:
             img_path = os.path.join(self.frames_dir, f"frame_{self.frames_processed:04d}.png")
             cv2.imwrite(img_path, frame)
-            print(f"  [detection] Frame {self.frames_processed}: no detections")
+            print(
+                f"  [detection] Frame {self.frames_processed}: no detections "
+                f"(best candidate {best_candidate_conf:.0%}, threshold {self._confidence:.0%})"
+            )
