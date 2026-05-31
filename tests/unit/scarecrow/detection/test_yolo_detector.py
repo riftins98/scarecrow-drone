@@ -6,6 +6,16 @@ import numpy as np
 from scarecrow.detection.yolo import YoloDetector
 
 
+def _mock_detection_result(conf=0.9):
+    mock_box = MagicMock()
+    mock_box.xyxy = [MagicMock(tolist=MagicMock(return_value=[10, 10, 100, 100]))]
+    mock_box.conf = [MagicMock(__float__=lambda s: conf)]
+    mock_box.cls = [MagicMock(__int__=lambda s: 0)]
+    mock_result = MagicMock()
+    mock_result.boxes = [mock_box]
+    return mock_result
+
+
 class TestYoloDetector:
     def test_rate_limiting_skips_within_interval(self, tmp_path):
         """UT-10: Skips frames that arrive within min_interval seconds."""
@@ -122,3 +132,71 @@ class TestYoloDetector:
         thread.join(timeout=2)
         assert not thread.is_alive()
         det.load_model.assert_called_once()
+
+    def test_save_policy_can_disable_detection_and_empty_frame_writes(self, tmp_path):
+        callback = MagicMock()
+        data_callback = MagicMock()
+        det = YoloDetector(
+            model_path="fake.pt",
+            output_dir=str(tmp_path),
+            min_interval=0.0,
+            on_detection=callback,
+            on_detection_data=data_callback,
+        )
+        det.configure_saving(save_detections=False, save_no_detections=False)
+        det._model = MagicMock(return_value=[_mock_detection_result()])
+        det._model.names = {0: "pigeon"}
+        det.start()
+
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        det.process_frame(frame)
+
+        data_callback.assert_called_once()
+        callback.assert_not_called()
+        assert list((tmp_path / "detections").glob("*.png")) == []
+        assert list((tmp_path / "frames").glob("*.png")) == []
+
+    def test_capture_next_detection_saves_one_forced_image(self, tmp_path):
+        callback = MagicMock()
+        det = YoloDetector(
+            model_path="fake.pt",
+            output_dir=str(tmp_path),
+            min_interval=0.0,
+            on_detection=callback,
+        )
+        det.configure_saving(save_detections=False, save_no_detections=False)
+        det.capture_next_detection("wall_trigger")
+        det._model = MagicMock(return_value=[_mock_detection_result()])
+        det._model.names = {0: "pigeon"}
+        det.start()
+
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        det.process_frame(frame)
+        det.process_frame(frame)
+
+        files = list((tmp_path / "detections").glob("*.png"))
+        assert len(files) == 1
+        assert files[0].name.startswith("wall_trigger_")
+        callback.assert_called_once()
+
+    def test_save_policy_uses_detection_prefix_for_throttled_images(self, tmp_path):
+        det = YoloDetector(
+            model_path="fake.pt",
+            output_dir=str(tmp_path),
+            min_interval=0.0,
+        )
+        det.configure_saving(
+            save_detections=True,
+            save_no_detections=False,
+            detection_prefix="pursuit_02_leg_4_sample",
+        )
+        det._model = MagicMock(return_value=[_mock_detection_result()])
+        det._model.names = {0: "pigeon"}
+        det.start()
+
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        det.process_frame(frame)
+
+        files = list((tmp_path / "detections").glob("*.png"))
+        assert len(files) == 1
+        assert files[0].name.startswith("pursuit_02_leg_4_sample_")

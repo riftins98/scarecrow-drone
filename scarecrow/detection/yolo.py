@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from typing import Callable
@@ -50,6 +51,15 @@ class YoloDetector:
         self._min_interval = min_interval
         self._on_detection = on_detection
         self._on_detection_data = on_detection_data
+        self._save_detections = True
+        self._save_no_detections = True
+        self._detection_save_interval_s = 0.0
+        self._max_saved_detections: int | None = None
+        self._detection_save_prefix = "detection"
+        self._saved_detection_count = 0
+        self._last_detection_save_time = 0.0
+        self._save_next_detection_reason: str | None = None
+        self._save_next_frame_reason: str | None = None
 
         self.running = False
         self.detections_total = 0
@@ -107,6 +117,95 @@ class YoloDetector:
     def stop(self) -> None:
         self.running = False
 
+    def configure_saving(
+        self,
+        *,
+        save_detections: bool | None = None,
+        save_no_detections: bool | None = None,
+        detection_interval_s: float | None = None,
+        max_saved_detections: int | None = None,
+        detection_prefix: str | None = None,
+        reset_counter: bool = False,
+    ) -> None:
+        """Configure which processed frames are written to disk.
+
+        Inference and callbacks still run even when image saving is disabled.
+        """
+        if save_detections is not None:
+            self._save_detections = save_detections
+        if save_no_detections is not None:
+            self._save_no_detections = save_no_detections
+        if detection_interval_s is not None:
+            self._detection_save_interval_s = max(0.0, float(detection_interval_s))
+        self._max_saved_detections = max_saved_detections
+        if detection_prefix is not None:
+            self._detection_save_prefix = self._safe_reason(detection_prefix) or "detection"
+        if reset_counter:
+            self._saved_detection_count = 0
+            self._last_detection_save_time = 0.0
+            self._save_next_detection_reason = None
+            self._save_next_frame_reason = None
+
+    def capture_next_detection(self, reason: str = "manual") -> None:
+        """Force-save the next frame that has an accepted detection."""
+        self._save_next_detection_reason = reason
+
+    def capture_next_frame(self, reason: str = "manual") -> None:
+        """Force-save the next processed frame, with or without detections."""
+        self._save_next_frame_reason = reason
+
+    def _safe_reason(self, reason: str | None) -> str | None:
+        if not reason:
+            return None
+        cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", reason.strip()).strip("_")
+        return cleaned or None
+
+    def _should_save_detection(self, now: float) -> tuple[bool, str | None]:
+        forced_reason = self._save_next_frame_reason or self._save_next_detection_reason
+        if forced_reason:
+            self._save_next_frame_reason = None
+            self._save_next_detection_reason = None
+            return True, forced_reason
+        if not self._save_detections:
+            return False, None
+        if (
+            self._max_saved_detections is not None
+            and self._saved_detection_count >= self._max_saved_detections
+        ):
+            return False, None
+        if now - self._last_detection_save_time < self._detection_save_interval_s:
+            return False, None
+        return True, None
+
+    def _save_detection_image(
+        self,
+        frame: np.ndarray,
+        detections: list[dict],
+        *,
+        reason: str | None = None,
+    ) -> str:
+        annotated = frame.copy()
+        for d in detections:
+            x1, y1, x2, y2 = d['bbox']
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(annotated, f"{d['class']}: {d['conf']:.2f}",
+                        (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.circle(annotated, d['center'], 5, (0, 0, 255), -1)
+
+        prefix = self._safe_reason(reason) or "detection"
+        img_path = os.path.join(
+            self.detection_dir,
+            f"{prefix}_{self.frames_processed:04d}.png",
+        )
+        cv2.imwrite(img_path, annotated)
+        return img_path
+
+    def _save_frame_image(self, frame: np.ndarray, *, reason: str | None = None) -> str:
+        prefix = self._safe_reason(reason) or "frame"
+        img_path = os.path.join(self.frames_dir, f"{prefix}_{self.frames_processed:04d}.png")
+        cv2.imwrite(img_path, frame)
+        return img_path
+
     def process_frame(self, frame: np.ndarray) -> None:
         """Process a single frame. Rate-limited and thread-safe.
 
@@ -155,26 +254,28 @@ class YoloDetector:
             print(f"  [detection] Frame {self.frames_processed}: "
                   f"{len(detections)} detection(s) at {detections[0]['conf']:.0%}")
 
-            annotated = frame.copy()
-            for d in detections:
-                x1, y1, x2, y2 = d['bbox']
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(annotated, f"{d['class']}: {d['conf']:.2f}",
-                            (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.circle(annotated, d['center'], 5, (0, 0, 255), -1)
+            should_save, save_reason = self._should_save_detection(now)
+            if should_save:
+                img_path = self._save_detection_image(
+                    frame,
+                    detections,
+                    reason=save_reason or self._detection_save_prefix,
+                )
+                self._saved_detection_count += 1
+                self._last_detection_save_time = now
+                print(f"DETECTION_IMAGE:{img_path}", flush=True)
 
-            img_path = os.path.join(self.detection_dir,
-                                    f"detection_{self.frames_processed:04d}.png")
-            cv2.imwrite(img_path, annotated)
-            print(f"DETECTION_IMAGE:{img_path}", flush=True)
-
-            if self._on_detection is not None:
-                self._on_detection(img_path)
+                if self._on_detection is not None:
+                    self._on_detection(img_path)
             if self._on_detection_data is not None:
                 self._on_detection_data(detections)
         else:
-            img_path = os.path.join(self.frames_dir, f"frame_{self.frames_processed:04d}.png")
-            cv2.imwrite(img_path, frame)
+            if self._save_next_frame_reason:
+                reason = self._save_next_frame_reason
+                self._save_next_frame_reason = None
+                self._save_frame_image(frame, reason=reason)
+            elif self._save_no_detections:
+                self._save_frame_image(frame)
             print(
                 f"  [detection] Frame {self.frames_processed}: no detections "
                 f"(best candidate {best_candidate_conf:.0%}, threshold {self._confidence:.0%})"
