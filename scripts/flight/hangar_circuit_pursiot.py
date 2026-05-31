@@ -68,6 +68,9 @@ PURSUIT_IMAGE_INTERVAL_S = 3.0
 PURSUIT_MAX_SAVED_IMAGES = 20
 MAX_PURSUIT_ATTEMPTS = 2
 ALTITUDE_WARNING_ERROR_M = 0.20
+ALTITUDE_HOLD_TOLERANCE_M = 0.12
+ALTITUDE_HOLD_KP = 0.45
+ALTITUDE_HOLD_MAX_DOWN_SPEED = 0.18
 
 # Match the tuned wall-follow behavior used by room_circuit_map.py.
 WALL_FOLLOW_SPEED = 0.30
@@ -182,6 +185,31 @@ def _fmt_altitude(altitude_ref: dict) -> str:
     if not isinstance(error, (int, float)) or not math.isfinite(error):
         return f"agl={agl:.2f}m"
     return f"agl={agl:.2f}m alt_err={error:+.2f}m"
+
+
+def _agl_from_position(pos, ground_z: float) -> float:
+    return -(pos.position.down_m - ground_z)
+
+
+def _altitude_hold_down_speed(
+    agl_m: float,
+    target_alt_m: float,
+    *,
+    tolerance_m: float = ALTITUDE_HOLD_TOLERANCE_M,
+    kp: float = ALTITUDE_HOLD_KP,
+    max_down_speed_m_s: float = ALTITUDE_HOLD_MAX_DOWN_SPEED,
+) -> tuple[float, float, bool]:
+    """Return vertical speed, altitude error, and in-band state.
+
+    MAVSDK body velocity uses positive down speed for descent. A positive
+    altitude error means the drone is too high and should descend.
+    """
+    if not math.isfinite(agl_m):
+        return 0.0, math.inf, False
+    error = agl_m - target_alt_m
+    if abs(error) <= tolerance_m:
+        return 0.0, error, True
+    return _clamp(error * kp, -max_down_speed_m_s, max_down_speed_m_s), error, False
 
 
 def _normalize_angle(deg: float) -> float:
@@ -446,7 +474,7 @@ async def route_sample_loop(
             pos = await drone.get_position()
             yaw_deg = await drone.get_yaw()
             phase = phase_ref.get("phase", "unknown")
-            agl = -(pos.position.down_m - drone.ground_z)
+            agl = _agl_from_position(pos, drone.ground_z)
             alt_error = None if target_alt_m is None else agl - target_alt_m
             sample = {
                 "x": pos.position.north_m,
@@ -822,6 +850,7 @@ async def _approach_circuit_start_corner(
     drone: Drone,
     lidar: GazeboLidar,
     wall_distance: float,
+    target_alt_m: float,
     timeout_s: float = START_STABILIZE_TIMEOUT_S,
 ) -> str | None:
     """Normalize launch pose to the start corner expected by left-wall scan.
@@ -854,16 +883,27 @@ async def _approach_circuit_start_corner(
     )
     started = time.time()
     step = 0
+    altitude_stable_hits = 0
     while time.time() - started < timeout_s:
         scan = lidar.get_scan()
         if scan is None:
             await drone.set_velocity(VelocityCommand())
             await asyncio.sleep(0.05)
             continue
+        try:
+            pos = await asyncio.wait_for(drone.get_position(), timeout=0.5)
+            agl = _agl_from_position(pos, drone.ground_z)
+        except Exception:
+            agl = math.inf
 
         rear = scan.rear_distance()
         side_dist = scan.left_distance() if side == "left" else scan.right_distance()
         result = controller.update(scan)
+        down_speed, alt_error, altitude_ok = _altitude_hold_down_speed(agl, target_alt_m)
+        if altitude_ok:
+            altitude_stable_hits += 1
+        else:
+            altitude_stable_hits = 0
         if result.unsafe:
             await drone.set_velocity(VelocityCommand())
             print(
@@ -873,18 +913,22 @@ async def _approach_circuit_start_corner(
             return None
 
         cmd = result.command
+        cmd.down_m_s = down_speed
         await drone.set_velocity(cmd)
         if step % 20 == 0:
             print(
                 f"  [hangar-circuit-start] {time.time() - started:.1f}s "
                 f"rear={rear:.2f}m {side}={side_dist:.2f}m "
-                f"cmd: fwd={cmd.forward_m_s:+.2f} lat={cmd.right_m_s:+.2f}"
+                f"agl={_fmt_m(agl, 2)} alt_err={alt_error:+.2f}m "
+                f"cmd: fwd={cmd.forward_m_s:+.2f} lat={cmd.right_m_s:+.2f} "
+                f"down={cmd.down_m_s:+.2f}"
             )
-        if result.done:
+        if result.done and altitude_stable_hits >= 3:
             await drone.set_velocity(VelocityCommand())
             print(
                 f"  [hangar-circuit-start] LOCKED: "
-                f"rear={rear:.2f}m {side}={side_dist:.2f}m"
+                f"rear={rear:.2f}m {side}={side_dist:.2f}m "
+                f"agl={agl:.2f}m target_alt={target_alt_m:.2f}m"
             )
             return side
 
@@ -907,9 +951,10 @@ async def _stabilize_corner(
     drone: Drone,
     lidar: GazeboLidar,
     wall_distance: float,
+    target_alt_m: float,
     timeout_s: float = CORNER_TIMEOUT_S,
 ) -> bool:
-    """Stabilize after a right turn using rear and left wall distances."""
+    """Stabilize after a right turn using rear/left wall distances and altitude."""
     stabilizer = DistanceStabilizerController(
         targets=DistanceTargets(rear=wall_distance, left=wall_distance),
         max_forward_speed=0.30,
@@ -919,24 +964,43 @@ async def _stabilize_corner(
     )
     started = time.time()
     step = 0
+    altitude_stable_hits = 0
     while time.time() - started < timeout_s:
         scan = lidar.get_scan()
         if scan is None:
             await drone.set_velocity(VelocityCommand())
             await asyncio.sleep(0.05)
             continue
+        try:
+            pos = await asyncio.wait_for(drone.get_position(), timeout=0.5)
+            agl = _agl_from_position(pos, drone.ground_z)
+        except Exception:
+            agl = math.inf
 
         cmd = stabilizer.update(scan)
+        down_speed, alt_error, altitude_ok = _altitude_hold_down_speed(agl, target_alt_m)
+        if altitude_ok:
+            altitude_stable_hits += 1
+        else:
+            altitude_stable_hits = 0
+        cmd.down_m_s = down_speed
         await drone.set_velocity(cmd)
         if step % 10 == 0:
             print(
                 f"  [corner] front={scan.front_distance():.2f}m "
                 f"left={scan.left_distance():.2f}m "
                 f"rear={scan.rear_distance():.2f}m "
-                f"right={scan.right_distance():.2f}m"
+                f"right={scan.right_distance():.2f}m "
+                f"agl={_fmt_m(agl, 2)} alt_err={alt_error:+.2f}m "
+                f"down={cmd.down_m_s:+.2f}"
             )
-        if stabilizer.done:
+        if stabilizer.done and altitude_stable_hits >= 3:
             await drone.set_velocity(VelocityCommand())
+            print(
+                f"  [corner] LOCKED: left={scan.left_distance():.2f}m "
+                f"rear={scan.rear_distance():.2f}m "
+                f"agl={agl:.2f}m target_alt={target_alt_m:.2f}m"
+            )
             return True
 
         step += 1
@@ -1116,7 +1180,12 @@ async def run() -> None:
         nav = NavigationUnit(drone, lidar)
 
         print("\n--- Phase 1: approach circuit start corner ---")
-        start_side = await _approach_circuit_start_corner(drone, lidar, args.wall_distance)
+        start_side = await _approach_circuit_start_corner(
+            drone,
+            lidar,
+            args.wall_distance,
+            args.target_alt,
+        )
         if start_side is None:
             print("ERROR: start stabilization failed. Landing safely.")
             return
@@ -1738,7 +1807,7 @@ async def run() -> None:
                 return
 
             print("  Stabilizing corner...")
-            if not await _stabilize_corner(drone, lidar, args.wall_distance):
+            if not await _stabilize_corner(drone, lidar, args.wall_distance, args.target_alt):
                 print("  WARNING: corner stabilization timed out -- continuing")
 
             if leg == max_legs:

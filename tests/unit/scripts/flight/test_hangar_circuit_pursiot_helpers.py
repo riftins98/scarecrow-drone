@@ -6,15 +6,18 @@ import pytest
 from scripts.flight import hangar_circuit_pursiot as hangar
 
 
-def _position(north, east):
-    return SimpleNamespace(position=SimpleNamespace(north_m=north, east_m=east))
+def _position(north, east, down=-2.5):
+    return SimpleNamespace(position=SimpleNamespace(north_m=north, east_m=east, down_m=down))
 
 
 def _drone(*, positions, yaw=0.0):
     drone = MagicMock()
-    drone.get_position = AsyncMock(side_effect=[_position(n, e) for n, e in positions])
+    drone.get_position = AsyncMock(
+        side_effect=[_position(*pos) for pos in positions]
+    )
     drone.get_yaw = AsyncMock(return_value=yaw)
     drone.set_velocity = AsyncMock()
+    drone.ground_z = 0.0
     return drone
 
 
@@ -133,6 +136,30 @@ def test_current_landing_targets_use_current_rear_left(mock_lidar_scan):
 def test_nearest_start_side_prefers_closer_side(mock_lidar_scan):
     assert hangar._nearest_start_side(mock_lidar_scan(left=4.0, right=8.0)) == "left"
     assert hangar._nearest_start_side(mock_lidar_scan(left=8.0, right=4.0)) == "right"
+
+
+def test_altitude_hold_commands_descent_when_too_high():
+    down, error, ok = hangar._altitude_hold_down_speed(2.8, 2.5)
+
+    assert down > 0.0
+    assert error > 0.0
+    assert ok is False
+
+
+def test_altitude_hold_commands_climb_when_too_low():
+    down, error, ok = hangar._altitude_hold_down_speed(2.1, 2.5)
+
+    assert down < 0.0
+    assert error < 0.0
+    assert ok is False
+
+
+def test_altitude_hold_reports_ok_inside_tolerance():
+    down, error, ok = hangar._altitude_hold_down_speed(2.55, 2.5)
+
+    assert down == 0.0
+    assert abs(error) <= hangar.ALTITUDE_HOLD_TOLERANCE_M
+    assert ok is True
 
 
 @pytest.mark.asyncio
