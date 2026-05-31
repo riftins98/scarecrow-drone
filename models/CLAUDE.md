@@ -4,7 +4,7 @@ Gazebo SDF simulation models for drone, sensors, and test targets. `launch.sh` k
 
 ## Subdirectories
 - `ceiling_net/` — Static chain-link ceiling mesh used by `worlds/hangar_1.sdf`. Contains `model.sdf`, `model.config`, and `meshes/ceiling_net.glb`.
-- `holybro_x500/` — Holybro X500 quadcopter frame with all sensors attached (optical flow, downward rangefinder, upward ceiling rangefinder, 2D lidar, mono camera). model.sdf defines the full drone including sensor plugins.
+- `holybro_x500/` — Holybro X500 quadcopter frame with all sensors attached (optical flow, downward rangefinder, upward ceiling rangefinder, 2D lidar, mono camera). model.sdf defines the full drone including sensor plugins and keeps the flight sensors close to the frame so lidar/camera/rangefinder origins match the EKF sensor-offset configuration.
 - `lidar_2d_v2/` — 2D scanning lidar sensor plugin (1440 samples, 360 degrees, ~10Hz). Simulates RPLidar A1M8.
 - `mono_cam/` — Mono camera sensor plugin. Currently configured for 1280x720 capture to improve pigeon visibility while keeping the sim stable enough for flight tests. Topic: `camera_link/sensor/camera/image`.
 - `mono_cam_hd/` — Fixed monitoring camera model for GUI replacement stream. Configured at 1280x720 with `update_rate=30`. Intended for observer stream only (not flight/detection pipeline input).
