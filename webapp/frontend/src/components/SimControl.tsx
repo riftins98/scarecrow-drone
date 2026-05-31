@@ -10,8 +10,10 @@ import {
   StartFlightParams,
   WorldInfo,
   CameraInfo,
+  SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
+import { spawnMapForWorld } from './spawnMapLookup';
 
 interface Props {
   simStatus: SimStatus | null;
@@ -22,6 +24,8 @@ interface Props {
   onStopFlight: () => void;
   isConnecting: boolean;
   flightStartTime: Date | null;
+  selectedSpawn?: SpawnPoint | null;
+  onPreviewWorldChange?: (world: string) => void;
 }
 
 const DEFAULT_WORLD = 'drone_garage_pigeon_3d';
@@ -30,6 +34,8 @@ const DEFAULT_SCRIPT = 'demo_flight_v2.py';
 export default function SimControl({
   simStatus, flightStatus, onConnect, onDisconnect,
   onStartFlight, onStopFlight, isConnecting, flightStartTime,
+  selectedSpawn,
+  onPreviewWorldChange,
 }: Props) {
   const connected = simStatus?.connected || false;
   const launching = simStatus?.launching || false;
@@ -46,10 +52,33 @@ export default function SimControl({
   // Camera the user picked from the dropdown (only meaningful in headless mode).
   // Empty string -> "let backend default it" (currently "fixed").
   const [selectedCamera, setSelectedCamera] = useState<string>('');
-
   // Post-connect form state
   const [selectedScript, setSelectedScript] = useState<string>(DEFAULT_SCRIPT);
   const [scriptArgValues, setScriptArgValues] = useState<ScriptArgValues>({});
+
+  // Panic reset state.
+  const [resetting, setResetting] = useState<boolean>(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+
+  const handleReset = async () => {
+    if (resetting) return;
+    setResetMsg(null);
+    setResetting(true);
+    try {
+      const res = await api.resetDrone();
+      if (res.success) {
+        setResetMsg('Drone reset to spawn.');
+      } else {
+        setResetMsg(`Reset failed: ${res.error || 'unknown error'}`);
+      }
+    } catch (e) {
+      setResetMsg(`Reset failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setResetting(false);
+      // Auto-clear the status line after a few seconds.
+      window.setTimeout(() => setResetMsg(null), 5000);
+    }
+  };
 
   useEffect(() => {
     api.getSimOptions()
@@ -106,6 +135,10 @@ export default function SimControl({
     setScriptArgValues(initial);
   }, [selectedScript, options]);
 
+  useEffect(() => {
+    onPreviewWorldChange?.(selectedWorld);
+  }, [selectedWorld, onPreviewWorldChange]);
+
   // Live timer for the post-takeoff "detection time" display.
   const calcElapsed = () => {
     if (!flightStartTime) return '00:00';
@@ -121,12 +154,23 @@ export default function SimControl({
     return () => clearInterval(interval);
   }, [flightStartTime]);
 
+  const selectedSpawnMap = spawnMapForWorld(options, selectedWorld);
+  const spawnSupported = !!selectedSpawnMap;
+
   const handleConnect = () => {
     const params: ConnectSimParams = { world: selectedWorld, headless };
     if (headless && selectedCamera) {
       params.camera = selectedCamera;
     }
+    if (spawnSupported && selectedSpawn) {
+      params.spawn = selectedSpawn;
+    }
     onConnect(params);
+  };
+
+  const handleWorldChange = (world: string) => {
+    setSelectedWorld(world);
+    onPreviewWorldChange?.(world);
   };
 
   const handleStart = () => {
@@ -184,12 +228,13 @@ export default function SimControl({
                 </div>
               )}
 
-              <div className="sim-config-form">
+              <div className="sim-config-layout">
+                <div className="sim-config-form">
                 <label className="form-row">
                   <span className="form-label">World</span>
                   <select
                     value={selectedWorld}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedWorld(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleWorldChange(e.target.value)}
                     disabled={!options}
                   >
                     {options ? options.worlds.map((w: WorldInfo) => (
@@ -242,6 +287,8 @@ export default function SimControl({
                     )}
                   </label>
                 )}
+
+                </div>
               </div>
 
               <div className="control-buttons">
@@ -340,6 +387,18 @@ export default function SimControl({
           Disconnect
         </button>
       </div>
+
+      {/* Panic reset — always available while connected (even mid-flight).
+          Kills the flight, force-disarms, and teleports the drone to spawn. */}
+      <button
+        className="btn btn-panic"
+        onClick={handleReset}
+        disabled={resetting}
+        title="Emergency: stop the flight, disarm, and snap the drone back to its spawn position."
+      >
+        {resetting ? 'RESETTING…' : '⟲ RESET DRONE'}
+      </button>
+      {resetMsg && <div className="panic-msg">{resetMsg}</div>}
 
       {flying && (
         <div className="flight-status">

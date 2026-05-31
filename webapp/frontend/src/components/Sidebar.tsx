@@ -27,24 +27,6 @@ export default function Sidebar({ activeTab, onChange, connected, flying }: Prop
           onClick={() => onChange('history')}
         />
       </div>
-
-      <div className="hud-sidebar-section">
-        <div className="hud-sidebar-section-label">DIAGNOSTICS</div>
-        <SidebarBtn
-          active={false}
-          disabled
-          icon={<IconLayers />}
-          label="World Map"
-          sub="work in progress"
-        />
-        <SidebarBtn
-          active={false}
-          disabled
-          icon={<IconGear />}
-          label="Settings"
-          sub="work in progress"
-        />
-      </div>
     </nav>
   );
 }
@@ -91,22 +73,6 @@ function IconHistory() {
     <svg viewBox="0 0 20 20" {...stroke}>
       <circle cx="10" cy="10" r="7" />
       <path d="M10 6 L10 10 L13 12" />
-    </svg>
-  );
-}
-function IconLayers() {
-  return (
-    <svg viewBox="0 0 20 20" {...stroke}>
-      <path d="M10 3 L17 7 L10 11 L3 7 Z" />
-      <path d="M3 12 L10 16 L17 12" />
-    </svg>
-  );
-}
-function IconGear() {
-  return (
-    <svg viewBox="0 0 20 20" {...stroke}>
-      <circle cx="10" cy="10" r="2.5" />
-      <path d="M10 2 L10 4 M10 16 L10 18 M2 10 L4 10 M16 10 L18 10 M4 4 L5.5 5.5 M14.5 14.5 L16 16 M4 16 L5.5 14.5 M14.5 5.5 L16 4" />
     </svg>
   );
 }

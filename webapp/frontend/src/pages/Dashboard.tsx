@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import SimControl from '../components/SimControl';
 import FlightHistory from '../components/FlightHistory';
 import FlightModal from '../components/FlightModal';
@@ -6,14 +6,19 @@ import HudHeader from '../components/HudHeader';
 import Sidebar from '../components/Sidebar';
 import TelemetryRail from '../components/TelemetryRail';
 import Minimap from '../components/Minimap';
+import RespawnPanel from '../components/RespawnPanel';
 import CameraStream from '../components/CameraStream';
 import SystemLog from '../components/SystemLog';
 import Ticker from '../components/Ticker';
+import SpawnPicker from '../components/SpawnPicker';
+import { spawnMapForWorld } from '../components/spawnMapLookup';
 import {
   Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams,
-  SimOptions, WorldInfo,
+  SimOptions, WorldInfo, SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
+
+const DEFAULT_WORLD = 'drone_garage_pigeon_3d';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'control' | 'history'>('control');
@@ -29,8 +34,17 @@ export default function Dashboard() {
   // Sim options (worlds + cameras + scripts) — fetched once on mount so
   // CameraStream knows the available cameras for the active world.
   const [simOptions, setSimOptions] = useState<SimOptions | null>(null);
+  const [previewWorld, setPreviewWorld] = useState<string>(DEFAULT_WORLD);
+  const [previewSpawn, setPreviewSpawn] = useState<SpawnPoint | null>(null);
   useEffect(() => {
-    api.getSimOptions().then(setSimOptions).catch(() => { });
+    api.getSimOptions()
+      .then((data: SimOptions) => {
+        setSimOptions(data);
+        if (data.worlds.length > 0 && !data.worlds.find((w) => w.name === DEFAULT_WORLD)) {
+          setPreviewWorld(data.worlds[0].name);
+        }
+      })
+      .catch(() => { });
   }, []);
 
   // Poll sim status. Fetch immediately on mount so the UI doesn't render a
@@ -38,12 +52,17 @@ export default function Dashboard() {
   // On transient fetch errors, keep the last good state instead of nuking it
   // back to "Offline" — that previously bounced users to the pre-connect form
   // mid-launch on a single hiccup.
+  // While a disconnect is in flight, freeze the status poller so a stale
+  // snapshot captured *before* the DELETE can't bounce the UI back to
+  // "connected" right after the user clicks Disconnect.
+  const disconnectingRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     const fetchOnce = async () => {
+      if (disconnectingRef.current) return; // suppressed during disconnect
       try {
         const status = await api.getSimStatus();
-        if (!cancelled) setSimStatus(status);
+        if (!cancelled && !disconnectingRef.current) setSimStatus(status);
       } catch {
         // ignore — keep last known state
       }
@@ -107,22 +126,32 @@ export default function Dashboard() {
   }, [isConnecting, simStatus?.launching, simStatus?.connected]);
 
   const handleDisconnect = useCallback(async () => {
+    // Freeze the status poller so an in-flight (pre-DELETE) status snapshot
+    // can't flip the UI back to "connected" after we tear down.
+    disconnectingRef.current = true;
+    const offline = {
+      connected: false,
+      launching: false,
+      log: [],
+      progress: { steps: [] },
+      world: '',
+      headless: false,
+      camera: null,
+      streamUrl: null,
+    };
     try {
       await api.disconnectSim();
-      setSimStatus({
-        connected: false,
-        launching: false,
-        log: [],
-        progress: { steps: [] },
-        world: '',
-        headless: false,
-        camera: null,
-        streamUrl: null,
-        rtf: null,
-      });
+      setSimStatus(offline);
       setFlightStatus(null);
     } catch (e: any) {
       setError(e.message);
+      // Even if the request errored, reflect the user's intent locally so the
+      // button doesn't appear dead; the next poll will reconcile.
+      setSimStatus(offline);
+    } finally {
+      // Let the DELETE settle on the backend, then re-enable polling. A short
+      // delay covers any status request that was already in flight.
+      window.setTimeout(() => { disconnectingRef.current = false; }, 1500);
     }
   }, []);
 
@@ -149,6 +178,13 @@ export default function Dashboard() {
     }
   }, []);
 
+  const handlePreviewWorldChange = useCallback((world: string) => {
+    setPreviewWorld((current) => {
+      if (current !== world) setPreviewSpawn(null);
+      return world;
+    });
+  }, []);
+
   const handleSelectFlight = useCallback(async (flight: Flight) => {
     setSelectedFlight(flight);
     try {
@@ -167,6 +203,15 @@ export default function Dashboard() {
   const connected = !!simStatus?.connected;
   const launching = !!simStatus?.launching;
   const flying = !!flightStatus?.isFlying;
+  // The Re-spawn card only shows for worlds with parsed spawn geometry while
+  // connected and on the ground. Drive the grid column off the SAME condition
+  // so we don't reserve an empty column.
+  const activeSpawnMap = spawnMapForWorld(simOptions, simStatus?.world);
+  const previewSpawnMap = spawnMapForWorld(simOptions, previewWorld);
+  const showSpawnPlacement = !connected && !launching && !!previewSpawnMap;
+  const respawnVisible =
+    connected && !flying &&
+    !!activeSpawnMap;
 
   return (
     <div className="dashboard">
@@ -197,7 +242,14 @@ export default function Dashboard() {
 
           {activeTab === 'control' && (
             <>
-              <div className="control-grid">
+              <div className={`control-grid ${respawnVisible ? 'with-respawn' : ''}`}>
+                {respawnVisible && (
+                  <RespawnPanel
+                    simStatus={simStatus}
+                    flightStatus={flightStatus}
+                    options={simOptions}
+                  />
+                )}
                 <SimControl
                   simStatus={simStatus}
                   flightStatus={flightStatus}
@@ -207,9 +259,38 @@ export default function Dashboard() {
                   onStopFlight={handleStopFlight}
                   isConnecting={isConnecting}
                   flightStartTime={flightStartTime}
+                  selectedSpawn={previewSpawn}
+                  onPreviewWorldChange={handlePreviewWorldChange}
                 />
                 <div className="control-side-stack">
-                  <Minimap active={connected} />
+                  {showSpawnPlacement && previewSpawnMap ? (
+                    <div className="minimap spawn-side-picker">
+                      <div className="minimap-header">
+                        <span className="minimap-title">Spawn : {previewWorld}</span>
+                        <span className="minimap-live">OFFLINE</span>
+                      </div>
+                      <SpawnPicker
+                        map={previewSpawnMap}
+                        value={previewSpawn}
+                        onChange={setPreviewSpawn}
+                        disabled={isConnecting}
+                      />
+                      <div className="minimap-footer">
+                        <span className="minimap-coord">
+                          {previewSpawn
+                            ? `X: ${previewSpawn.x.toFixed(1)}  Y: ${previewSpawn.y.toFixed(1)}`
+                            : 'Default spawn'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <Minimap
+                      simStatus={simStatus}
+                      flightStatus={flightStatus}
+                      options={simOptions}
+                      previewWorld={previewWorld}
+                    />
+                  )}
                   {simStatus?.headless && (
                     <CameraStream
                       streamUrl={simStatus.streamUrl}

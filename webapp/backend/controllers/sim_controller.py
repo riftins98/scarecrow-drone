@@ -6,13 +6,15 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from dependencies import sim_service
+from dependencies import sim_service, detection_service, flight_service
+from services.sim_service import DEFAULT_WORLD
 from services.script_metadata import (
     list_flight_scripts,
     list_worlds,
     script_info_to_dict,
     world_info_to_dict,
 )
+from services.world_geometry import all_spawn_maps
 
 router = APIRouter(prefix="/api/sim", tags=["sim"])
 
@@ -21,10 +23,16 @@ WORLDS_DIR = os.path.join(REPO_ROOT, "worlds")
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts", "flight")
 
 
+class SpawnPoint(BaseModel):
+    x: float
+    y: float
+
+
 class ConnectRequest(BaseModel):
     world: Optional[str] = None
     headless: Optional[bool] = False
     camera: Optional[str] = None  # e.g. "fixed", "center" — headless only
+    spawn: Optional[SpawnPoint] = None  # custom start location for mapped worlds
 
 
 @router.post("/connect")
@@ -32,17 +40,29 @@ async def connect_sim(req: Optional[ConnectRequest] = None):
     """Launch PX4 + Gazebo (non-blocking, poll /api/sim/status for progress).
 
     Optional body:
-        {"world": "drone_garage_pigeon_3d", "headless": false, "camera": "fixed"}
-    Defaults match the legacy behavior (drone_garage_pigeon_3d, GUI).
+        {"world": "drone_garage_pigeon_3d", "headless": false, "camera": "fixed",
+         "spawn": {"x": 5, "y": -4.5}}
+    Defaults match the legacy behavior (drone_garage_pigeon_3d, GUI, default spawn).
     """
     try:
         world = (req.world if req else None) or "drone_garage_pigeon_3d"
         headless = bool(req.headless) if req else False
         camera = req.camera if req else None
-        sim_service.launch(world=world, headless=headless, camera=camera)
+        spawn = (req.spawn.model_dump() if req and req.spawn else None)
+        sim_service.launch(world=world, headless=headless, camera=camera, spawn=spawn)
         return {"success": True, "message": "Simulation launching..."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@router.post("/spawn")
+async def set_spawn(req: SpawnPoint):
+    """Re-spawn the drone at (x, y) on a running mapped world.
+    Validates the >=3m wall margin, teleports the drone there, and updates the
+    spawn the panic reset returns to. Returns {success, error?, spawn?}."""
+    if not sim_service.is_connected:
+        return {"success": False, "error": "Simulation not running"}
+    return sim_service.set_spawn(req.x, req.y)
 
 
 @router.delete("/connect")
@@ -65,8 +85,82 @@ async def switch_camera(req: CameraSwitchRequest):
     return sim_service.switch_camera(req.camera)
 
 
+@router.post("/reset")
+async def reset_drone():
+    """Panic reset: stop the flight and snap the drone back to its spawn pose.
+
+    Sequence (each step best-effort so a partial failure still resets the pose):
+      1. Hard-kill the running flight script (it stops commanding the drone).
+      2. Force-disarm via PX4 console so the autopilot won't fly back up.
+      3. Teleport the Gazebo model back to the spawn pose.
+      4. Re-apply the launch-time PX4 drone init values.
+      5. Mark the in-progress flight aborted in the DB.
+
+    Returns {success, killedFlight, disarmed, teleport, droneValues, error?}.
+    """
+    if not sim_service.is_connected:
+        return {"success": False, "error": "Simulation not running"}
+
+    # The reset is several seconds of blocking work (pkill, MAVSDK disarm,
+    # gz set_pose). Offload it to a worker thread so we don't stall the event
+    # loop (and so force_disarm's own event loop has a thread without a running
+    # loop to run on — calling it inline from this async handler would raise
+    # "cannot be called from a running event loop").
+    def _do_reset() -> dict:
+        # 1. Kill the flight script (if any) so it stops sending setpoints.
+        flight_id = detection_service.flight_id
+        killed = detection_service.kill()
+
+        # 2. Disarm via PX4's console (commander disarm -f) — instant and
+        #    race-free, vs. opening a competing MAVLink connection. Exits
+        #    offboard to Hold first so PX4 stops chasing its last setpoint.
+        disarmed = sim_service.disarm_via_console()
+
+        # 3. Teleport back to spawn.
+        teleport = sim_service.reset_drone_pose()
+
+        # 4. Re-apply the drone-specific init that launch performs, without
+        #    restarting PX4/Gazebo or touching other world components.
+        drone_values = sim_service.reset_drone_values_via_console()
+
+        # 5. Mark the flight aborted so history reflects the panic stop.
+        if flight_id:
+            try:
+                flight_service.abort_flight(flight_id)
+            except Exception:
+                pass
+
+        values_ok = all(bool(ok) for ok in drone_values.values())
+        error = teleport.get("error")
+        if teleport.get("success") and not values_ok:
+            error = "drone values reset did not complete"
+
+        return {
+            "success": bool(teleport.get("success")) and values_ok,
+            "killedFlight": killed,
+            "disarmed": disarmed,
+            "teleport": teleport,
+            "droneValues": drone_values,
+            "error": error,
+        }
+
+    import asyncio
+    return await asyncio.to_thread(_do_reset)
+
+
 @router.get("/status")
 async def sim_status():
+    # The live drone pose is a BLOCKING subprocess call (two `gz` invocations,
+    # up to 5s each). Running it directly in this async route would block the
+    # whole event loop and stall every other request — that's what was starving
+    # POST /api/flight/start. Offload it to a thread so the loop stays free.
+    import asyncio
+    drone_pose = None
+    if sim_service.is_connected:
+        try:
+            drone_pose = await asyncio.to_thread(sim_service.drone_pose)
+        except Exception:
+            drone_pose = None
     return {
         "connected": sim_service.is_connected,
         "launching": sim_service.launching,
@@ -76,7 +170,10 @@ async def sim_status():
         "headless": sim_service.headless,
         "camera": sim_service.camera,
         "streamUrl": sim_service.stream_url,
-        "rtf": sim_service.rtf,
+        "spawn": sim_service.spawn,
+        # Live drone world pose for the map (None if unavailable -> map falls
+        # back to the spawn point). Only queried while connected.
+        "dronePose": drone_pose,
     }
 
 
@@ -236,7 +333,22 @@ async def sim_options():
     the post-connect script picker.
     """
     fast_metadata = os.getenv("SCARECROW_FAST_SCRIPT_METADATA", "").lower() in ("1", "true", "yes")
+    spawn_maps = all_spawn_maps(WORLDS_DIR)
+    worlds = []
+    for w in list_worlds(WORLDS_DIR):
+        data = world_info_to_dict(w)
+        data["spawn"] = spawn_maps.get(w.name)
+        worlds.append(data)
+
+    default_spawn = spawn_maps.get(DEFAULT_WORLD)
     return {
-        "worlds": [world_info_to_dict(w) for w in list_worlds(WORLDS_DIR)],
+        "worlds": worlds,
         "scripts": [script_info_to_dict(s) for s in list_flight_scripts(SCRIPTS_DIR, fast=fast_metadata)],
+        # Per-world spawn maps derived from each SDF. Top-level legacy fields
+        # are kept for older frontend builds; new UI reads worlds[].spawn.
+        "spawnMaps": spawn_maps,
+        "spawnWorld": DEFAULT_WORLD if default_spawn else None,
+        "spawnBounds": default_spawn["bounds"] if default_spawn else None,
+        "spawnObstacles": default_spawn["obstacles"] if default_spawn else [],
+        "spawnObstacleMargin": default_spawn["obstacleMargin"] if default_spawn else None,
     }

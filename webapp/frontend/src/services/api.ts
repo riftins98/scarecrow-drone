@@ -44,11 +44,29 @@ export const setSimCamera = (camera: string): Promise<{
   noop?: boolean;
 }> => postJson('/api/sim/camera', { camera });
 
+/** Re-spawn the drone at (x, y) on a running mapped world. Validates wall and
+ *  obstacle clearance, teleports, and moves where the panic reset returns. */
+export const setSpawn = (x: number, y: number): Promise<{
+  success: boolean;
+  spawn?: { x: number; y: number };
+  error?: string;
+}> => postJson('/api/sim/spawn', { x, y });
+
 // Flight control
 export const startFlight = (params?: StartFlightParams) =>
   postJson('/api/flight/start', params || {});
 export const stopFlight = () => fetchJson('/api/flight/stop', { method: 'POST' });
 export const getFlightStatus = () => fetchJson('/api/flight/status');
+
+/** Panic reset: hard-kill the flight, force-disarm, and teleport the drone
+ *  back to its spawn pose in the world. */
+export const resetDrone = (): Promise<{
+  success: boolean;
+  killedFlight?: boolean;
+  disarmed?: boolean;
+  teleport?: { success: boolean; model?: string; error?: string };
+  error?: string;
+}> => postJson('/api/sim/reset');
 
 // Sim launcher stdout. Polled by SystemLog with the last cursor.
 // Shows PX4 build, Gazebo start, and other launcher output during connect.

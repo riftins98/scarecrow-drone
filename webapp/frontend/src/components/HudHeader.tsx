@@ -20,7 +20,7 @@ interface Props {
  * Mapping (each light shows a different live reading):
  *   BAT  — battery percent
  *   ALT  — altitude as % of 2.5m target altitude
- *   RTF  — Gazebo real-time factor (1.0 = 100%)
+ *   DETS — pigeon detections (grey at zero, green once anything is detected)
  *   DET  — flight active (binary; grey when not flying, green when flying)
  */
 export default function HudHeader({ simStatus, flightStatus }: Props) {
@@ -50,9 +50,10 @@ export default function HudHeader({ simStatus, flightStatus }: Props) {
   const altPct = connected && tel.altitude !== undefined
     ? Math.max(0, (tel.altitude / 2.5) * 100)
     : null;
-  const rtfPct = connected && simStatus?.rtf !== undefined && simStatus?.rtf !== null
-    ? simStatus.rtf * 100
-    : null;
+  // Detections light: grey when none, full green once the YOLO pipeline has
+  // logged at least one hit. Uses the parsed telemetry detection count.
+  const detsCount = connected && tel.detections !== undefined ? tel.detections : null;
+  const detsPct = detsCount !== null ? (detsCount > 0 ? 100 : 0) : null;
   const detPct = flying ? 100 : null;
 
   return (
@@ -89,7 +90,7 @@ export default function HudHeader({ simStatus, flightStatus }: Props) {
         <div className="hud-lights">
           <Light label="BAT" pct={batPct} />
           <Light label="ALT" pct={altPct} />
-          <Light label="RTF" pct={rtfPct} />
+          <Light label="DETS" pct={detsPct} />
           <Light label="DET" pct={detPct} pulsing={flying} />
         </div>
       </div>

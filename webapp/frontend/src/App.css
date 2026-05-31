@@ -323,6 +323,118 @@ body {
   cursor: not-allowed;
 }
 
+/* Panic reset — full-width alarm button below the normal controls. Brighter,
+   warmer red than .btn-stop so it reads as "emergency", not "stop detection". */
+.btn-panic {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 14px 0;
+  background: linear-gradient(180deg, #a83232 0%, #8a2020 50%, #6e1414 100%);
+  color: #ffe0e0;
+  border: 1px solid #c44;
+  letter-spacing: 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    0 0 14px rgba(200, 60, 60, 0.35);
+}
+.btn-panic:hover:not(:disabled) {
+  background: linear-gradient(180deg, #c43c3c 0%, #a83232 50%, #8a2020 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    0 0 22px rgba(220, 70, 70, 0.6);
+}
+.btn-panic:disabled {
+  background: linear-gradient(180deg, #5a3a3a 0%, #3a2424 100%);
+  color: #a88;
+  border-color: #5a3a3a;
+  cursor: progress;
+  box-shadow: none;
+}
+.panic-msg {
+  margin-top: 8px;
+  text-align: center;
+  font-family: 'Consolas', monospace;
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  color: #c89090;
+}
+
+/* Spawn picker — top-down room map for choosing the drone start location. */
+.form-row-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.spawn-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.spawn-picker-svg {
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  background: #0d1208;
+  border: 1px solid #2f2f2f;
+  border-radius: 3px;
+  cursor: crosshair;
+}
+.spawn-picker-disabled .spawn-picker-svg {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.spawn-picker-readout {
+  font-family: 'Courier New', monospace;
+  font-size: 0.78rem;
+  letter-spacing: 1px;
+  color: #b6c57a;
+}
+.spawn-side-picker .spawn-picker {
+  margin-top: 6px;
+}
+.spawn-side-picker .spawn-picker-svg {
+  max-width: min(100%, 360px);
+  border-color: #8b9a5b;
+}
+.spawn-side-picker .minimap-footer {
+  justify-content: center;
+}
+
+/* Post-connect re-spawn panel. */
+.respawn-panel {
+  margin-top: 14px;
+  padding: 12px;
+  background: rgba(20, 24, 14, 0.5);
+  border: 1px solid #2f2f2f;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.btn-respawn {
+  width: 100%;
+  padding: 10px 0;
+  background: linear-gradient(180deg, #4a6a7b 0%, #3a5a6b 50%, #2a4a5a 100%);
+  color: #cfe6e6;
+  border: 1px solid #5a7a8b;
+  letter-spacing: 3px;
+}
+.btn-respawn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5a7a8b 0%, #4a6a7b 50%, #3a5a6b 100%);
+  box-shadow: 0 0 12px rgba(122, 154, 154, 0.4);
+}
+.btn-respawn:disabled {
+  background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+  color: #555;
+  border-color: #2a2a2a;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .btn-connect {
   background: linear-gradient(180deg, #3a5a6b 0%, #2a4a5a 50%, #1a3a4a 100%);
   color: #b0d0d0;
@@ -780,11 +892,15 @@ body {
 }
 
 /* --- Sim configuration form (pre-connect) --- */
+/* Pre-connect config form. Spawn placement lives in the right-side map card. */
+.sim-config-layout {
+  margin: 18px 0 22px;
+}
+
 .sim-config-form {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin: 18px 0 22px;
 }
 .sim-config-form .form-row {
   display: flex;
@@ -1399,6 +1515,32 @@ body {
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(139,154,91,0.4), transparent);
 }
+/* Each gauge has an instant hover tooltip; cue that it's hoverable. */
+.tel-gauge { cursor: help; }
+
+/* Instant cursor-following tooltip. Fixed-positioned at the document layer so
+   the rail's overflow-x:auto can't clip it; no enter delay (unlike title=). */
+.tel-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 260px;
+  transform: translateY(-100%);
+  padding: 6px 9px;
+  background: #0d0d0d;
+  border: 1px solid #3a3a3a;
+  border-left: 2px solid #8b9a5b;
+  border-radius: 2px;
+  color: #c8c8c8;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  letter-spacing: 0.3px;
+  font-family: 'Courier New', monospace;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+  pointer-events: none;
+  white-space: normal;
+}
+/* When flipped below the cursor, anchor by the top edge instead. */
+.tel-tooltip-below { transform: none; }
 
 .tel-head {
   display: flex;
@@ -1425,6 +1567,13 @@ body {
   margin-left: 3px;
   font-weight: 400;
 }
+/* Text readouts (PHASE / STANDBY) — strings, not numbers. Slightly smaller so
+   a longer label still fits the gauge without forcing extra rail width. */
+.tel-value-text {
+  font-size: 0.82rem;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+}
 .tel-gauge.nil .tel-value,
 .tel-compass.nil .tel-value {
   color: #505050;
@@ -1450,6 +1599,45 @@ body {
 @keyframes tel-bar-warn {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.55; }
+}
+
+/* Idle "AWAITING TELEMETRY" placeholder: a teal segment sweeps across the bar
+   on a loop so the rail reads as a live link waiting for a feed. */
+.tel-await-fill {
+  width: 40%;
+  background: linear-gradient(90deg, transparent 0%, #4a6a7b 35%, #7a9a9a 50%, #4a6a7b 65%, transparent 100%);
+  box-shadow: 0 0 8px rgba(122,154,154,0.4);
+  animation: tel-await-sweep 1.8s ease-in-out infinite;
+  transition: none;
+}
+@keyframes tel-await-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(260%); }
+}
+/* Small breathing dot next to the AWAITING label. */
+.tel-await-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #7a9a9a;
+  box-shadow: 0 0 6px rgba(122,154,154,0.7);
+  vertical-align: middle;
+  animation: tel-await-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tel-await-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tel-await-fill {
+    animation: none;
+    transform: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+  .tel-await-dot { animation: none; opacity: 0.8; }
 }
 .tel-bar-ticks {
   position: absolute;
@@ -1592,9 +1780,24 @@ body {
   gap: 24px;
   align-items: start;
 }
-@media (max-width: 1100px) {
-  .control-grid { grid-template-columns: 1fr; }
+/* When the Re-spawn card is present, add a left column for it:
+   [ Re-spawn ] [ Sim Control ] [ Minimap + Camera ]. */
+.control-grid.with-respawn {
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) 420px;
 }
+@media (max-width: 1400px) {
+  .control-grid.with-respawn {
+    grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  }
+}
+@media (max-width: 1100px) {
+  .control-grid,
+  .control-grid.with-respawn { grid-template-columns: 1fr; }
+}
+
+/* The Re-spawn card is just a tighter drone-control card. */
+.respawn-card h2 { margin-bottom: 14px; }
+.respawn-panel-flush { margin-top: 0; }
 
 /* ============================================================
    SIDEBAR
@@ -2362,6 +2565,16 @@ body {
   font-weight: 700;
   text-shadow: 0 0 6px rgba(139,154,91,0.3);
 }
+.minimap-live {
+  font-size: 0.62rem;
+  letter-spacing: 2px;
+  color: #707070;
+  font-family: 'Courier New', monospace;
+}
+.minimap-live.live {
+  color: #b6c57a;
+  text-shadow: 0 0 6px rgba(139,154,91,0.4);
+}
 .minimap-tag {
   color: #909090;
   font-size: 0.68rem;
@@ -2374,6 +2587,12 @@ body {
 .minimap-scope {
   position: relative;
   aspect-ratio: 1 / 1;
+}
+.minimap-unavailable {
+  display: grid;
+  place-items: center;
+  border: 1px dashed #2a3a1a;
+  background: rgba(13,18,8,0.55);
 }
 .minimap-svg {
   display: block;
