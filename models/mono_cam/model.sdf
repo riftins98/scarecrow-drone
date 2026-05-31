@@ -60,6 +60,7 @@
             <near>0.1</near>
             <far>100</far>
           </clip>
+          <visibility_mask>1</visibility_mask>
         </camera>
         <always_on>1</always_on>
         <update_rate>15</update_rate>

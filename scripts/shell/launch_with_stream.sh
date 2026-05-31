@@ -45,6 +45,12 @@ SELECTED_CAMERAS=()
 # Accept both "world_name" and "world_name.sdf" inputs.
 WORLD="${WORLD%.sdf}"
 
+if [[ "$WORLD" == "hangar_1_wall_pursuit" ]]; then
+    DEFAULT_POSE="-9,4.5,0,0,0,0"
+elif [[ "$WORLD" == "hangar_lite" ]]; then
+    DEFAULT_POSE="4,-3,0,0,0,0"
+fi
+
 # Default spawn pose (can be overridden by exporting PX4_GZ_MODEL_POSE)
 if [ -z "${PX4_GZ_MODEL_POSE}" ]; then
     export PX4_GZ_MODEL_POSE="$DEFAULT_POSE"
