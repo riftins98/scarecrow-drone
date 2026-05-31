@@ -18,6 +18,41 @@ export interface LaunchStep {
   substatus?: string;
 }
 
+export interface SpawnPoint {
+  x: number;
+  y: number;
+}
+
+/** Axis-aligned world rectangle in meters. For spawn maps, `bounds` is the
+ *  valid interior (after wall margin), while `wallBounds` is the full floor. */
+export interface SpawnBounds {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+}
+
+/** A static obstacle: a rotated rectangle the drone may not spawn in
+ *  (center, yaw, and half-extents in meters). From SpawnMap.obstacles. */
+export interface SpawnObstacle {
+  cx: number;
+  cy: number;
+  yaw: number;   // radians
+  halfW: number; // half-width along the craft's local x (wingspan/2)
+  halfL: number; // half-length along the craft's local y (fuselage/2)
+  kind?: 'aircraft' | 'box';
+  label?: string;
+}
+
+export interface SpawnMap {
+  world: string;
+  wallBounds: SpawnBounds;
+  bounds: SpawnBounds;
+  obstacles: SpawnObstacle[];
+  obstacleMargin: number;
+  wallMargin: number;
+}
+
 export interface SimStatus {
   connected: boolean;
   launching: boolean;
@@ -28,8 +63,10 @@ export interface SimStatus {
   /** Camera flag stem currently streamed (e.g. "fixed"), null in GUI mode. */
   camera: string | null;
   streamUrl: string | null;
-  /** Gazebo real_time_factor (0..1+). null before the poller has a reading. */
-  rtf: number | null;
+  /** Current session spawn point (meters). */
+  spawn?: SpawnPoint;
+  /** Live drone world pose for the map; null when unavailable. */
+  dronePose?: { x: number; y: number; heading: number } | null;
 }
 
 export interface FlightStatus {
@@ -39,14 +76,35 @@ export interface FlightStatus {
   flight_id: string | null;
   pigeons_detected: number;
   frames_processed: number;
-  /** Latest TELEMETRY: payload from the flight script. Empty {} before
-   *  the first emission. Fields below are present once the script runs. */
+  /** Latest TELEMETRY: payload from the flight script, enriched by the
+   *  backend log parser. Empty {} before the first emission. Which fields
+   *  are present depends on the running script (the rail hides the rest). */
   telemetry?: {
     battery?: number;        // percent 0..100
-    distance?: number;       // meters
+    distance?: number;       // meters from takeoff
     detections?: number;     // cumulative pigeon hits
-    altitude?: number;       // meters AGL
+    altitude?: number;       // meters AGL (demo flights)
     heading?: number;        // degrees -180..180
+    // --- Parsed from human log lines by the backend (DetectionService) ---
+    phase?: string;          // short uppercase phase label, e.g. "HOVER"
+    agl?: number;            // live altitude-above-ground during climb/descent
+    ceiling?: number;        // ceiling clearance, meters (ceiling scripts)
+    leg?: number;            // room-circuit leg number
+    // Lidar wall distances in meters; null means "no wall on that side" (inf).
+    front?: number | null;
+    left?: number | null;
+    right?: number | null;
+    rear?: number | null;
+    wall?: number | null;    // active-side distance in the wall-follow controllers
+    // Commanded velocities from the control loop.
+    fwd?: number;            // forward m/s
+    lat?: number;            // lateral m/s
+    yaw?: number;            // yaw deg/s
+    // Mission outcomes.
+    target?: string;         // pursuit: "REACHED" or an uppercase exit reason
+    target_dist?: number;    // pursuit: front distance at target, meters
+    stop_reason?: string;    // wall-follow terminal stop reason (uppercase)
+    fps?: number;            // detection throughput (detect_pigeons summary)
   };
 }
 
@@ -65,6 +123,8 @@ export interface WorldInfo {
   name: string;
   path: string;
   cameras: CameraInfo[];
+  /** SDF-derived spawn map. Omitted only if the world has no parseable floor. */
+  spawn?: SpawnMap | null;
 }
 
 export interface ScriptArg {
@@ -88,6 +148,13 @@ export interface ScriptInfo {
 export interface SimOptions {
   worlds: WorldInfo[];
   scripts: ScriptInfo[];
+  /** Per-world SDF-derived spawn geometry, keyed by world name. */
+  spawnMaps?: Record<string, SpawnMap>;
+  /** Legacy fields kept for older backend/frontend compatibility. */
+  spawnWorld?: string;
+  spawnBounds?: SpawnBounds;
+  spawnObstacles?: SpawnObstacle[];
+  spawnObstacleMargin?: number;
 }
 
 export interface ConnectSimParams {
@@ -96,6 +163,8 @@ export interface ConnectSimParams {
   /** Headless-only. Picks which streamable camera the launcher points the
    *  WebRTC stream at. Backend silently falls back to "fixed" if invalid. */
   camera?: string;
+  /** Custom start location for mapped worlds; omit for the default spawn. */
+  spawn?: SpawnPoint;
 }
 
 // Map of {arg_name: value} sent to /api/flight/start.

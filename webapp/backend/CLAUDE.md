@@ -1,6 +1,6 @@
 # backend
 
-FastAPI REST API server. Fully layered architecture: Controllers -> Services -> Repositories -> DTOs -> Database. 40 API routes organized by domain.
+FastAPI REST API server. Fully layered architecture: Controllers -> Services -> Repositories -> DTOs -> Database. 44 API routes organized by domain.
 
 ## Subdirectories
 - `controllers/` — FastAPI router modules, one per ADD Appendix A section (see `controllers/CLAUDE.md`)
@@ -23,9 +23,9 @@ HTTP Request
            -> database/db.py + SQLite
 ```
 
-## API Endpoint Coverage (40 routes)
+## API Endpoint Coverage (44 routes)
 - `/api/health` — health check
-- `/api/sim/*` — A.1 simulation lifecycle (4 routes: connect, disconnect, status, options)
+- `/api/sim/*` — A.1 simulation lifecycle (connect, disconnect, status, options, camera, spawn, reset, log, log/view)
 - `/api/connection/*` — A.2 connection status (6 routes, mocked for sim)
 - `/api/drone/*` — A.3 drone control (6 routes)
 - `/api/flights/*`, `/api/flight/*` — A.4 flight history (9 routes + 3 legacy)

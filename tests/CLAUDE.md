@@ -64,7 +64,7 @@ pytest --cov=webapp/backend --cov=scarecrow     # with coverage report
   - `unit/scarecrow/flight/` — Flight orchestrator
   - `unit/scarecrow/drone/` — Drone class (with mocked mavsdk.System)
   - `unit/webapp/repositories/` — all 5 repository classes (UT-12..15 + DetectionImage)
-  - `unit/webapp/services/` — all 6 business services
+  - `unit/webapp/services/` — business services plus targeted sim/detection helpers: `test_detection_log_parser.py` covers the pure stdout-log regex parser, `test_detection_cleanup.py` covers process cleanup orchestration, `test_sim_console.py` covers PX4 console command delivery, and `test_spawn.py` covers SDF-derived spawn validation.
 - `integration/` — One file per controller + flow tests (flight lifecycle, chase, area map, drone, detection, connection, sim, static, health). Covers full HTTP stack with mocked subprocesses.
 
 ## Key Fixture Detail (repo_db)

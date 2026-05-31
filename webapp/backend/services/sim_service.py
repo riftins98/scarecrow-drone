@@ -1,4 +1,5 @@
 """Manages Gazebo simulation lifecycle."""
+import math
 import re
 import subprocess
 import os
@@ -6,9 +7,37 @@ import time
 import threading
 from typing import Optional
 
+from services.world_geometry import (
+    spawn_map_for_world,
+    validate_spawn as validate_world_spawn,
+)
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 DEFAULT_WORLD = "drone_garage_pigeon_3d"
+
+# Default drone spawn pose, "x,y,z,roll,pitch,yaw" — 5m in front of the pigeon
+# billboard, facing the north wall (+x, heading 0). Used when the user hasn't
+# picked a custom spawn. The active pose lives per-session on the instance
+# (``_spawn_pose``) so launch, the spawn picker, and the panic-reset teleport
+# all share one source of truth.
+DEFAULT_SPAWN_POSE = "5,-4.5,0,0,0,0"
+
+# Gazebo model-name prefix for the drone (the running model gets a numeric
+# suffix like holybro_x500_0; we discover the full name at reset time).
+DRONE_MODEL_PREFIX = "holybro_x500"
+
+# Backwards-compatible names for tests/importers. The actual geometry is now
+# parsed per-world from SDF by services.world_geometry.
+SPAWN_WORLD = DEFAULT_WORLD
+_DEFAULT_SPAWN_MAP = spawn_map_for_world(DEFAULT_WORLD) or {}
+SPAWN_BOUNDS = _DEFAULT_SPAWN_MAP.get("bounds", {})
+SPAWN_OBSTACLES = _DEFAULT_SPAWN_MAP.get("obstacles", [])
+
+
+def validate_spawn(x: float, y: float, world: str = DEFAULT_WORLD):
+    """Check an (x, y) spawn against a world's SDF-derived spawn map."""
+    return validate_world_spawn(world, x, y)
 
 LAUNCH_STEPS = [
     ("cleanup", "Cleaning up old sessions"),
@@ -26,8 +55,6 @@ LAUNCH_STEPS = [
 
 
 _STREAM_URL_RE = re.compile(r"https?://[^\s'\"]+:\d+/?")
-# Matches the line `real_time_factor: 0.0086609...` from `gz topic -e -t /stats`
-_RTF_RE = re.compile(r"^real_time_factor:\s*([\d.]+)")
 
 # Substatus extractors: each maps to a step_id; the function takes a line
 # and returns either a short status string ("Compiling [847/1157] foo.cpp")
@@ -77,12 +104,15 @@ class SimService:
         self._headless: bool = False
         self._camera: Optional[str] = None
         self._stream_url: Optional[str] = None
-        # Most-recent Gazebo /stats real_time_factor (0..1+), or None until
-        # the poller has read at least one frame.
-        self._rtf: Optional[float] = None
-        # Subprocess running `gz topic -e -t /stats` for the lifetime of
-        # the current sim. Killed on stop().
-        self._stats_proc: Optional[subprocess.Popen] = None
+        # Active spawn pose "x,y,z,roll,pitch,yaw" for the current session.
+        # Set at launch (from the user's pick or the default) and read by the
+        # panic-reset teleport so reset returns to wherever the drone started.
+        self._spawn_pose: str = DEFAULT_SPAWN_POSE
+        # Cached drone model name (e.g. "holybro_x500_0"). The model name never
+        # changes during a session, so we resolve it once and reuse it — this
+        # avoids a `gz model --list` subprocess on every single pose query.
+        # Cleared on stop() so the next session re-discovers it.
+        self._drone_model: Optional[str] = None
 
     # Camera names we'll pass through to launch_with_stream.sh as ``--<name>``
     # flags. Anything not in this allowlist is silently rejected to keep
@@ -91,7 +121,8 @@ class SimService:
     _DEFAULT_CAMERA = "fixed"
 
     def launch(self, world: str = DEFAULT_WORLD, headless: bool = False,
-               camera: Optional[str] = None) -> bool:
+               camera: Optional[str] = None,
+               spawn: Optional[dict] = None) -> bool:
         """Launch PX4 + Gazebo in background.
 
         Args:
@@ -102,11 +133,29 @@ class SimService:
             camera: Which streamable camera to point the headless stream
                 worker at (e.g. "fixed", "center"). Ignored when not
                 headless. Defaults to "fixed" if omitted or invalid.
+            spawn: Optional ``{"x": float, "y": float}`` start location. The
+                chosen world must have SDF-derived spawn geometry. The point is
+                validated to be >=3m from every wall and clear of static props.
+
+        Raises:
+            ValueError: if ``spawn`` is given but the world cannot support it
+                or the point fails the clearance check.
         """
         if self.connected and self.process and self.process.poll() is None:
             return True
         if self.launching:
             return False
+
+        # Resolve the spawn pose for this session. Custom spawn is honored for
+        # any world whose SDF exposes enough floor/obstacle geometry.
+        self._spawn_pose = DEFAULT_SPAWN_POSE
+        if spawn is not None:
+            x, y = float(spawn["x"]), float(spawn["y"])
+            ok, err = validate_spawn(x, y, world=world)
+            if not ok:
+                raise ValueError(err)
+            # Keep level + facing north (yaw 0), matching the default.
+            self._spawn_pose = f"{x},{y},0,0,0,0"
 
         self.stop()
         time.sleep(1)
@@ -132,8 +181,8 @@ class SimService:
         env = os.environ.copy()
         env.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
         env.setdefault("__NV_PRIME_RENDER_OFFLOAD", "1")
-        # Spawn drone 5m in front of pigeon billboard, facing north wall (+x, heading=0)
-        env["PX4_GZ_MODEL_POSE"] = "5,-4.5,0,0,0,0"
+        # Spawn at the session's chosen pose (custom pick or default).
+        env["PX4_GZ_MODEL_POSE"] = self._spawn_pose
 
         self.process = subprocess.Popen(
             ["bash", launch_script, *launch_args],
@@ -264,10 +313,6 @@ class SimService:
                     self._current_step = None
                     self.connected = True
                     self.launching = False
-                    # Sim is up — start the RTF poller. Cheap (single
-                    # subprocess streaming text we regex-match) so the
-                    # value updates a few times a second.
-                    self._start_rtf_poller()
                     continue
 
                 if self.process.poll() is not None:
@@ -282,13 +327,98 @@ class SimService:
                     print(f"  {line}", flush=True)
             self.launching = False
 
-    def _send_pxh_command(self, cmd: str):
+    def _send_pxh_command(self, cmd: str) -> bool:
+        """Send a command to PX4's pxh console. Returns True if it was written.
+
+        The launcher's pxh **FIFO** on disk (``/tmp/scarecrow_pxh.*.fifo``) is
+        the canonical path PX4 actually reads from, so it is tried FIRST. The
+        ``self.process.stdin`` pipe is only a fallback: when the sim was started
+        externally (``Start Scarecrow.bat``) ``self.process`` is None, and even
+        when this backend launched the sim, the live FIFO is the reliable feed
+        (writing to a stale/superseded ``process.stdin`` pipe silently goes
+        nowhere — that bug made the reset's disarm a no-op while still reporting
+        success). POSIX only — Windows has no FIFOs.
+        """
+        # Path 1 (preferred): the launcher's live pxh FIFO. Open non-blocking
+        # so we never hang if no reader is attached.
+        if os.name == "posix":
+            fifo = self._find_pxh_fifo()
+            if fifo:
+                try:
+                    flags = os.O_WRONLY | getattr(os, "O_NONBLOCK", 0)
+                    fd = os.open(fifo, flags)
+                    try:
+                        os.write(fd, (cmd + "\n").encode())
+                        return True
+                    finally:
+                        os.close(fd)
+                except OSError:
+                    pass
+
+        # Path 2 (fallback): our own subprocess pipe, if we launched the sim.
         if self.process and self.process.stdin:
             try:
                 self.process.stdin.write(cmd + "\n")
                 self.process.stdin.flush()
+                return True
             except Exception:
                 pass
+        return False
+
+    @staticmethod
+    def _find_pxh_fifo() -> Optional[str]:
+        """Locate the launcher's pxh command FIFO (created as
+        ``/tmp/scarecrow_pxh.XXXXXX.fifo``). Returns the newest match, or None.
+        """
+        import glob
+        import stat
+        tmp = os.environ.get("TMPDIR", "/tmp")
+        candidates = glob.glob(os.path.join(tmp, "scarecrow_pxh.*.fifo"))
+        # Keep only actual FIFOs, newest first.
+        fifos = []
+        for p in candidates:
+            try:
+                if stat.S_ISFIFO(os.stat(p).st_mode):
+                    fifos.append((os.stat(p).st_mtime, p))
+            except OSError:
+                continue
+        if not fifos:
+            return None
+        fifos.sort(reverse=True)
+        return fifos[0][1]
+
+    def disarm_via_console(self) -> bool:
+        """Panic disarm using PX4's console (no MAVLink, no mavsdk_server, no
+        connection race). Tries to switch out of the active flight mode into a
+        stationary Hold, then force-disarms. Instant and robust — this is the
+        mechanism the reset button relies on.
+
+        Note: the hold mode name differs across PX4 builds. `auto:hold` is
+        REJECTED by this SITL build ("argument auto:hold unsupported"), so we
+        try the widely-supported `auto:loiter` instead. The disarm is the part
+        that actually matters and works regardless — `commander disarm -f`
+        force-disarms even mid-takeoff — so the return only depends on it.
+        """
+        # Best-effort: stop commanding velocity by parking in a hover/hold mode
+        # before we cut the motors. Don't gate the result on this — the mode
+        # name is build-dependent and the disarm below is what guarantees the
+        # drone stops.
+        self._send_pxh_command("commander mode auto:loiter")
+        ok_disarm = self._send_pxh_command("commander disarm -f")
+        return ok_disarm
+
+    def reset_drone_values_via_console(self) -> dict:
+        """Reset the PX4-side drone values that launch initializes.
+
+        This intentionally does not restart PX4/Gazebo or reset the world. It
+        only replays the drone-specific commander setup used at launch so a
+        panic reset leaves the same running sim ready for another flight.
+        """
+        return {
+            "ekfOrigin": self._send_pxh_command("commander set_ekf_origin 0 0 0"),
+            "heading": self._send_pxh_command("commander set_heading 0"),
+            "disarmed": self._send_pxh_command("commander disarm -f"),
+        }
 
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.
@@ -383,54 +513,6 @@ class SimService:
         self._camera = camera
         return {"success": True, "camera": camera}
 
-    def _start_rtf_poller(self):
-        """Spawn `gz topic -e -t /stats` and parse `real_time_factor` lines
-        into ``self._rtf``. Runs forever in a background thread; killed
-        in ``stop()``. Only one poller at a time."""
-        if self._stats_proc and self._stats_proc.poll() is None:
-            return  # already running
-        env = os.environ.copy()
-        env.setdefault("GZ_PARTITION", "px4")
-        try:
-            self._stats_proc = subprocess.Popen(
-                ["gz", "topic", "-e", "-t", "/stats"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-                env=env,
-            )
-        except FileNotFoundError:
-            # `gz` not on PATH (rare; the sim wouldn't have launched).
-            # Leave RTF as None — frontend will show -- and move on.
-            return
-
-        proc = self._stats_proc
-
-        def _parse():
-            try:
-                for raw in proc.stdout:
-                    m = _RTF_RE.match(raw.strip())
-                    if m:
-                        try:
-                            self._rtf = float(m.group(1))
-                        except ValueError:
-                            pass
-            except Exception:
-                pass
-
-        threading.Thread(target=_parse, daemon=True).start()
-
-    def _stop_rtf_poller(self):
-        if self._stats_proc:
-            try:
-                self._stats_proc.kill()
-            except Exception:
-                pass
-            self._stats_proc = None
-        self._rtf = None
-
     def stop(self):
         self.connected = False
         self.launching = False
@@ -439,7 +521,7 @@ class SimService:
         self._step_substatus = {}
         self._stream_url = None
         self._camera = None
-        self._stop_rtf_poller()
+        self._drone_model = None  # re-discover for the next session
         if self.process:
             try:
                 self.process.kill()
@@ -451,11 +533,165 @@ class SimService:
         subprocess.run(["pkill", "-x", "px4"], capture_output=True)
         # Also kill stream camera workers spawned by launch_with_stream.sh
         subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
+        # And any flight script / its mavsdk_server still running, so tearing
+        # the sim down mid-flight doesn't orphan a script that then squats on
+        # port 14540 and blocks the next sim's flights.
+        flight_dir = os.path.join("scripts", "flight")
+        subprocess.run(["pkill", "-9", "-f", f"{flight_dir}.*\\.py"], capture_output=True)
+        subprocess.run(["pkill", "-9", "-f", "mavsdk_server"], capture_output=True)
         for f in ["/tmp/px4_lock-0", "/tmp/px4-sock-0"]:
             try:
                 os.remove(f)
             except OSError:
                 pass
+
+    def _discover_drone_model(self) -> Optional[str]:
+        """Find the running drone model's full Gazebo name (e.g.
+        ``holybro_x500_0``) by listing models in the current world. Returns
+        None if Gazebo isn't reachable or no matching model is found.
+
+        The result is cached for the session (the model name doesn't change),
+        so repeated callers (the live-pose poll) don't keep spawning a
+        ``gz model --list`` subprocess. Cleared on stop()."""
+        if self._drone_model:
+            return self._drone_model
+        try:
+            result = subprocess.run(
+                ["gz", "model", "--list"],
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, "GZ_PARTITION": os.environ.get("GZ_PARTITION", "px4")},
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        for raw in result.stdout.splitlines():
+            name = raw.strip().lstrip("- ").strip()
+            if name.startswith(DRONE_MODEL_PREFIX):
+                self._drone_model = name
+                return name
+        return None
+
+    def drone_pose(self) -> Optional[dict]:
+        """Query the drone model's live world pose from Gazebo for the map.
+        Returns ``{"x": float, "y": float, "heading": float_deg}`` or None if
+        Gazebo isn't reachable / the model isn't found / the output can't be
+        parsed. Best-effort: callers fall back to the spawn point.
+
+        ``gz model -m <name> -p`` prints the pose as two bracketed triples:
+        position [x y z] then orientation [roll pitch yaw] (radians). We pull
+        the first two bracketed groups of numbers and take x, y, and yaw.
+        """
+        if not self.is_connected:
+            return None
+        model = self._discover_drone_model()
+        if not model:
+            return None
+        try:
+            result = subprocess.run(
+                ["gz", "model", "-m", model, "-p"],
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, "GZ_PARTITION": os.environ.get("GZ_PARTITION", "px4")},
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+
+        # Find bracketed numeric triples like "[5.00 -4.50 0.20]".
+        groups = re.findall(r"\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\]",
+                            result.stdout)
+        if len(groups) < 2:
+            return None
+        try:
+            x, y, _z = (float(v) for v in groups[0])
+            _roll, _pitch, yaw = (float(v) for v in groups[1])
+        except ValueError:
+            return None
+        return {"x": round(x, 2), "y": round(y, 2),
+                "heading": round(math.degrees(yaw), 1)}
+
+    def _teleport_to(self, pose_str: str) -> dict:
+        """Teleport the drone model to ``pose_str`` ("x,y,z,roll,pitch,yaw")
+        via the world's ``set_pose`` service. Shared by the panic reset and the
+        re-spawn control. Returns ``{success, error?, model?}``."""
+        if not self.is_connected:
+            return {"success": False, "error": "Simulation not running"}
+
+        model = self._discover_drone_model()
+        if not model:
+            return {"success": False, "error": "drone model not found in Gazebo"}
+
+        # Parse "x,y,z,roll,pitch,yaw". Poses here are level (roll=pitch=0),
+        # so only yaw contributes to the orientation quaternion (0, 0, qz, qw).
+        try:
+            x, y, z, _roll, _pitch, yaw = (float(v) for v in pose_str.split(","))
+        except ValueError:
+            return {"success": False, "error": f"bad pose: {pose_str!r}"}
+
+        qz = math.sin(yaw / 2.0)
+        qw = math.cos(yaw / 2.0)
+        req = (
+            f'name: "{model}", '
+            f'position: {{x: {x}, y: {y}, z: {z}}}, '
+            f'orientation: {{x: 0, y: 0, z: {qz}, w: {qw}}}'
+        )
+        try:
+            result = subprocess.run(
+                [
+                    "gz", "service", "-s", f"/world/{self._world}/set_pose",
+                    "--reqtype", "gz.msgs.Pose",
+                    "--reptype", "gz.msgs.Boolean",
+                    "--timeout", "3000",
+                    "--req", req,
+                ],
+                capture_output=True, text=True, timeout=8,
+                env={**os.environ, "GZ_PARTITION": os.environ.get("GZ_PARTITION", "px4")},
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            return {"success": False, "error": f"set_pose call failed: {e}"}
+
+        # gz prints "data: true" on success.
+        ok = "true" in result.stdout.lower()
+        if not ok:
+            return {
+                "success": False,
+                "model": model,
+                "error": (result.stdout or result.stderr or "set_pose returned false").strip(),
+            }
+        return {"success": True, "model": model}
+
+    def reset_drone_pose(self) -> dict:
+        """Panic reset: teleport the drone back to the session's spawn pose
+        (the user's chosen start location, or the default). Does NOT disarm or
+        stop the flight script — the caller handles that first so the autopilot
+        isn't fighting the teleport.
+
+        Returns ``{"success": bool, "error"?: str, "model"?: str}``.
+        """
+        return self._teleport_to(self._spawn_pose)
+
+    def set_spawn(self, x: float, y: float) -> dict:
+        """Re-spawn the drone at (x, y) on a running sim: validate against the
+        current world's wall/obstacle margins, update the session spawn (so a
+        later panic reset returns here too), and teleport the drone there now.
+
+        Returns ``{success, error?, spawn?}``.
+        """
+        ok, err = validate_spawn(x, y, world=self._world)
+        if not ok:
+            return {"success": False, "error": err}
+        pose = f"{x},{y},0,0,0,0"
+        res = self._teleport_to(pose)
+        if res.get("success"):
+            self._spawn_pose = pose  # panic reset now returns to the new spot
+            res["spawn"] = {"x": x, "y": y}
+        return res
+
+    @property
+    def spawn(self) -> dict:
+        """Current session spawn as ``{"x": float, "y": float}``."""
+        parts = self._spawn_pose.split(",")
+        try:
+            return {"x": float(parts[0]), "y": float(parts[1])}
+        except (ValueError, IndexError):
+            return {"x": 0.0, "y": 0.0}
 
     @property
     def is_connected(self) -> bool:
@@ -526,9 +762,3 @@ class SimService:
     def stream_url(self) -> Optional[str]:
         """Browser-viewable camera stream URL, or None for GUI mode / not ready yet."""
         return self._stream_url
-
-    @property
-    def rtf(self) -> Optional[float]:
-        """Most recent Gazebo real_time_factor (0..1+). None before the
-        poller has read the first frame or after stop()."""
-        return self._rtf
