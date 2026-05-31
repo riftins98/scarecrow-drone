@@ -130,6 +130,11 @@ def test_current_landing_targets_use_current_rear_left(mock_lidar_scan):
     assert abs(targets.left - 2.5) < 0.5
 
 
+def test_nearest_start_side_prefers_closer_side(mock_lidar_scan):
+    assert hangar._nearest_start_side(mock_lidar_scan(left=4.0, right=8.0)) == "left"
+    assert hangar._nearest_start_side(mock_lidar_scan(left=8.0, right=4.0)) == "right"
+
+
 @pytest.mark.asyncio
 async def test_fly_to_point_safely_blocks_forward_when_front_unsafe(
     mock_lidar_scan,

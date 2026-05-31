@@ -31,6 +31,7 @@ from scarecrow.controllers.distance_stabilizer import (  # noqa: E402
     DistanceStabilizerController,
     DistanceTargets,
 )
+from scarecrow.controllers.corner_approach import CornerApproachController  # noqa: E402
 from scarecrow.controllers.target_pursuit import TargetPursuitConfig, TargetPursuitResult  # noqa: E402
 from scarecrow.controllers.wall_follow import VelocityCommand, WallFollowController  # noqa: E402
 from scarecrow.detection.tracking import TargetTracker  # noqa: E402
@@ -39,6 +40,14 @@ from scarecrow.drone import Drone  # noqa: E402
 from scarecrow.navigation.map_unit import MapUnit  # noqa: E402
 from scarecrow.navigation.navigation_unit import NavigationUnit  # noqa: E402
 from scarecrow.sensors.camera.gazebo import GazeboCamera  # noqa: E402
+from scarecrow.sensors.gz_entities import (  # noqa: E402
+    GzPx4FrameTransform,
+    discover_model_name,
+    discover_world_name,
+    find_model_pose,
+    get_world_model_poses,
+    remove_nearest_model,
+)
 from scarecrow.sensors.gz_utils import prefetch_gz_env_async  # noqa: E402
 from scarecrow.sensors.lidar.gazebo import GazeboLidar  # noqa: E402
 from scarecrow.sensors.rangefinder import GazeboRangefinder  # noqa: E402
@@ -52,9 +61,13 @@ DEFAULT_HOVER_SECONDS = 5.0
 DEFAULT_LEG_TIMEOUT = 300.0
 DEFAULT_MAX_LEGS = 4
 DEFAULT_IMAGE_WIDTH = 1280
-YOLO_CONFIDENCE = 0.7
+YOLO_CONFIDENCE = 0.75
 YOLO_PURSUIT_CONFIDENCE = 0.6
 YOLO_MODEL_PATH = os.path.join(REPO_ROOT, "models", "yolo", "best_v4.pt")
+PURSUIT_IMAGE_INTERVAL_S = 3.0
+PURSUIT_MAX_SAVED_IMAGES = 20
+MAX_PURSUIT_ATTEMPTS = 2
+ALTITUDE_WARNING_ERROR_M = 0.20
 
 # Match the tuned wall-follow behavior used by room_circuit_map.py.
 WALL_FOLLOW_SPEED = 0.30
@@ -88,6 +101,11 @@ RETURN_REAR_CLEARANCE_M = 1.0
 RETURN_SIDE_CLEARANCE_M = 0.8
 REVERSE_WALL_SPEED = -0.20
 REVERSE_TIMEOUT_S = 90.0
+START_STABILIZE_TIMEOUT_S = 45.0
+START_STABILIZE_MAX_SPEED = 0.16
+START_STABILIZE_TOLERANCE_M = 0.15
+START_STABILIZE_STABLE_TIME_S = 0.20
+START_STABILIZE_MIN_CLEARANCE_M = 1.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,7 +126,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hover-seconds", type=float, default=DEFAULT_HOVER_SECONDS)
     parser.add_argument("--leg-timeout", type=float, default=DEFAULT_LEG_TIMEOUT)
     parser.add_argument("--max-legs", type=int, default=DEFAULT_MAX_LEGS)
-    parser.add_argument("--pursuit-timeout", type=float, default=45.0)
+    parser.add_argument("--pursuit-timeout", type=float, default=75.0)
+    parser.add_argument(
+        "--world",
+        default=None,
+        help="Gazebo world name; auto-detected from topics when omitted.",
+    )
+    parser.add_argument(
+        "--target-model-name",
+        action="append",
+        default=None,
+        help="Exact removable target model name. Repeat for multiple targets.",
+    )
+    parser.add_argument(
+        "--target-model-prefix",
+        action="append",
+        default=None,
+        help="Removable target model name prefix. Defaults to 'pigeon'.",
+    )
+    parser.add_argument(
+        "--target-model-uri-keyword",
+        action="append",
+        default=None,
+        help="Keyword matched against target model:// URI. Defaults to 'pigeon'.",
+    )
+    parser.add_argument(
+        "--target-remove-max-distance",
+        type=float,
+        default=None,
+        help="Optional maximum distance from success pose to removable target model.",
+    )
+    parser.add_argument(
+        "--disable-target-removal",
+        action="store_true",
+        help="Keep the pursued target model in Gazebo after success.",
+    )
     return parser.parse_args()
 
 
@@ -120,6 +172,16 @@ def _fmt_m(value: float | None, precision: int = 1) -> str:
     if value is None or not math.isfinite(value):
         return "inf"
     return f"{value:.{precision}f}m"
+
+
+def _fmt_altitude(altitude_ref: dict) -> str:
+    agl = altitude_ref.get("agl_m")
+    error = altitude_ref.get("error_m")
+    if not isinstance(agl, (int, float)) or not math.isfinite(agl):
+        return "agl=?"
+    if not isinstance(error, (int, float)) or not math.isfinite(error):
+        return f"agl={agl:.2f}m"
+    return f"agl={agl:.2f}m alt_err={error:+.2f}m"
 
 
 def _normalize_angle(deg: float) -> float:
@@ -175,6 +237,21 @@ def _current_landing_targets(
     if not _valid_distance(left, min_m=MAP_MIN_DIST, max_m=MAP_MAX_DIST):
         left = fallback_wall_distance
     return DistanceTargets(rear=rear, left=left)
+
+
+def _nearest_start_side(scan, *, fallback_side: str = "left") -> str:
+    """Pick the side wall that forms the nearest rear corner from current yaw."""
+    left = scan.left_distance()
+    right = scan.right_distance()
+    left_valid = _valid_distance(left, min_m=MAP_MIN_DIST, max_m=MAP_MAX_DIST)
+    right_valid = _valid_distance(right, min_m=MAP_MIN_DIST, max_m=MAP_MAX_DIST)
+    if left_valid and right_valid:
+        return "left" if left <= right else "right"
+    if left_valid:
+        return "left"
+    if right_valid:
+        return "right"
+    return fallback_side
 
 
 def _arena_boundary_from_start(
@@ -359,19 +436,44 @@ async def route_sample_loop(
     stop_event: asyncio.Event,
     *,
     interval_s: float = ROUTE_SAMPLE_INTERVAL_S,
+    target_alt_m: float | None = None,
+    altitude_ref: dict | None = None,
+    altitude_warning_error_m: float = ALTITUDE_WARNING_ERROR_M,
 ) -> None:
     """Record the live route once per second with a mission phase label."""
     while not stop_event.is_set():
         try:
             pos = await drone.get_position()
             yaw_deg = await drone.get_yaw()
+            phase = phase_ref.get("phase", "unknown")
+            agl = -(pos.position.down_m - drone.ground_z)
+            alt_error = None if target_alt_m is None else agl - target_alt_m
             sample = {
                 "x": pos.position.north_m,
                 "y": pos.position.east_m,
                 "yaw_deg": yaw_deg,
-                "phase": phase_ref.get("phase", "unknown"),
+                "phase": phase,
+                "agl_m": agl,
                 "timestamp": time.time(),
             }
+            if target_alt_m is not None:
+                sample["target_alt_m"] = target_alt_m
+                sample["alt_error_m"] = alt_error
+            if altitude_ref is not None:
+                altitude_ref["agl_m"] = agl
+                altitude_ref["target_alt_m"] = target_alt_m
+                altitude_ref["error_m"] = alt_error
+                altitude_ref["phase"] = phase
+            if (
+                alt_error is not None
+                and math.isfinite(alt_error)
+                and abs(alt_error) >= altitude_warning_error_m
+            ):
+                print(
+                    "  [altitude] WARNING "
+                    f"phase={phase} agl={agl:.2f}m "
+                    f"target={target_alt_m:.2f}m err={alt_error:+.2f}m"
+                )
             scan = lidar.get_scan()
             if scan is not None:
                 sample.update(
@@ -716,6 +818,91 @@ async def _rotate_relative_simple(
     return False
 
 
+async def _approach_circuit_start_corner(
+    drone: Drone,
+    lidar: GazeboLidar,
+    wall_distance: float,
+    timeout_s: float = START_STABILIZE_TIMEOUT_S,
+) -> str | None:
+    """Normalize launch pose to the start corner expected by left-wall scan.
+
+    The circuit scan assumes the drone starts with a wall behind it and the
+    followed wall on its left. If the initial pose is closer to the right-side
+    rear corner, stabilize there first and let the caller rotate left.
+    """
+    first_scan = lidar.get_scan()
+    if first_scan is None:
+        print("  [hangar-circuit-start] ERROR: no lidar scan for start stabilization")
+        return None
+
+    side = _nearest_start_side(first_scan)
+    print(
+        f"  [hangar-circuit-start] nearest rear corner is {side}; "
+        f"targeting rear={wall_distance:.1f}m {side}={wall_distance:.1f}m"
+    )
+
+    controller = CornerApproachController(
+        side=side,
+        rear_distance=wall_distance,
+        side_distance=wall_distance,
+        max_forward_speed=START_STABILIZE_MAX_SPEED,
+        max_lateral_speed=START_STABILIZE_MAX_SPEED,
+        max_total_speed=START_STABILIZE_MAX_SPEED,
+        tolerance=START_STABILIZE_TOLERANCE_M,
+        stable_time=START_STABILIZE_STABLE_TIME_S,
+        min_clearance=START_STABILIZE_MIN_CLEARANCE_M,
+    )
+    started = time.time()
+    step = 0
+    while time.time() - started < timeout_s:
+        scan = lidar.get_scan()
+        if scan is None:
+            await drone.set_velocity(VelocityCommand())
+            await asyncio.sleep(0.05)
+            continue
+
+        rear = scan.rear_distance()
+        side_dist = scan.left_distance() if side == "left" else scan.right_distance()
+        result = controller.update(scan)
+        if result.unsafe:
+            await drone.set_velocity(VelocityCommand())
+            print(
+                f"  [hangar-circuit-start] ABORT: unsafe clearance "
+                f"rear={rear:.2f}m {side}={side_dist:.2f}m"
+            )
+            return None
+
+        cmd = result.command
+        await drone.set_velocity(cmd)
+        if step % 20 == 0:
+            print(
+                f"  [hangar-circuit-start] {time.time() - started:.1f}s "
+                f"rear={rear:.2f}m {side}={side_dist:.2f}m "
+                f"cmd: fwd={cmd.forward_m_s:+.2f} lat={cmd.right_m_s:+.2f}"
+            )
+        if result.done:
+            await drone.set_velocity(VelocityCommand())
+            print(
+                f"  [hangar-circuit-start] LOCKED: "
+                f"rear={rear:.2f}m {side}={side_dist:.2f}m"
+            )
+            return side
+
+        step += 1
+        await asyncio.sleep(0.05)
+
+    await drone.set_velocity(VelocityCommand())
+    scan = lidar.get_scan()
+    if scan is not None:
+        print(
+            f"  [hangar-circuit-start] TIMEOUT: "
+            f"rear={scan.rear_distance():.2f}m "
+            f"left={scan.left_distance():.2f}m "
+            f"right={scan.right_distance():.2f}m"
+        )
+    return None
+
+
 async def _stabilize_corner(
     drone: Drone,
     lidar: GazeboLidar,
@@ -825,6 +1012,7 @@ async def run() -> None:
         confidence=YOLO_CONFIDENCE,
         on_detection_data=tracker.update_from_yolo,
     )
+    detector.configure_saving(save_detections=False, save_no_detections=False)
     yolo_thread = detector.preload_async()
     gz_thread, gz_result = prefetch_gz_env_async()
 
@@ -838,6 +1026,7 @@ async def run() -> None:
     map_tasks: list[asyncio.Task] = []
     route_samples: list[dict] = []
     route_phase = {"phase": "wall_follow"}
+    altitude_ref: dict = {"agl_m": None, "target_alt_m": args.target_alt, "error_m": None}
     route_stop_event = asyncio.Event()
     route_task: asyncio.Task | None = None
     map_saved = False
@@ -867,6 +1056,15 @@ async def run() -> None:
         gz_thread.join(timeout=10)
         gz_env = gz_result.env or {}
         topics = gz_result.topics
+        sim_world = args.world or discover_world_name(topics)
+        drone_model_name = discover_model_name(topics, contains="holybro_x500") or "holybro_x500"
+        target_model_prefixes = tuple(args.target_model_prefix or ["pigeon"])
+        target_uri_keywords = tuple(args.target_model_uri_keyword or ["pigeon"])
+        if sim_world:
+            print(f"  Gazebo world: {sim_world}")
+        else:
+            print("  WARNING: Gazebo world name not found; target removal will be skipped")
+        print(f"  Gazebo drone model: {drone_model_name}")
 
         print("\nStarting 2D lidar...")
         lidar = GazeboLidar(env=gz_env, num_threads=3)
@@ -916,13 +1114,28 @@ async def run() -> None:
             return
 
         nav = NavigationUnit(drone, lidar)
-        start_targets = DistanceTargets(rear=args.wall_distance, left=args.wall_distance)
 
-        print("\n--- Phase 1: stabilize at circuit start ---")
-        await nav.stabilize(start_targets, label="hangar-circuit-start")
+        print("\n--- Phase 1: approach circuit start corner ---")
+        start_side = await _approach_circuit_start_corner(drone, lidar, args.wall_distance)
+        if start_side is None:
+            print("ERROR: start stabilization failed. Landing safely.")
+            return
+        if start_side == "right":
+            print("  [hangar-circuit-start] right-side corner selected; rotating left to start scan")
+            if not await _rotate_relative_simple(drone, -90.0):
+                print("ERROR: start heading normalization failed. Landing safely.")
+                return
         mapper.start_mapping()
         route_task = asyncio.create_task(
-            route_sample_loop(drone, lidar, route_samples, route_phase, route_stop_event)
+            route_sample_loop(
+                drone,
+                lidar,
+                route_samples,
+                route_phase,
+                route_stop_event,
+                target_alt_m=args.target_alt,
+                altitude_ref=altitude_ref,
+            )
         )
         mapper.set_takeoff_point(
             takeoff_origin.position.north_m,
@@ -930,6 +1143,35 @@ async def run() -> None:
         )
         circuit_start_pos = await drone.get_position()
         circuit_start_yaw = await drone.get_yaw()
+        frame_transform: GzPx4FrameTransform | None = None
+        if sim_world:
+            live_poses = get_world_model_poses(world_name=sim_world, env=gz_env)
+            gz_drone_pose = find_model_pose(
+                live_poses,
+                name=drone_model_name,
+                contains="holybro_x500",
+            )
+            if gz_drone_pose is not None:
+                frame_transform = GzPx4FrameTransform(
+                    px4_origin_x=circuit_start_pos.position.north_m,
+                    px4_origin_y=circuit_start_pos.position.east_m,
+                    px4_origin_yaw_deg=circuit_start_yaw,
+                    gz_origin_x=gz_drone_pose.x,
+                    gz_origin_y=gz_drone_pose.y,
+                    gz_origin_yaw_deg=gz_drone_pose.yaw_deg,
+                )
+                print(
+                    "  PX4/Gazebo frame calibrated: "
+                    f"px4=({frame_transform.px4_origin_x:.2f},"
+                    f"{frame_transform.px4_origin_y:.2f},"
+                    f"{frame_transform.px4_origin_yaw_deg:.1f}deg) "
+                    f"gz=({frame_transform.gz_origin_x:.2f},"
+                    f"{frame_transform.gz_origin_y:.2f},"
+                    f"{frame_transform.gz_origin_yaw_deg:.1f}deg) "
+                    f"yaw_offset={frame_transform.yaw_offset_deg:.1f}deg"
+                )
+            else:
+                print("  WARNING: live Gazebo drone pose not found; target removal will be skipped")
         mapper.record_corner(circuit_start_pos.position.north_m, circuit_start_pos.position.east_m)
         map_events.append(
             {
@@ -980,6 +1222,10 @@ async def run() -> None:
         print(f"  Camera topic: {camera.topic}")
 
         detection_enabled = False
+        target_removal_event: dict | None = None
+        pursuit_count = 0
+        suppress_target_until_lost = False
+        suppress_target_started_at = 0.0
 
         def set_detection_enabled(enabled: bool, reason: str) -> None:
             nonlocal detection_enabled
@@ -1005,10 +1251,26 @@ async def run() -> None:
             )
             return None if result.done else result.reason
 
-        async def pursue_and_finish(leg: int) -> bool:
+        async def pursue_and_finish(leg: int, attempt: int) -> TargetPursuitResult:
+            nonlocal pursuit_count, target_removal_event
+            target_removal_event = None
+            pursuit_count += 1
+            pursuit_label = f"pursuit_{pursuit_count:02d}_leg_{leg}"
             route_phase["phase"] = "pursuit"
-            print(f"\n--- Phase 4: pursue pigeon to {args.target_dist:.2f}m ---")
+            print(
+                f"\n--- Phase 4: pursue pigeon to {args.target_dist:.2f}m "
+                f"(attempt {attempt}/{MAX_PURSUIT_ATTEMPTS}) ---"
+            )
             detector.confidence = YOLO_PURSUIT_CONFIDENCE
+            detector.configure_saving(
+                save_detections=True,
+                save_no_detections=False,
+                detection_interval_s=PURSUIT_IMAGE_INTERVAL_S,
+                max_saved_detections=PURSUIT_MAX_SAVED_IMAGES,
+                detection_prefix=f"{pursuit_label}_sample",
+                reset_counter=True,
+            )
+            detector.capture_next_detection(f"{pursuit_label}_start")
             print(f"  Detection threshold: {YOLO_PURSUIT_CONFIDENCE:.0%} for pursuit/relocalization")
 
             def on_pursuit_status(result: TargetPursuitResult) -> None:
@@ -1031,7 +1293,8 @@ async def run() -> None:
                 print(
                     f"  [{result.elapsed_s:5.1f}s] {result.state.value} "
                     f"front={front} age={age} center_err={center} "
-                    f"yaw={result.command.yawspeed_deg_s:+.1f} reason={result.reason}"
+                    f"yaw={result.command.yawspeed_deg_s:+.1f} "
+                    f"{_fmt_altitude(altitude_ref)} reason={result.reason}"
                 )
 
             def on_search_status(event: str, data: dict[str, object]) -> None:
@@ -1055,6 +1318,9 @@ async def run() -> None:
                         f"duration={float(data['duration_s']):.1f}s"
                     )
                 elif event == "sweep_reacquired":
+                    detector.capture_next_detection(
+                        f"{pursuit_label}_reacquired_{data.get('direction', 'unknown')}"
+                    )
                     print(f"  [search] target reacquired during {data.get('direction')} sweep")
                 elif event == "sweep_end":
                     print(
@@ -1077,8 +1343,8 @@ async def run() -> None:
                 config=TargetPursuitConfig(
                     target_distance_m=args.target_dist,
                     max_forward_speed_m_s=0.25,
-                    min_forward_speed_m_s=0.03,
-                    kp_forward=0.20,
+                    min_forward_speed_m_s=0.06,
+                    kp_forward=0.25,
                     pursuit_timeout_s=args.pursuit_timeout,
                     center_enter_ratio=0.12,
                     center_exit_ratio=0.18,
@@ -1090,15 +1356,54 @@ async def run() -> None:
             )
             if not pursuit_result.reached_target:
                 print(f"  Pursuit ended without reaching target: {pursuit_result.reason}")
-                return False
+                failure_pos = await drone.get_position()
+                failure_yaw = await drone.get_yaw()
+                map_events.append(
+                    {
+                        "type": "pursuit_attempt_failed",
+                        "label": (
+                            f"Pursuit attempt {attempt}/{MAX_PURSUIT_ATTEMPTS} "
+                            f"failed on leg {leg}"
+                        ),
+                        "x": failure_pos.position.north_m,
+                        "y": failure_pos.position.east_m,
+                        "yaw_deg": failure_yaw,
+                        "reason": pursuit_result.reason,
+                        "attempt": attempt,
+                        "max_attempts": MAX_PURSUIT_ATTEMPTS,
+                        "success": False,
+                        "timestamp": time.time(),
+                        "leg": leg,
+                    }
+                )
+                return pursuit_result
 
             print(
                 "  Target reached at "
                 f"{pursuit_result.front_distance_m:.2f}m. "
                 f"Hovering {args.hover_seconds:.1f}s."
             )
+            detector.capture_next_detection(f"{pursuit_label}_target_reached")
             target_pos = await drone.get_position()
             target_yaw = await drone.get_yaw()
+            if frame_transform is not None:
+                target_world_x, target_world_y = frame_transform.estimate_target_gz_xy(
+                    local_x=target_pos.position.north_m,
+                    local_y=target_pos.position.east_m,
+                    yaw_deg=target_yaw,
+                    range_m=pursuit_result.front_distance_m,
+                )
+                target_removal_event = {
+                    "x": target_world_x,
+                    "y": target_world_y,
+                    "local_x": target_pos.position.north_m,
+                    "local_y": target_pos.position.east_m,
+                    "yaw_deg": target_yaw,
+                    "range_m": pursuit_result.front_distance_m,
+                    "leg": leg,
+                }
+            else:
+                target_removal_event = None
             map_events.append(
                 {
                     "type": "target_reached",
@@ -1108,15 +1413,80 @@ async def run() -> None:
                     "yaw_deg": target_yaw,
                     "distance_m": pursuit_result.front_distance_m,
                     "success": True,
+                    "attempt": attempt,
                     "timestamp": time.time(),
                     "leg": leg,
                 }
             )
             await nav.hover(args.hover_seconds)
-            return True
+            return pursuit_result
+
+        async def return_to_pursuit_entry(
+            pursuit_entry_point: dict,
+            leg: int,
+            attempt: int,
+            outcome: str,
+        ) -> tuple[dict, dict] | None:
+            print("\n--- Phase 5: return to pursuit entry ---")
+            route_phase["phase"] = "return_entry"
+            entry_return_result = await fly_to_point_safely(
+                drone,
+                lidar,
+                pursuit_entry_point,
+                label="return-entry",
+            )
+            map_events.append(
+                {
+                    "type": "pursuit_entry_returned",
+                    "label": f"Returned to pursuit entry on leg {leg}",
+                    "target_x": pursuit_entry_point["x"],
+                    "target_y": pursuit_entry_point["y"],
+                    "target_yaw_deg": pursuit_entry_point["yaw_deg"],
+                    "x": entry_return_result["x"],
+                    "y": entry_return_result["y"],
+                    "yaw_deg": entry_return_result["yaw_deg"],
+                    "position_error_m": entry_return_result["error_m"],
+                    "return_ok": entry_return_result["ok"],
+                    "return_reason": entry_return_result["reason"],
+                    "elapsed_s": entry_return_result["elapsed_s"],
+                    "attempt": attempt,
+                    "outcome": outcome,
+                    "timestamp": time.time(),
+                    "leg": leg,
+                }
+            )
+            if not entry_return_result["ok"]:
+                print("  WARNING: could not return to pursuit entry; landing at current position")
+                return None
+
+            print("\n--- Phase 6: restore pre-pursuit heading ---")
+            route_phase["phase"] = "restore_heading"
+            heading_result = await rotate_to_yaw(drone, float(pursuit_entry_point["yaw_deg"]))
+            map_events.append(
+                {
+                    "type": "pursuit_heading_restored",
+                    "label": f"Restored pursuit entry heading on leg {leg}",
+                    "x": entry_return_result["x"],
+                    "y": entry_return_result["y"],
+                    "yaw_deg": heading_result["yaw_deg"],
+                    "target_yaw_deg": heading_result["target_yaw_deg"],
+                    "yaw_error_deg": heading_result["yaw_error_deg"],
+                    "heading_ok": heading_result["ok"],
+                    "heading_reason": heading_result["reason"],
+                    "elapsed_s": heading_result["elapsed_s"],
+                    "attempt": attempt,
+                    "outcome": outcome,
+                    "timestamp": time.time(),
+                    "leg": leg,
+                }
+            )
+            if not heading_result["ok"]:
+                print("  WARNING: heading restore timed out; resuming scan from current heading")
+            return entry_return_result, heading_result
 
         print("\n--- Phase 3: circuit wall-follow with detection ---")
-        for leg in range(1, max_legs + 1):
+        leg = 1
+        while leg <= max_legs:
             route_phase["phase"] = "wall_follow"
             print(f"\n--- Leg {leg}/{max_legs}: follow left wall and watch for pigeon ---")
             leg_start_pos = await drone.get_position()
@@ -1138,14 +1508,25 @@ async def run() -> None:
             map_events.append(current_leg_start_point)
 
             detector.confidence = YOLO_CONFIDENCE
+            detector.configure_saving(
+                save_detections=False,
+                save_no_detections=False,
+                reset_counter=True,
+            )
+            detector.capture_next_detection(f"leg_{leg}_pursuit_trigger")
             print(f"  Detection threshold: {YOLO_CONFIDENCE:.0%} for wall-follow trigger")
             set_detection_enabled(True, "wall-follow leg")
             wall_stop_reason = "target_detected"
             wall_status_tick = 0
 
             def stop_condition() -> bool:
-                nonlocal wall_stop_reason
-                if tracker.latest(max_age_s=1.5) is not None:
+                nonlocal wall_stop_reason, suppress_target_until_lost
+                latest_target = tracker.latest(max_age_s=1.5)
+                if suppress_target_until_lost:
+                    if latest_target is None and time.time() - suppress_target_started_at >= 2.0:
+                        suppress_target_until_lost = False
+                        print("  Detection suppression cleared: failed target no longer visible")
+                elif latest_target is not None:
                     wall_stop_reason = "target_detected"
                     return True
                 safety_reason = ceiling_safe_or_stop()
@@ -1171,7 +1552,8 @@ async def run() -> None:
                     f"left={_fmt_m(result.wall_distance_m)} "
                     f"front={_fmt_m(result.front_distance_m)} "
                     f"raw_front={_fmt_m(result.raw_front_distance_m)} "
-                    f"visible={result.front_wall_visible}"
+                    f"visible={result.front_wall_visible} "
+                    f"{_fmt_altitude(altitude_ref)}"
                 )
 
             wall_result = await nav.wall_follow_until(
@@ -1213,99 +1595,131 @@ async def run() -> None:
                     f"yaw={pursuit_entry_point['yaw_deg']:.1f}"
                 )
 
-                await pursue_and_finish(leg)
-                set_detection_enabled(False, "pursuit complete")
-                await drone.set_velocity(VelocityCommand())
+                final_entry_return_result = None
+                final_heading_result = None
+                final_pursuit_result = None
+                pursuit_success = False
 
-                print("\n--- Phase 5: return to pursuit entry ---")
-                route_phase["phase"] = "return_entry"
-                entry_return_result = await fly_to_point_safely(
-                    drone,
-                    lidar,
-                    pursuit_entry_point,
-                    label="return-entry",
-                )
-                map_events.append(
-                    {
-                        "type": "pursuit_entry_returned",
-                        "label": f"Returned to pursuit entry on leg {leg}",
-                        "target_x": pursuit_entry_point["x"],
-                        "target_y": pursuit_entry_point["y"],
-                        "target_yaw_deg": pursuit_entry_point["yaw_deg"],
-                        "x": entry_return_result["x"],
-                        "y": entry_return_result["y"],
-                        "yaw_deg": entry_return_result["yaw_deg"],
-                        "position_error_m": entry_return_result["error_m"],
-                        "return_ok": entry_return_result["ok"],
-                        "return_reason": entry_return_result["reason"],
-                        "elapsed_s": entry_return_result["elapsed_s"],
-                        "timestamp": time.time(),
-                        "leg": leg,
-                    }
-                )
-                if not entry_return_result["ok"]:
-                    print("  WARNING: could not return to pursuit entry; landing at current position")
+                for attempt in range(1, MAX_PURSUIT_ATTEMPTS + 1):
+                    set_detection_enabled(True, f"pursuit attempt {attempt}")
+                    pursuit_result = await pursue_and_finish(leg, attempt)
+                    final_pursuit_result = pursuit_result
+                    set_detection_enabled(False, "return to pursuit entry")
+
+                    if pursuit_result.reached_target:
+                        if target_removal_event is not None and not args.disable_target_removal:
+                            removal = remove_nearest_model(
+                                world_name=sim_world,
+                                x=float(target_removal_event["x"]),
+                                y=float(target_removal_event["y"]),
+                                env=gz_env,
+                                worlds_dir=os.path.join(REPO_ROOT, "worlds"),
+                                model_names=args.target_model_name,
+                                name_prefixes=target_model_prefixes,
+                                uri_keywords=target_uri_keywords,
+                                max_distance_m=args.target_remove_max_distance,
+                            )
+                            map_events.append(
+                                {
+                                    "type": "target_removed",
+                                    "label": "Pursued target removed from simulation",
+                                    "success": removal.success,
+                                    "world": removal.world_name,
+                                    "model": removal.model_name,
+                                    "distance_m": removal.distance_m,
+                                    "target_estimate_x": target_removal_event["x"],
+                                    "target_estimate_y": target_removal_event["y"],
+                                    "target_local_x": target_removal_event["local_x"],
+                                    "target_local_y": target_removal_event["local_y"],
+                                    "target_range_m": target_removal_event["range_m"],
+                                    "message": removal.message,
+                                    "timestamp": time.time(),
+                                    "leg": target_removal_event["leg"],
+                                }
+                            )
+                            if removal.success:
+                                distance = (
+                                    "?"
+                                    if removal.distance_m is None
+                                    else f"{removal.distance_m:.2f}m"
+                                )
+                                print(
+                                    f"  Removed target model {removal.model_name!r} "
+                                    f"from world {removal.world_name!r} "
+                                    f"(target_estimate={target_removal_event['x']:.2f},"
+                                    f"{target_removal_event['y']:.2f} nearest={distance})"
+                                )
+                            else:
+                                print(f"  WARNING: target removal skipped/failed: {removal.message}")
+                        elif not args.disable_target_removal:
+                            print("  WARNING: target removal skipped: PX4/Gazebo frame transform unavailable")
+
+                    await drone.set_velocity(VelocityCommand())
+                    returned = await return_to_pursuit_entry(
+                        pursuit_entry_point,
+                        leg,
+                        attempt,
+                        pursuit_result.reason,
+                    )
+                    if returned is None:
+                        return
+                    final_entry_return_result, final_heading_result = returned
+
+                    if pursuit_result.reached_target:
+                        pursuit_success = True
+                        break
+
+                    if attempt < MAX_PURSUIT_ATTEMPTS:
+                        print(
+                            "  Pursuit attempt "
+                            f"{attempt}/{MAX_PURSUIT_ATTEMPTS} failed "
+                            f"({pursuit_result.reason}); retrying from pursuit entry."
+                        )
+                    else:
+                        print(
+                            "  Pursuit failed after "
+                            f"{MAX_PURSUIT_ATTEMPTS} attempts ({pursuit_result.reason}); "
+                            "resuming leg scan."
+                        )
+                        suppress_target_until_lost = True
+                        suppress_target_started_at = time.time()
+                        map_events.append(
+                            {
+                                "type": "pursuit_failed",
+                                "label": f"Pursuit failed on leg {leg}",
+                                "x": final_entry_return_result["x"],
+                                "y": final_entry_return_result["y"],
+                                "yaw_deg": final_heading_result["yaw_deg"],
+                                "reason": pursuit_result.reason,
+                                "attempts": MAX_PURSUIT_ATTEMPTS,
+                                "success": False,
+                                "timestamp": time.time(),
+                                "leg": leg,
+                            }
+                        )
+                        print("  Failed target will be ignored until it is no longer visible.")
+
+                if final_entry_return_result is None or final_heading_result is None:
                     return
 
-                print("\n--- Phase 6: restore pre-pursuit heading ---")
-                route_phase["phase"] = "restore_heading"
-                heading_result = await rotate_to_yaw(drone, float(pursuit_entry_point["yaw_deg"]))
+                print("\n--- Phase 7: resume interrupted leg scan ---")
+                route_phase["phase"] = "wall_follow"
                 map_events.append(
                     {
-                        "type": "pursuit_heading_restored",
-                        "label": f"Restored pursuit entry heading on leg {leg}",
-                        "x": entry_return_result["x"],
-                        "y": entry_return_result["y"],
-                        "yaw_deg": heading_result["yaw_deg"],
-                        "target_yaw_deg": heading_result["target_yaw_deg"],
-                        "yaw_error_deg": heading_result["yaw_error_deg"],
-                        "heading_ok": heading_result["ok"],
-                        "heading_reason": heading_result["reason"],
-                        "elapsed_s": heading_result["elapsed_s"],
+                        "type": "scan_resumed",
+                        "label": f"Resumed scan on leg {leg} after pursuit",
+                        "x": final_entry_return_result["x"],
+                        "y": final_entry_return_result["y"],
+                        "yaw_deg": final_heading_result["yaw_deg"],
+                        "pursuit_success": pursuit_success,
+                        "pursuit_reason": (
+                            None if final_pursuit_result is None else final_pursuit_result.reason
+                        ),
                         "timestamp": time.time(),
                         "leg": leg,
                     }
                 )
-                if not heading_result["ok"]:
-                    print("  WARNING: heading restore timed out; continuing to reverse wall-follow")
-
-                print("\n--- Phase 7: reverse to interrupted leg start ---")
-                route_phase["phase"] = "reverse_leg"
-                returned_to_leg_start = await reverse_wall_follow_to_point(
-                    drone,
-                    lidar,
-                    current_leg_start_point,
-                    wall_distance=args.wall_distance,
-                )
-                if not returned_to_leg_start:
-                    print("  WARNING: could not return to leg start; landing at current position")
-                    return
-
-                map_events.append(
-                    {
-                        "type": "landing_target",
-                        "label": f"Landing target / leg {leg} start",
-                        "x": current_leg_start_point["x"],
-                        "y": current_leg_start_point["y"],
-                        "yaw_deg": current_leg_start_point["yaw_deg"],
-                        "timestamp": time.time(),
-                        "leg": leg,
-                    }
-                )
-                print("\n--- Phase 8: stabilize at leg start before landing ---")
-                route_phase["phase"] = "stabilize_landing"
-                await _stabilize_corner(drone, lidar, args.wall_distance)
-
-                print("\nLanding with lidar hold at returned leg start...")
-                route_phase["phase"] = "landing"
-                await nav.land_with_lidar_hold(
-                    targets=_current_landing_targets(
-                        lidar,
-                        fallback_wall_distance=args.wall_distance,
-                    ),
-                    stabilize_first=False,
-                )
-                return
+                continue
 
             if wall_result.reason == "interrupted":
                 print(f"  Stopped for safety: {wall_stop_reason}. Landing safely.")
@@ -1315,13 +1729,10 @@ async def run() -> None:
                 print(f"  Leg did not reach a corner ({wall_result.reason}). Landing safely.")
                 return
 
-            if leg == max_legs:
-                print("\n--- Full circuit completed with no detection. Landing safely. ---")
-                return
-
             set_detection_enabled(False, "corner turn/stabilization")
             route_phase["phase"] = "corner_turn"
-            print("  Turning right...")
+            turn_label = "final right turn" if leg == max_legs else "right turn"
+            print(f"  Turning {turn_label}...")
             if not await _rotate_relative_simple(drone, 90.0):
                 print("  ERROR: rotation failed. Landing safely.")
                 return
@@ -1329,6 +1740,11 @@ async def run() -> None:
             print("  Stabilizing corner...")
             if not await _stabilize_corner(drone, lidar, args.wall_distance):
                 print("  WARNING: corner stabilization timed out -- continuing")
+
+            if leg == max_legs:
+                print("\n--- Full circuit completed after final turn. Landing safely. ---")
+                return
+            leg += 1
 
     finally:
         detector.stop()
