@@ -107,6 +107,7 @@
             <max>100.0</max>
             <resolution>0.01</resolution>
           </range>
+          <visibility_mask>1</visibility_mask>
         </ray>
         <always_on>1</always_on>
         <visualize>true</visualize>

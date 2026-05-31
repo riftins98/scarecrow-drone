@@ -219,9 +219,14 @@
       <uri>model://pigeon_3d</uri>
       <name>pigeon_1</name>
       <!--  North wall position -->
-      <!-- <pose>10.5 -3.5 2.5 0 0 0</pose>  -->
+      <pose>10.5 -3.5 2.5 0 0 0</pose>
+    </include>
+
+    <include>
+      <uri>model://pigeon_3d</uri>
+      <name>pigeon_2</name>
       <!-- East/South wall position -->
-      <pose>2.5 -6 2.5 0 0 0</pose>  
+      <pose>2.5 -6 2.5 0 0 0</pose>
     </include>
 
     <include>

@@ -399,6 +399,7 @@
     <model name="pad_1_ring">
       <static>true</static><pose>-5 0 0.003 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><cylinder><radius>4.0</radius><length>0.002</length></cylinder></geometry>
         <material><ambient>1.0 0.85 0.0 1</ambient><diffuse>1.0 0.85 0.0 1</diffuse></material>
       </visual></link>
@@ -406,6 +407,7 @@
     <model name="pad_1_fill">
       <static>true</static><pose>-5 0 0.004 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><cylinder><radius>3.92</radius><length>0.002</length></cylinder></geometry>
         <material><ambient>0.52 0.52 0.52 1</ambient><diffuse>0.52 0.52 0.52 1</diffuse></material>
       </visual></link>
@@ -413,6 +415,7 @@
     <model name="pad_1_cross_h">
       <static>true</static><pose>-5 0 0.006 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><box><size>3.0 0.08 0.002</size></box></geometry>
         <material><ambient>1.0 0.85 0.0 1</ambient><diffuse>1.0 0.85 0.0 1</diffuse></material>
       </visual></link>
@@ -420,6 +423,7 @@
     <model name="pad_1_cross_v">
       <static>true</static><pose>-5 0 0.006 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><box><size>0.08 3.0 0.002</size></box></geometry>
         <material><ambient>1.0 0.85 0.0 1</ambient><diffuse>1.0 0.85 0.0 1</diffuse></material>
       </visual></link>
@@ -429,6 +433,7 @@
     <model name="pad_2_ring">
       <static>true</static><pose>5 0 0.003 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><cylinder><radius>4.0</radius><length>0.002</length></cylinder></geometry>
         <material><ambient>1.0 0.85 0.0 1</ambient><diffuse>1.0 0.85 0.0 1</diffuse></material>
       </visual></link>
@@ -436,6 +441,7 @@
     <model name="pad_2_fill">
       <static>true</static><pose>5 0 0.004 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><cylinder><radius>3.92</radius><length>0.002</length></cylinder></geometry>
         <material><ambient>0.52 0.52 0.52 1</ambient><diffuse>0.52 0.52 0.52 1</diffuse></material>
       </visual></link>
@@ -443,6 +449,7 @@
     <model name="pad_2_cross_h">
       <static>true</static><pose>5 0 0.006 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><box><size>3.0 0.08 0.002</size></box></geometry>
         <material><ambient>1.0 0.85 0.0 1</ambient><diffuse>1.0 0.85 0.0 1</diffuse></material>
       </visual></link>
@@ -450,6 +457,7 @@
     <model name="pad_2_cross_v">
       <static>true</static><pose>5 0 0.006 0 0 0</pose>
       <link name="link"><visual name="v">
+        <visibility_flags>2</visibility_flags>
         <geometry><box><size>0.08 3.0 0.002</size></box></geometry>
         <material><ambient>1.0 0.85 0.0 1</ambient><diffuse>1.0 0.85 0.0 1</diffuse></material>
       </visual></link>
@@ -586,7 +594,7 @@
 
     <!-- ==================== PARKED DRONES (RQ-7B scale) ==================== -->
     <!-- Drones centred on + marks, nose pointing toward X500 at (-10.5,-6.0) -->
-    <!-- <include>
+    <include>
       <uri>model://military_drone</uri>
       <name>shadow_1</name>
       <pose>-5 0 0 0 0 0.7419</pose>
@@ -596,7 +604,7 @@
       <uri>model://military_drone</uri>
       <name>shadow_2</name>
       <pose>5 0 0 0 0 1.2015</pose>
-    </include> -->
+    </include>
 
     <light name="light_bay_1" type="point">
       <pose>-8 4 7.8 0 0 0</pose><cast_shadows>true</cast_shadows>
@@ -634,6 +642,12 @@
       <uri>model://pigeon_3d</uri>
       <name>pigeon_1</name>
       <pose>0 3 2.5 0 0 0</pose>
+    </include>
+
+    <include>
+      <uri>model://pigeon_3d</uri>
+      <name>pigeon_2</name>
+      <pose>0 -6.5 2.5 0 0 0</pose>
     </include>
 
     <!-- Fixed external HD camera: 5m behind spawn, 2m high, facing +X -->
