@@ -55,13 +55,22 @@ class TestDisarmViaConsole:
         with patch.object(SimService, "_send_pxh_command", return_value=True) as mock_send:
             assert svc.disarm_via_console() is True
             sent = [c.args[0] for c in mock_send.call_args_list]
-            assert sent == ["commander mode auto:hold", "commander disarm -f"]
+            # `auto:hold` is rejected by this PX4 build; use `auto:loiter`. The
+            # hold is best-effort — the force-disarm is what guarantees a stop.
+            assert sent == ["commander mode auto:loiter", "commander disarm -f"]
 
-    def test_true_if_any_command_lands(self):
+    def test_result_tracks_disarm_not_hold(self):
         svc = SimService()
-        # hold fails to deliver, disarm succeeds -> still considered a success.
+        # Hold fails to deliver but the disarm lands -> still a success (the
+        # disarm is the part that actually stops the drone).
         with patch.object(SimService, "_send_pxh_command", side_effect=[False, True]):
             assert svc.disarm_via_console() is True
+
+    def test_false_if_disarm_fails(self):
+        svc = SimService()
+        # Hold lands but the disarm doesn't -> failure (drone may still be armed).
+        with patch.object(SimService, "_send_pxh_command", side_effect=[True, False]):
+            assert svc.disarm_via_console() is False
 
 
 @pytest.mark.skipif(os.name != "posix", reason="os.mkfifo is POSIX-only")

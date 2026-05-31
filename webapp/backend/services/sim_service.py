@@ -425,12 +425,23 @@ class SimService:
 
     def disarm_via_console(self) -> bool:
         """Panic disarm using PX4's console (no MAVLink, no mavsdk_server, no
-        connection race). Exits offboard to Hold, then force-disarms. Instant
-        and robust — this is the mechanism the reset button relies on.
+        connection race). Tries to switch out of the active flight mode into a
+        stationary Hold, then force-disarms. Instant and robust — this is the
+        mechanism the reset button relies on.
+
+        Note: the hold mode name differs across PX4 builds. `auto:hold` is
+        REJECTED by this SITL build ("argument auto:hold unsupported"), so we
+        try the widely-supported `auto:loiter` instead. The disarm is the part
+        that actually matters and works regardless — `commander disarm -f`
+        force-disarms even mid-takeoff — so the return only depends on it.
         """
-        ok_hold = self._send_pxh_command("commander mode auto:hold")
+        # Best-effort: stop commanding velocity by parking in a hover/hold mode
+        # before we cut the motors. Don't gate the result on this — the mode
+        # name is build-dependent and the disarm below is what guarantees the
+        # drone stops.
+        self._send_pxh_command("commander mode auto:loiter")
         ok_disarm = self._send_pxh_command("commander disarm -f")
-        return ok_hold or ok_disarm
+        return ok_disarm
 
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.
