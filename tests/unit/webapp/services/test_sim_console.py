@@ -73,6 +73,31 @@ class TestDisarmViaConsole:
             assert svc.disarm_via_console() is False
 
 
+class TestResetDroneValuesViaConsole:
+    def test_replays_launch_init_and_disarms(self):
+        svc = SimService()
+        with patch.object(SimService, "_send_pxh_command", return_value=True) as mock_send:
+            result = svc.reset_drone_values_via_console()
+
+        assert result == {"ekfOrigin": True, "heading": True, "disarmed": True}
+        sent = [c.args[0] for c in mock_send.call_args_list]
+        assert sent == [
+            "commander set_ekf_origin 0 0 0",
+            "commander set_heading 0",
+            "commander disarm -f",
+        ]
+
+    def test_reports_each_command_result(self):
+        svc = SimService()
+        with patch.object(SimService, "_send_pxh_command",
+                          side_effect=[True, False, True]):
+            assert svc.reset_drone_values_via_console() == {
+                "ekfOrigin": True,
+                "heading": False,
+                "disarmed": True,
+            }
+
+
 @pytest.mark.skipif(os.name != "posix", reason="os.mkfifo is POSIX-only")
 class TestFindPxhFifo:
     def test_returns_newest_fifo(self, tmp_path):

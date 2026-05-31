@@ -13,7 +13,7 @@ import {
   SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
-import SpawnPicker from './SpawnPicker';
+import { spawnMapForWorld } from './spawnMapLookup';
 
 interface Props {
   simStatus: SimStatus | null;
@@ -24,6 +24,8 @@ interface Props {
   onStopFlight: () => void;
   isConnecting: boolean;
   flightStartTime: Date | null;
+  selectedSpawn?: SpawnPoint | null;
+  onPreviewWorldChange?: (world: string) => void;
 }
 
 const DEFAULT_WORLD = 'drone_garage_pigeon_3d';
@@ -32,6 +34,8 @@ const DEFAULT_SCRIPT = 'demo_flight_v2.py';
 export default function SimControl({
   simStatus, flightStatus, onConnect, onDisconnect,
   onStartFlight, onStopFlight, isConnecting, flightStartTime,
+  selectedSpawn,
+  onPreviewWorldChange,
 }: Props) {
   const connected = simStatus?.connected || false;
   const launching = simStatus?.launching || false;
@@ -48,9 +52,6 @@ export default function SimControl({
   // Camera the user picked from the dropdown (only meaningful in headless mode).
   // Empty string -> "let backend default it" (currently "fixed").
   const [selectedCamera, setSelectedCamera] = useState<string>('');
-  // Custom spawn point (meters) the user picked on the map. null = use default.
-  const [spawn, setSpawn] = useState<SpawnPoint | null>(null);
-
   // Post-connect form state
   const [selectedScript, setSelectedScript] = useState<string>(DEFAULT_SCRIPT);
   const [scriptArgValues, setScriptArgValues] = useState<ScriptArgValues>({});
@@ -134,6 +135,10 @@ export default function SimControl({
     setScriptArgValues(initial);
   }, [selectedScript, options]);
 
+  useEffect(() => {
+    onPreviewWorldChange?.(selectedWorld);
+  }, [selectedWorld, onPreviewWorldChange]);
+
   // Live timer for the post-takeoff "detection time" display.
   const calcElapsed = () => {
     if (!flightStartTime) return '00:00';
@@ -149,21 +154,23 @@ export default function SimControl({
     return () => clearInterval(interval);
   }, [flightStartTime]);
 
-  // Spawn picking is only supported for the world the backend reports bounds
-  // for (the garage). Other worlds hide the picker and use their default spawn.
-  const spawnWorld = options?.spawnWorld;
-  const spawnBounds = options?.spawnBounds;
-  const spawnSupported = !!spawnBounds && selectedWorld === spawnWorld;
+  const selectedSpawnMap = spawnMapForWorld(options, selectedWorld);
+  const spawnSupported = !!selectedSpawnMap;
 
   const handleConnect = () => {
     const params: ConnectSimParams = { world: selectedWorld, headless };
     if (headless && selectedCamera) {
       params.camera = selectedCamera;
     }
-    if (spawnSupported && spawn) {
-      params.spawn = spawn;
+    if (spawnSupported && selectedSpawn) {
+      params.spawn = selectedSpawn;
     }
     onConnect(params);
+  };
+
+  const handleWorldChange = (world: string) => {
+    setSelectedWorld(world);
+    onPreviewWorldChange?.(world);
   };
 
   const handleStart = () => {
@@ -221,31 +228,13 @@ export default function SimControl({
                 </div>
               )}
 
-              <div className={`sim-config-layout ${spawnSupported ? 'with-spawn' : ''}`}>
-                {spawnSupported && spawnBounds && (
-                  <div className="sim-config-spawn">
-                    <span className="form-label">Spawn location</span>
-                    <SpawnPicker
-                      bounds={spawnBounds}
-                      obstacles={options?.spawnObstacles}
-                      obstacleMargin={options?.spawnObstacleMargin}
-                      value={spawn}
-                      onChange={setSpawn}
-                      disabled={isConnecting}
-                    />
-                    <span className="form-hint">
-                      Click to choose where the drone starts (clear of walls and
-                      the parked aircraft). Leave unset for the default position.
-                    </span>
-                  </div>
-                )}
-
+              <div className="sim-config-layout">
                 <div className="sim-config-form">
                 <label className="form-row">
                   <span className="form-label">World</span>
                   <select
                     value={selectedWorld}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedWorld(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleWorldChange(e.target.value)}
                     disabled={!options}
                   >
                     {options ? options.worlds.map((w: WorldInfo) => (

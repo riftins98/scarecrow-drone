@@ -392,6 +392,16 @@ body {
   letter-spacing: 1px;
   color: #b6c57a;
 }
+.spawn-side-picker .spawn-picker {
+  margin-top: 6px;
+}
+.spawn-side-picker .spawn-picker-svg {
+  max-width: min(100%, 360px);
+  border-color: #8b9a5b;
+}
+.spawn-side-picker .minimap-footer {
+  justify-content: center;
+}
 
 /* Post-connect re-spawn panel. */
 .respawn-panel {
@@ -882,37 +892,9 @@ body {
 }
 
 /* --- Sim configuration form (pre-connect) --- */
-/* Pre-connect: spawn map (left) beside the config form (right). */
+/* Pre-connect config form. Spawn placement lives in the right-side map card. */
 .sim-config-layout {
   margin: 18px 0 22px;
-}
-.sim-config-layout.with-spawn {
-  display: grid;
-  grid-template-columns: minmax(180px, 260px) 1fr;
-  gap: 20px;
-  align-items: start;
-}
-.sim-config-spawn {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sim-config-spawn .form-label {
-  font-size: 0.85em;
-  color: #aaa;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.sim-config-spawn .form-hint {
-  font-size: 0.76em;
-  color: #808080;
-  font-style: italic;
-}
-/* Stack to one column on narrow panels. */
-@media (max-width: 720px) {
-  .sim-config-layout.with-spawn {
-    grid-template-columns: 1fr;
-  }
 }
 
 .sim-config-form {
@@ -2605,6 +2587,12 @@ body {
 .minimap-scope {
   position: relative;
   aspect-ratio: 1 / 1;
+}
+.minimap-unavailable {
+  display: grid;
+  place-items: center;
+  border: 1px dashed #2a3a1a;
+  background: rgba(13,18,8,0.55);
 }
 .minimap-svg {
   display: block;

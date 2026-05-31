@@ -7,6 +7,11 @@ import time
 import threading
 from typing import Optional
 
+from services.world_geometry import (
+    spawn_map_for_world,
+    validate_spawn as validate_world_spawn,
+)
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 DEFAULT_WORLD = "drone_garage_pigeon_3d"
@@ -22,58 +27,17 @@ DEFAULT_SPAWN_POSE = "5,-4.5,0,0,0,0"
 # suffix like holybro_x500_0; we discover the full name at reset time).
 DRONE_MODEL_PREFIX = "holybro_x500"
 
-# Custom spawn picking is currently only wired for the main garage world,
-# whose geometry we know. The room floor is 24m x 15m centered on the origin,
-# with walls at x=+-12 / y=+-7.5 (inner faces). Keeping the drone center >=3m
-# from every wall gives this valid interior rectangle (meters).
-SPAWN_WORLD = "drone_garage_pigeon_3d"
-SPAWN_WALL_MARGIN = 3.0
-SPAWN_BOUNDS = {
-    "xMin": -12.0 + SPAWN_WALL_MARGIN,  # -9.0
-    "xMax": 12.0 - SPAWN_WALL_MARGIN,   #  9.0
-    "yMin": -7.5 + SPAWN_WALL_MARGIN,   # -4.5
-    "yMax": 7.5 - SPAWN_WALL_MARGIN,    #  4.5
-}
-
-# Parked RQ-7B "Shadow" aircraft props — large obstacles the drone must not
-# spawn on top of. Each is the military_drone model's footprint: a 6m (wingspan,
-# local x) by 9m (fuselage, local y) box, at the world pose/yaw from the world
-# SDF. Spawn points must stay SPAWN_OBSTACLE_MARGIN outside each footprint.
-SPAWN_OBSTACLE_MARGIN = 0.3
-SPAWN_OBSTACLES = [
-    # cx, cy (meters), yaw (radians), half-width (local x), half-length (local y)
-    {"cx": -5.0, "cy": 0.0, "yaw": 0.7419, "halfW": 3.0, "halfL": 4.5},
-    {"cx": 5.0, "cy": 0.0, "yaw": 1.2015, "halfW": 3.0, "halfL": 4.5},
-]
+# Backwards-compatible names for tests/importers. The actual geometry is now
+# parsed per-world from SDF by services.world_geometry.
+SPAWN_WORLD = DEFAULT_WORLD
+_DEFAULT_SPAWN_MAP = spawn_map_for_world(DEFAULT_WORLD) or {}
+SPAWN_BOUNDS = _DEFAULT_SPAWN_MAP.get("bounds", {})
+SPAWN_OBSTACLES = _DEFAULT_SPAWN_MAP.get("obstacles", [])
 
 
-def _in_obstacle(x: float, y: float, obs: dict, margin: float) -> bool:
-    """Is (x, y) inside an aircraft's rotated footprint, expanded by margin?"""
-    import math
-    dx, dy = x - obs["cx"], y - obs["cy"]
-    # Rotate the point into the aircraft's local frame (undo its yaw).
-    c, s = math.cos(-obs["yaw"]), math.sin(-obs["yaw"])
-    lx = dx * c - dy * s
-    ly = dx * s + dy * c
-    return abs(lx) <= obs["halfW"] + margin and abs(ly) <= obs["halfL"] + margin
-
-
-def validate_spawn(x: float, y: float):
-    """Check an (x, y) spawn against the garage's valid interior: >=3m from
-    every wall AND outside the parked-aircraft footprints (+0.3m). Returns
-    (ok: bool, error: str|None)."""
-    b = SPAWN_BOUNDS
-    if not (b["xMin"] <= x <= b["xMax"] and b["yMin"] <= y <= b["yMax"]):
-        return False, (
-            f"spawn ({x:.1f}, {y:.1f}) is too close to a wall — must be within "
-            f"x [{b['xMin']:.1f}, {b['xMax']:.1f}], y [{b['yMin']:.1f}, {b['yMax']:.1f}]"
-        )
-    for obs in SPAWN_OBSTACLES:
-        if _in_obstacle(x, y, obs, SPAWN_OBSTACLE_MARGIN):
-            return False, (
-                f"spawn ({x:.1f}, {y:.1f}) is on/too close to a parked aircraft"
-            )
-    return True, None
+def validate_spawn(x: float, y: float, world: str = DEFAULT_WORLD):
+    """Check an (x, y) spawn against a world's SDF-derived spawn map."""
+    return validate_world_spawn(world, x, y)
 
 LAUNCH_STEPS = [
     ("cleanup", "Cleaning up old sessions"),
@@ -169,25 +133,25 @@ class SimService:
             camera: Which streamable camera to point the headless stream
                 worker at (e.g. "fixed", "center"). Ignored when not
                 headless. Defaults to "fixed" if omitted or invalid.
-            spawn: Optional ``{"x": float, "y": float}`` start location (garage
-                world only). Validated to be >=3m from every wall; an invalid
-                or absent spawn falls back to the default pose.
+            spawn: Optional ``{"x": float, "y": float}`` start location. The
+                chosen world must have SDF-derived spawn geometry. The point is
+                validated to be >=3m from every wall and clear of static props.
 
         Raises:
-            ValueError: if ``spawn`` is given for the garage world but fails
-                the wall-clearance check.
+            ValueError: if ``spawn`` is given but the world cannot support it
+                or the point fails the clearance check.
         """
         if self.connected and self.process and self.process.poll() is None:
             return True
         if self.launching:
             return False
 
-        # Resolve the spawn pose for this session. Custom spawn is only honored
-        # for the garage world (the only one with known geometry).
+        # Resolve the spawn pose for this session. Custom spawn is honored for
+        # any world whose SDF exposes enough floor/obstacle geometry.
         self._spawn_pose = DEFAULT_SPAWN_POSE
-        if spawn is not None and world == SPAWN_WORLD:
+        if spawn is not None:
             x, y = float(spawn["x"]), float(spawn["y"])
-            ok, err = validate_spawn(x, y)
+            ok, err = validate_spawn(x, y, world=world)
             if not ok:
                 raise ValueError(err)
             # Keep level + facing north (yaw 0), matching the default.
@@ -443,6 +407,19 @@ class SimService:
         ok_disarm = self._send_pxh_command("commander disarm -f")
         return ok_disarm
 
+    def reset_drone_values_via_console(self) -> dict:
+        """Reset the PX4-side drone values that launch initializes.
+
+        This intentionally does not restart PX4/Gazebo or reset the world. It
+        only replays the drone-specific commander setup used at launch so a
+        panic reset leaves the same running sim ready for another flight.
+        """
+        return {
+            "ekfOrigin": self._send_pxh_command("commander set_ekf_origin 0 0 0"),
+            "heading": self._send_pxh_command("commander set_heading 0"),
+            "disarmed": self._send_pxh_command("commander disarm -f"),
+        }
+
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.
 
@@ -692,14 +669,12 @@ class SimService:
 
     def set_spawn(self, x: float, y: float) -> dict:
         """Re-spawn the drone at (x, y) on a running sim: validate against the
-        wall margin, update the session spawn (so a later panic reset returns
-        here too), and teleport the drone there now. Garage world only.
+        current world's wall/obstacle margins, update the session spawn (so a
+        later panic reset returns here too), and teleport the drone there now.
 
         Returns ``{success, error?, spawn?}``.
         """
-        if self._world != SPAWN_WORLD:
-            return {"success": False, "error": f"custom spawn not supported for world {self._world!r}"}
-        ok, err = validate_spawn(x, y)
+        ok, err = validate_spawn(x, y, world=self._world)
         if not ok:
             return {"success": False, "error": err}
         pose = f"{x},{y},0,0,0,0"

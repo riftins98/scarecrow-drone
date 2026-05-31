@@ -10,11 +10,15 @@ import RespawnPanel from '../components/RespawnPanel';
 import CameraStream from '../components/CameraStream';
 import SystemLog from '../components/SystemLog';
 import Ticker from '../components/Ticker';
+import SpawnPicker from '../components/SpawnPicker';
+import { spawnMapForWorld } from '../components/spawnMapLookup';
 import {
   Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams,
-  SimOptions, WorldInfo,
+  SimOptions, WorldInfo, SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
+
+const DEFAULT_WORLD = 'drone_garage_pigeon_3d';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'control' | 'history'>('control');
@@ -30,8 +34,17 @@ export default function Dashboard() {
   // Sim options (worlds + cameras + scripts) — fetched once on mount so
   // CameraStream knows the available cameras for the active world.
   const [simOptions, setSimOptions] = useState<SimOptions | null>(null);
+  const [previewWorld, setPreviewWorld] = useState<string>(DEFAULT_WORLD);
+  const [previewSpawn, setPreviewSpawn] = useState<SpawnPoint | null>(null);
   useEffect(() => {
-    api.getSimOptions().then(setSimOptions).catch(() => { });
+    api.getSimOptions()
+      .then((data: SimOptions) => {
+        setSimOptions(data);
+        if (data.worlds.length > 0 && !data.worlds.find((w) => w.name === DEFAULT_WORLD)) {
+          setPreviewWorld(data.worlds[0].name);
+        }
+      })
+      .catch(() => { });
   }, []);
 
   // Poll sim status. Fetch immediately on mount so the UI doesn't render a
@@ -165,6 +178,13 @@ export default function Dashboard() {
     }
   }, []);
 
+  const handlePreviewWorldChange = useCallback((world: string) => {
+    setPreviewWorld((current) => {
+      if (current !== world) setPreviewSpawn(null);
+      return world;
+    });
+  }, []);
+
   const handleSelectFlight = useCallback(async (flight: Flight) => {
     setSelectedFlight(flight);
     try {
@@ -183,13 +203,15 @@ export default function Dashboard() {
   const connected = !!simStatus?.connected;
   const launching = !!simStatus?.launching;
   const flying = !!flightStatus?.isFlying;
-  // The Re-spawn card only shows for the garage world (the world the backend
-  // reports spawn bounds for), while connected and on the ground. Drive the
-  // grid column off the SAME condition so we don't reserve an empty column.
+  // The Re-spawn card only shows for worlds with parsed spawn geometry while
+  // connected and on the ground. Drive the grid column off the SAME condition
+  // so we don't reserve an empty column.
+  const activeSpawnMap = spawnMapForWorld(simOptions, simStatus?.world);
+  const previewSpawnMap = spawnMapForWorld(simOptions, previewWorld);
+  const showSpawnPlacement = !connected && !launching && !!previewSpawnMap;
   const respawnVisible =
     connected && !flying &&
-    !!simOptions?.spawnBounds &&
-    simStatus?.world === simOptions?.spawnWorld;
+    !!activeSpawnMap;
 
   return (
     <div className="dashboard">
@@ -237,13 +259,38 @@ export default function Dashboard() {
                   onStopFlight={handleStopFlight}
                   isConnecting={isConnecting}
                   flightStartTime={flightStartTime}
+                  selectedSpawn={previewSpawn}
+                  onPreviewWorldChange={handlePreviewWorldChange}
                 />
                 <div className="control-side-stack">
-                  <Minimap
-                    simStatus={simStatus}
-                    flightStatus={flightStatus}
-                    options={simOptions}
-                  />
+                  {showSpawnPlacement && previewSpawnMap ? (
+                    <div className="minimap spawn-side-picker">
+                      <div className="minimap-header">
+                        <span className="minimap-title">Spawn : {previewWorld}</span>
+                        <span className="minimap-live">OFFLINE</span>
+                      </div>
+                      <SpawnPicker
+                        map={previewSpawnMap}
+                        value={previewSpawn}
+                        onChange={setPreviewSpawn}
+                        disabled={isConnecting}
+                      />
+                      <div className="minimap-footer">
+                        <span className="minimap-coord">
+                          {previewSpawn
+                            ? `X: ${previewSpawn.x.toFixed(1)}  Y: ${previewSpawn.y.toFixed(1)}`
+                            : 'Default spawn'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <Minimap
+                      simStatus={simStatus}
+                      flightStatus={flightStatus}
+                      options={simOptions}
+                      previewWorld={previewWorld}
+                    />
+                  )}
                   {simStatus?.headless && (
                     <CameraStream
                       streamUrl={simStatus.streamUrl}

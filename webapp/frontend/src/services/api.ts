@@ -44,8 +44,8 @@ export const setSimCamera = (camera: string): Promise<{
   noop?: boolean;
 }> => postJson('/api/sim/camera', { camera });
 
-/** Re-spawn the drone at (x, y) on a running sim (garage world only). Validates
- *  the >=3m wall margin and teleports; also moves where the panic reset returns. */
+/** Re-spawn the drone at (x, y) on a running mapped world. Validates wall and
+ *  obstacle clearance, teleports, and moves where the panic reset returns. */
 export const setSpawn = (x: number, y: number): Promise<{
   success: boolean;
   spawn?: { x: number; y: number };

@@ -23,8 +23,8 @@ export interface SpawnPoint {
   y: number;
 }
 
-/** Valid interior rectangle (meters) the drone may spawn in — >=3m from every
- *  wall. Returned in SimOptions.spawnBounds for the garage world. */
+/** Axis-aligned world rectangle in meters. For spawn maps, `bounds` is the
+ *  valid interior (after wall margin), while `wallBounds` is the full floor. */
 export interface SpawnBounds {
   xMin: number;
   xMax: number;
@@ -32,14 +32,25 @@ export interface SpawnBounds {
   yMax: number;
 }
 
-/** A parked-aircraft obstacle: a rotated rectangle the drone may not spawn in
- *  (center, yaw, and half-extents in meters). From SimOptions.spawnObstacles. */
+/** A static obstacle: a rotated rectangle the drone may not spawn in
+ *  (center, yaw, and half-extents in meters). From SpawnMap.obstacles. */
 export interface SpawnObstacle {
   cx: number;
   cy: number;
   yaw: number;   // radians
   halfW: number; // half-width along the craft's local x (wingspan/2)
   halfL: number; // half-length along the craft's local y (fuselage/2)
+  kind?: 'aircraft' | 'box';
+  label?: string;
+}
+
+export interface SpawnMap {
+  world: string;
+  wallBounds: SpawnBounds;
+  bounds: SpawnBounds;
+  obstacles: SpawnObstacle[];
+  obstacleMargin: number;
+  wallMargin: number;
 }
 
 export interface SimStatus {
@@ -112,6 +123,8 @@ export interface WorldInfo {
   name: string;
   path: string;
   cameras: CameraInfo[];
+  /** SDF-derived spawn map. Omitted only if the world has no parseable floor. */
+  spawn?: SpawnMap | null;
 }
 
 export interface ScriptArg {
@@ -135,13 +148,12 @@ export interface ScriptInfo {
 export interface SimOptions {
   worlds: WorldInfo[];
   scripts: ScriptInfo[];
-  /** Name of the world the spawn picker applies to (others use default spawn). */
+  /** Per-world SDF-derived spawn geometry, keyed by world name. */
+  spawnMaps?: Record<string, SpawnMap>;
+  /** Legacy fields kept for older backend/frontend compatibility. */
   spawnWorld?: string;
-  /** Valid spawn rectangle for that world (meters, >=3m from every wall). */
   spawnBounds?: SpawnBounds;
-  /** Parked-aircraft footprints to keep clear of (rotated rectangles). */
   spawnObstacles?: SpawnObstacle[];
-  /** Required clearance (meters) outside each obstacle footprint. */
   spawnObstacleMargin?: number;
 }
 
@@ -151,7 +163,7 @@ export interface ConnectSimParams {
   /** Headless-only. Picks which streamable camera the launcher points the
    *  WebRTC stream at. Backend silently falls back to "fixed" if invalid. */
   camera?: string;
-  /** Custom start location (garage world only); omit for the default spawn. */
+  /** Custom start location for mapped worlds; omit for the default spawn. */
   spawn?: SpawnPoint;
 }
 
