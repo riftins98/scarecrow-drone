@@ -63,6 +63,7 @@ pytest --cov=webapp/backend --cov=scarecrow     # with coverage report
   - `unit/scarecrow/navigation/` — NavigationUnit, MapUnit
   - `unit/scarecrow/flight/` — Flight orchestrator
   - `unit/scarecrow/drone/` — Drone class (with mocked mavsdk.System)
+  - `unit/scripts/flight/` — Script-level helpers for mission entrypoints that are too orchestration-heavy for full sim automation
   - `unit/webapp/repositories/` — all 5 repository classes (UT-12..15 + DetectionImage)
   - `unit/webapp/services/` — all 6 business services
 - `integration/` — One file per controller + flow tests (flight lifecycle, chase, area map, drone, detection, connection, sim, static, health). Covers full HTTP stack with mocked subprocesses.
