@@ -24,7 +24,6 @@ The test suite is organized into three layers to balance speed, coverage, and re
 ### Layer 3: Manual Simulation Verification (Human, Slow)
 - Focus: real drone behavior inside Gazebo (takeoff, wall-following, detection, landing).
 - Not automated due to: slow startup, flakiness, and GPU/display requirements.
-- Checklist: See `docs/implementation/MANUAL_SIM_CHECKLIST.md`.
 
 #### Hangar Circuit Pursuit Manual Testing (`hangar_circuit_pursiot.py`)
 This script represents the most complex live-flight scenario and is tested manually to verify:
