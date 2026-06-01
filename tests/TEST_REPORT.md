@@ -26,6 +26,14 @@ The test suite is organized into three layers to balance speed, coverage, and re
 - Not automated due to: slow startup, flakiness, and GPU/display requirements.
 - Checklist: See `docs/implementation/MANUAL_SIM_CHECKLIST.md`.
 
+#### Hangar Circuit Pursuit Manual Testing (`hangar_circuit_pursiot.py`)
+This script represents the most complex live-flight scenario and is tested manually to verify:
+- **Launch Normalization:** Drone correctly aligns and normalizes its launch pose to the expected start corner using lidar.
+- **Flight Stabilization:** Maintains stable altitude and follows walls smoothly across the broader hangar circuit geometry.
+- **Dynamic Deterrence:** Actively processes live YOLO frames, pausing the patrol circuit to transition seamlessly into target pursuit mode upon pigeon detection.
+- **Mapping & Telemetry:** Continuously logs valid Map events (e.g. `MAP_STATUS:leg_X`) and records the live route path for backend processing without interrupting the flight logic.
+- **State Recovery:** Accurately returns to the original route or a stable state after the chase phase completes.
+
 ## What Is Intentionally Not Automated
 These areas are validated primarily via manual simulation runs:
 - PX4 process spawning and lifecycle management.

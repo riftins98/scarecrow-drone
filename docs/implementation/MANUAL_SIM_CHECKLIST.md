@@ -25,7 +25,7 @@ Verify PX4 logs show:
 
 ## Baseline Flight (after ANY drone code change)
 
-Run `python3 scripts/flight/demo_flight.py` and verify:
+Run `python3 scripts/flight/demo_flight.py` (or `demo_flight_v2.py`) and verify:
 
 - [ ] Drone arms without error
 - [ ] Drone takes off to 2.5m (not just barely off the ground)
@@ -36,25 +36,36 @@ Run `python3 scripts/flight/demo_flight.py` and verify:
 - [ ] Video built to `webapp/output/<flight_id>/flight_camera.mp4`
 - [ ] DB updated: `sqlite3 webapp/backend/database/scarecrow.db "SELECT * FROM flights ORDER BY start_time DESC LIMIT 1"`
 
-## Room Circuit (when modifying wall_follow or rotation)
+## Room/Corner Circuit (when modifying wall_follow or rotation)
 
-Run `python3 scripts/flight/room_circuit.py` and verify:
+Run `python3 scripts/flight/corner_circuit.py` and verify:
 
-- [ ] Drone flies 4 legs without crashing into walls
+- [ ] Ceiling sample is collected correctly
+- [ ] Drone approaches the nearest corner stably
+- [ ] Drone faces the wall and executes a full circuit keeping the other wall on its side
 - [ ] Each rotation aligns cleanly (not overshooting by more than a few degrees)
 - [ ] Drone stabilizes after each turn before next leg
-- [ ] Lands near starting position (within 2m)
+- [ ] Lands safely
 
-## UC5 Chase Verification (Phase 5 only)
+## Hangar Circuit Pursuit & Mapping
 
-Run detection flight in `drone_garage` world. Verify:
+Run `python3 scripts/flight/hangar_circuit_pursiot.py` and verify:
+
+- [ ] Drone normalizes launch pose to the expected start corner
+- [ ] Follows wall stably in a hangar circuit
+- [ ] Pursuits detected pigeons (dynamic interruption of the patrol route)
+- [ ] Logs valid Map events (e.g. `MAP_STATUS:leg_X`) and records the live route path
+
+## UC5 Chase Verification
+
+Run `python3 scripts/flight/wall_follow_pigeon_pursuit.py` in `drone_garage_pigeon_3d` or `drone_garage`. Verify:
 
 - [ ] `CHASE_START:pursuit` appears when pigeon detected
-- [ ] Drone yaws toward billboard visibly
+- [ ] Drone yaws toward target visibly
 - [ ] Drone moves forward during pursuit
-- [ ] Counter-measure phase: oscillating yaw
-- [ ] `CHASE_END:lost` when billboard exits frame or timeout
-- [ ] Patrol resumes after chase
+- [ ] Counter-measure phase: oscillating yaw (if configured)
+- [ ] `CHASE_END:lost` when target exits frame or timeout occurs
+- [ ] Patrol resumes exactly where it left off after chase
 - [ ] `chase_events` table has row with correct outcome
 
 ## UC7 Abort Verification (Phase 6 only)
