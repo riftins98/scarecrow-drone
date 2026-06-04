@@ -31,7 +31,7 @@ class SpawnPoint(BaseModel):
 class ConnectRequest(BaseModel):
     world: Optional[str] = None
     headless: Optional[bool] = False
-    camera: Optional[str] = None  # e.g. "fixed", "center" — headless only
+    camera: Optional[str] = None  # e.g. "fixed", "drone_view" — headless only
     spawn: Optional[SpawnPoint] = None  # custom start location for mapped worlds
 
 
@@ -72,7 +72,7 @@ async def disconnect_sim():
 
 
 class CameraSwitchRequest(BaseModel):
-    camera: str  # "fixed" | "center"
+    camera: str  # launch_with_stream.sh camera flag stem
 
 
 @router.post("/camera")

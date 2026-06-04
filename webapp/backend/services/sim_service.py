@@ -11,6 +11,7 @@ from services.world_geometry import (
     spawn_map_for_world,
     validate_spawn as validate_world_spawn,
 )
+from services.script_metadata import launch_stream_camera_names
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -115,9 +116,9 @@ class SimService:
         self._drone_model: Optional[str] = None
 
     # Camera names we'll pass through to launch_with_stream.sh as ``--<name>``
-    # flags. Anything not in this allowlist is silently rejected to keep
-    # untrusted input from sneaking flags into the launcher CLI.
-    _ALLOWED_CAMERAS = {"fixed", "center"}
+    # flags. Derived from the launcher script so the backend stays aligned
+    # with the UI options and no arbitrary CLI flags can sneak through.
+    _ALLOWED_CAMERAS = set(launch_stream_camera_names()) or {"fixed"}
     _DEFAULT_CAMERA = "fixed"
 
     def launch(self, world: str = DEFAULT_WORLD, headless: bool = False,
@@ -131,7 +132,7 @@ class SimService:
                 stream server. The stream URL is published via
                 ``stream_url`` once it appears in the launcher output.
             camera: Which streamable camera to point the headless stream
-                worker at (e.g. "fixed", "center"). Ignored when not
+                worker at (e.g. "fixed", "drone_view"). Ignored when not
                 headless. Defaults to "fixed" if omitted or invalid.
             spawn: Optional ``{"x": float, "y": float}`` start location. The
                 chosen world must have SDF-derived spawn geometry. The point is
@@ -162,8 +163,8 @@ class SimService:
 
         # Pick the launcher: headless uses launch_with_stream.sh (gives us a
         # browser-watchable camera feed); GUI uses launch.sh (Gazebo window).
-        # launch_with_stream.sh requires at least one camera flag (--fixed or
-        # --center) — without it the stream worker errors out and port 8080
+        # launch_with_stream.sh requires at least one camera flag — without it
+        # the stream worker errors out and port 8080
         # stays empty, leaving the UI's stream link broken.
         if headless:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch_with_stream.sh")
@@ -420,13 +421,54 @@ class SimService:
             "disarmed": self._send_pxh_command("commander disarm -f"),
         }
 
+    def _stream_topic_for_camera(self, camera: str) -> Optional[str]:
+        """Return the world-prefixed Gazebo image topic for a stream camera."""
+        if camera in ("fixed", "center"):
+            return (
+                f"/world/{self._world}/model/{camera}_cam"
+                "/link/camera_link/sensor/camera/image"
+            )
+
+        topic_patterns = {
+            "drone_cam": (
+                rf"^/world/{re.escape(self._world)}/model/holybro_x500[^/]*/"
+                r"link/camera_link/sensor/camera/image$"
+            ),
+            "drone_view": (
+                rf"^/world/{re.escape(self._world)}/model/holybro_x500[^/]*/"
+                r"link/drone_view_camera_link/sensor/drone_view_camera/image$"
+            ),
+        }
+        pattern = topic_patterns.get(camera)
+        if not pattern:
+            return None
+
+        env = os.environ.copy()
+        env["GZ_PARTITION"] = "px4"
+        try:
+            proc = subprocess.run(
+                ["gz", "topic", "-l"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=env,
+            )
+        except Exception:
+            return None
+
+        rx = re.compile(pattern)
+        for line in proc.stdout.splitlines():
+            topic = line.strip()
+            if rx.match(topic):
+                return topic
+        return None
+
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.
 
         Kills only the currently running stream_camera_webrtc.py worker —
         leaves PX4 and Gazebo untouched — then spawns a fresh worker
-        pointed at the new camera's topic. Both cameras are spawned at
-        world load, so their topics exist for the lifetime of the sim.
+        pointed at the new camera's topic.
 
         Returns:
             {"success": True, "camera": "<cam>"} on success
@@ -442,14 +484,10 @@ class SimService:
             return {"success": True, "camera": camera, "noop": True}
 
         # Use the long-form topic that matches what launch_with_stream.sh
-        # ends up running with after sourcing env.sh. The short form
-        # /model/<cam>/... is also published by gz, but in some
-        # configurations the camera subscriber only receives frames from
-        # the world-prefixed form. Mirror the launcher exactly.
-        topic = (
-            f"/world/{self._world}/model/{camera}_cam"
-            "/link/camera_link/sensor/camera/image"
-        )
+        # ends up running with after sourcing env.sh.
+        topic = self._stream_topic_for_camera(camera)
+        if not topic:
+            return {"success": False, "error": f"camera topic not found: {camera!r}"}
 
         # Kill the existing stream worker. -f matches anything with
         # "stream_camera" in the command line (matches both the MJPEG and

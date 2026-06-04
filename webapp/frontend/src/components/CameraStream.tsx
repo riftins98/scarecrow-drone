@@ -12,7 +12,7 @@ interface Props {
   launching: boolean;
   /** Sim is fully connected. We only attempt the iframe once this is true. */
   connected: boolean;
-  /** Camera flag stem currently streamed (e.g. "fixed", "center"). Used
+  /** Camera flag stem currently streamed (e.g. "fixed", "drone_view"). Used
    *  for the header label. Null in GUI mode. */
   camera: string | null;
   /** Cameras the active world offers; powers the live-switch dropdown.
@@ -241,4 +241,3 @@ function PopoutIcon() {
     </svg>
   );
 }
-

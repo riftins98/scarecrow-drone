@@ -15,6 +15,7 @@ from services.sim_service import (
     validate_spawn,
 )
 from services.world_geometry import all_spawn_maps, spawn_map_for_world
+from services.script_metadata import list_worlds
 
 # A point that is inside the valid box AND clear of both parked aircraft.
 # (The room center is occupied by the two Shadow aircraft, so tests must use a
@@ -51,6 +52,11 @@ class TestWorldGeometry:
             "xMin": 2.0, "xMax": 10.0, "yMin": -5.5, "yMax": -1.5,
         }
         assert info["obstacles"] == []
+
+    def test_world_camera_options_include_launcher_flags(self):
+        worlds = {w.name: w for w in list_worlds("worlds")}
+        names = [c.name for c in worlds["hangar_lite"].cameras]
+        assert names[:4] == ["fixed", "center", "drone_cam", "drone_view"]
 
 
 class TestValidateSpawn:
@@ -117,6 +123,18 @@ class TestLaunchSpawn:
              patch("services.sim_service.threading.Thread"):
             svc.launch(world=SPAWN_WORLD)
             assert svc._spawn_pose == DEFAULT_SPAWN_POSE
+
+    def test_headless_launch_accepts_drone_view_camera(self):
+        svc = SimService()
+        with patch.object(SimService, "stop"), \
+             patch("services.sim_service.time.sleep"), \
+             patch("services.sim_service.os.path.exists", return_value=True), \
+             patch("services.sim_service.subprocess.Popen") as mock_popen, \
+             patch("services.sim_service.threading.Thread"):
+            svc.launch(world=SPAWN_WORLD, headless=True, camera="drone_view")
+            argv = mock_popen.call_args.args[0]
+            assert "--drone_view" in argv
+            assert svc.camera == "drone_view"
 
     def test_custom_spawn_sets_pose_for_other_mapped_world(self):
         svc = SimService()
