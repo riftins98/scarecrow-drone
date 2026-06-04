@@ -1,6 +1,6 @@
 """Unit tests for configurable drone spawn maps and validation.
 
-The spawn point must stay >=3m from every wall and clear of static obstacles.
+The spawn point must stay >=2m from every wall and clear of static obstacles.
 These cover SDF-derived world maps, pure validation, and the SimService
 spawn state/teleport orchestration (gz set_pose is mocked).
 """
@@ -36,7 +36,7 @@ class TestWorldGeometry:
             "xMin": -12.0, "xMax": 12.0, "yMin": -7.5, "yMax": 7.5,
         }
         assert info["bounds"] == {
-            "xMin": -9.0, "xMax": 9.0, "yMin": -4.5, "yMax": 4.5,
+            "xMin": -10.0, "xMax": 10.0, "yMin": -5.5, "yMax": 5.5,
         }
         assert len(info["obstacles"]) == 2
         assert {o["label"] for o in info["obstacles"]} == {"shadow_1", "shadow_2"}
@@ -48,7 +48,7 @@ class TestWorldGeometry:
             "xMin": 0.0, "xMax": 12.0, "yMin": -7.5, "yMax": 0.5,
         }
         assert info["bounds"] == {
-            "xMin": 3.0, "xMax": 9.0, "yMin": -4.5, "yMax": -2.5,
+            "xMin": 2.0, "xMax": 10.0, "yMin": -5.5, "yMax": -1.5,
         }
         assert info["obstacles"] == []
 

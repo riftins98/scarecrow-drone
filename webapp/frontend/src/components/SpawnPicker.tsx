@@ -18,7 +18,7 @@ interface Props {
 
 /**
  * Top-down world map for picking the drone's spawn point. The valid interior
- * (>=3m from every wall) is drawn as a clear olive zone; the wall margin is
+ * (>=2m from every wall) is drawn as a clear olive zone; the wall margin is
  * shaded red and clicks there are rejected so you can only land the marker on
  * a legal spot. X,Y only; the drone launches with yaw 0.
  */

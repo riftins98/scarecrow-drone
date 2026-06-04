@@ -135,7 +135,7 @@ class SimService:
                 headless. Defaults to "fixed" if omitted or invalid.
             spawn: Optional ``{"x": float, "y": float}`` start location. The
                 chosen world must have SDF-derived spawn geometry. The point is
-                validated to be >=3m from every wall and clear of static props.
+                validated to be >=2m from every wall and clear of static props.
 
         Raises:
             ValueError: if ``spawn`` is given but the world cannot support it

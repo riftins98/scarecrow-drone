@@ -58,7 +58,7 @@ async def connect_sim(req: Optional[ConnectRequest] = None):
 @router.post("/spawn")
 async def set_spawn(req: SpawnPoint):
     """Re-spawn the drone at (x, y) on a running mapped world.
-    Validates the >=3m wall margin, teleports the drone there, and updates the
+    Validates the >=2m wall margin, teleports the drone there, and updates the
     spawn the panic reset returns to. Returns {success, error?, spawn?}."""
     if not sim_service.is_connected:
         return {"success": False, "error": "Simulation not running"}
