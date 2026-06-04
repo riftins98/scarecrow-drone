@@ -22,6 +22,8 @@ from typing import Optional
 # usually python3; on Windows native it's python.exe. Avoids "python3 not
 # found" when the same interpreter is right there.
 DEFAULT_PYTHON_BIN = sys.executable or "python3"
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+STREAM_LAUNCHER = os.path.join(REPO_ROOT, "scripts", "shell", "launch_with_stream.sh")
 
 
 @dataclass
@@ -68,14 +70,63 @@ class WorldInfo:
 
 # ---- world enumeration ----------------------------------------------------
 
-# Model URIs whose included instances are streamable cameras. The headless
-# launcher (scripts/shell/launch_with_stream.sh) only knows how to point a
-# WebRTC worker at these — drone-onboard cameras are not streamable from the
-# webapp side and don't belong in the dropdown.
+# Model URIs whose included instances are streamable world-mounted cameras.
 _STREAMABLE_CAMERA_MODELS = {"mono_cam_hd", "mono_cam"}
 
-# Launcher flag stems we know about, in display order.
-_KNOWN_CAMERA_FLAGS = ("fixed", "center")
+_CAMERA_LABELS = {
+    "fixed": "Fixed",
+    "center": "Center",
+    "drone_cam": "Drone Camera",
+    "drone_view": "Drone View",
+}
+
+_CAMERA_MODELS = {
+    "drone_cam": "holybro_x500",
+    "drone_view": "drone_view_cam",
+}
+
+
+def list_launch_stream_cameras(
+    launcher_path: str = STREAM_LAUNCHER,
+) -> list[CameraInfo]:
+    """Return camera flags accepted by launch_with_stream.sh, in script order."""
+    try:
+        with open(launcher_path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return []
+
+    names: list[str] = []
+    for line in text.splitlines():
+        if "Camera flags" not in line:
+            continue
+        for flag in re.findall(r"--([A-Za-z][A-Za-z0-9_]*)", line):
+            if flag not in names:
+                names.append(flag)
+
+    # Fallback: parse simple case labels if the usage comment changes.
+    if not names:
+        for match in re.finditer(r"^\s*--([A-Za-z][A-Za-z0-9_]*)(?:\)|\|)", text, re.MULTILINE):
+            flag = match.group(1)
+            if flag in ("headless", "port", "no-open", "background"):
+                continue
+            if flag not in names:
+                names.append(flag)
+
+    return [
+        CameraInfo(
+            name=name,
+            label=_CAMERA_LABELS.get(name, name.replace("_", " ").title()),
+            model=_CAMERA_MODELS.get(name, "launcher"),
+        )
+        for name in names
+    ]
+
+
+def launch_stream_camera_names(
+    launcher_path: str = STREAM_LAUNCHER,
+) -> tuple[str, ...]:
+    return tuple(cam.name for cam in list_launch_stream_cameras(launcher_path))
 
 
 def _parse_world_cameras(sdf_path: str) -> list[CameraInfo]:
@@ -118,13 +169,26 @@ def _parse_world_cameras(sdf_path: str) -> list[CameraInfo]:
             model=model,
         )
 
-    # Sort by the known launcher-flag display order; unknowns trail alphabetically.
-    known = [seen[k] for k in _KNOWN_CAMERA_FLAGS if k in seen]
+    cameras: list[CameraInfo] = []
+    for cam in list_launch_stream_cameras():
+        # Prefer the SDF model for world-mounted cameras, but use the
+        # launcher's label/order so the UI mirrors the script flags.
+        if cam.name in seen:
+            cameras.append(CameraInfo(
+                name=cam.name,
+                label=cam.label,
+                model=seen[cam.name].model,
+            ))
+        else:
+            cameras.append(cam)
+
+    # Any extra SDF cameras not mentioned by the launcher trail alphabetically.
+    listed = {cam.name for cam in cameras}
     extras = sorted(
-        (cam for k, cam in seen.items() if k not in _KNOWN_CAMERA_FLAGS),
+        (cam for k, cam in seen.items() if k not in listed),
         key=lambda c: c.name,
     )
-    return known + extras
+    return cameras + extras
 
 
 def list_worlds(worlds_dir: str) -> list[WorldInfo]:

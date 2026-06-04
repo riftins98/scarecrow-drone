@@ -31,7 +31,7 @@ class SpawnPoint(BaseModel):
 class ConnectRequest(BaseModel):
     world: Optional[str] = None
     headless: Optional[bool] = False
-    camera: Optional[str] = None  # e.g. "fixed", "center" — headless only
+    camera: Optional[str] = None  # e.g. "fixed", "drone_view" — headless only
     spawn: Optional[SpawnPoint] = None  # custom start location for mapped worlds
 
 
@@ -58,7 +58,7 @@ async def connect_sim(req: Optional[ConnectRequest] = None):
 @router.post("/spawn")
 async def set_spawn(req: SpawnPoint):
     """Re-spawn the drone at (x, y) on a running mapped world.
-    Validates the >=3m wall margin, teleports the drone there, and updates the
+    Validates the >=2m wall margin, teleports the drone there, and updates the
     spawn the panic reset returns to. Returns {success, error?, spawn?}."""
     if not sim_service.is_connected:
         return {"success": False, "error": "Simulation not running"}
@@ -72,7 +72,7 @@ async def disconnect_sim():
 
 
 class CameraSwitchRequest(BaseModel):
-    camera: str  # "fixed" | "center"
+    camera: str  # launch_with_stream.sh camera flag stem
 
 
 @router.post("/camera")

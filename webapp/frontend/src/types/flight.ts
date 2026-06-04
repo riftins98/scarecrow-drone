@@ -111,7 +111,7 @@ export interface FlightStatus {
 // --- Sim options (worlds + scripts available for the user to pick) ---
 
 export interface CameraInfo {
-  /** Launcher flag stem, e.g. "fixed". Sent back in ConnectSimParams.camera. */
+  /** Launcher flag stem, e.g. "fixed" or "drone_view". Sent back in ConnectSimParams.camera. */
   name: string;
   /** Pretty label for the dropdown. */
   label: string;
@@ -161,7 +161,7 @@ export interface ConnectSimParams {
   world?: string;
   headless?: boolean;
   /** Headless-only. Picks which streamable camera the launcher points the
-   *  WebRTC stream at. Backend silently falls back to "fixed" if invalid. */
+   *  WebRTC stream at. Backend falls back to "fixed" if invalid. */
   camera?: string;
   /** Custom start location for mapped worlds; omit for the default spawn. */
   spawn?: SpawnPoint;

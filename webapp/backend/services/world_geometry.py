@@ -20,7 +20,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 WORLDS_DIR = os.path.join(REPO_ROOT, "worlds")
 MODELS_DIR = os.path.join(REPO_ROOT, "models")
 
-SPAWN_WALL_MARGIN = 3.0
+SPAWN_WALL_MARGIN = 2.0
 SPAWN_OBSTACLE_MARGIN = 0.3
 
 _CAMERA_MODELS = {"mono_cam", "mono_cam_hd"}

@@ -71,14 +71,33 @@ cp "$SCARECROW_DIR/config/server.config" src/modules/simulation/gz_bridge/
 # Build against clean mirrors (single source of truth = local repo).
 SCARECROW_PX4_GZ_MODELS_DIR="$PX4_DIR/build/scarecrow_gz_models"
 SCARECROW_PX4_GZ_WORLDS_DIR="$PX4_DIR/build/scarecrow_gz_worlds"
+PX4_GZ_MODELS_DIR="$PX4_DIR/Tools/simulation/gz/models"
 
 rm -rf "$SCARECROW_PX4_GZ_MODELS_DIR" 2>/dev/null || true
 mkdir -p "$SCARECROW_PX4_GZ_MODELS_DIR"
+mkdir -p "$PX4_GZ_MODELS_DIR"
+link_model_dir() {
+    local src="$1"
+    local dest="$2"
+    if [ -L "$dest" ]; then
+        rm -f "$dest" 2>/dev/null || true
+    fi
+    ln -s "$src" "$dest" 2>/dev/null || true
+}
 for model_dir in "$SCARECROW_DIR/models"/*; do
     [ -d "$model_dir" ] || continue
     model_name="$(basename "$model_dir")"
-    ln -s "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name" 2>/dev/null || true
+    link_model_dir "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name"
+    link_model_dir "$model_dir" "$PX4_GZ_MODELS_DIR/$model_name"
 done
+if [ -n "${SCARECROW_MODEL_OVERLAY_DIR:-}" ] && [ -d "$SCARECROW_MODEL_OVERLAY_DIR" ]; then
+    for model_dir in "$SCARECROW_MODEL_OVERLAY_DIR"/*; do
+        [ -d "$model_dir" ] || continue
+        model_name="$(basename "$model_dir")"
+        link_model_dir "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name"
+        link_model_dir "$model_dir" "$PX4_GZ_MODELS_DIR/$model_name"
+    done
+fi
 
 # Build a deterministic worlds set for PX4 CMake target generation.
 # This avoids accidental duplicate/invalid files from polluting targets.
@@ -98,7 +117,11 @@ for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
     world_name="$(basename "$world_file")"
     ln -sf "$world_file" "$PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
 done
-export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_PX4_GZ_MODELS_DIR"
+if [ -n "${SCARECROW_MODEL_OVERLAY_DIR:-}" ] && [ -d "$SCARECROW_MODEL_OVERLAY_DIR" ]; then
+    export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_MODEL_OVERLAY_DIR:$SCARECROW_PX4_GZ_MODELS_DIR"
+else
+    export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_PX4_GZ_MODELS_DIR"
+fi
 export PX4_GZ_WORLDS_DIR="$SCARECROW_PX4_GZ_WORLDS_DIR"
 _log_timer_end copy_assets
 
@@ -250,12 +273,24 @@ _dump_latest_gz_log() {
 ) &
 GZ_GUARD_PID=$!
 
-_log_event run_px4_begin headless_flag="$HEADLESS_FLAG" pose_flag="$POSE_FLAG" world="$WORLD" run_target="$PX4_RUN_TARGET"
+GZ_TARGET="gz_holybro_x500"
+if [ "$WORLD" != "default" ]; then
+    WORLD_GZ_TARGET="gz_holybro_x500_${WORLD}"
+    if [ -f "$PX4_DIR/build/$PX4_BUILD_DIR_NAME/build.ninja" ] \
+        && ninja -C "$PX4_DIR/build/$PX4_BUILD_DIR_NAME" -t targets 2>/dev/null \
+            | grep -q "^${WORLD_GZ_TARGET}:"; then
+        GZ_TARGET="$WORLD_GZ_TARGET"
+    else
+        echo "[launch] PX4 target $WORLD_GZ_TARGET not generated; using gz_holybro_x500 with PX4_GZ_WORLD=$WORLD"
+    fi
+fi
+
+_log_event run_px4_begin headless_flag="$HEADLESS_FLAG" pose_flag="$POSE_FLAG" world="$WORLD" run_target="$PX4_RUN_TARGET" gz_target="$GZ_TARGET"
 
 if [ "${SCARECROW_PXH_INTERACTIVE:-0}" = "1" ]; then
-    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" gz_holybro_x500
+    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" "$GZ_TARGET"
 else
-    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" gz_holybro_x500 \
+    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" "$GZ_TARGET" \
         < "$PXH_FIFO" \
         > >(tee "$PXH_INJECT_LOG")
 fi

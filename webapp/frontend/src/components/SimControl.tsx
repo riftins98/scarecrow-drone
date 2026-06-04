@@ -95,9 +95,8 @@ export default function SimControl({
       .catch((e: unknown) => setOptionsError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  // Cameras the selected world exposes (parsed from its SDF by the backend).
-  // Empty if the SDF has no streamable cameras — in that case the headless
-  // launcher will still fall back to "fixed" if the user picks headless.
+  // Cameras the selected world can stream. The backend derives this from
+  // launch_with_stream.sh and merges in SDF model metadata where available.
   const availableCameras = options?.worlds.find(
     (w: WorldInfo) => w.name === selectedWorld,
   )?.cameras ?? [];
@@ -270,7 +269,7 @@ export default function SimControl({
                     <span className="form-label">Stream camera</span>
                     {availableCameras.length === 0 ? (
                       <span className="form-hint">
-                        No streamable cameras in this world — launcher will use default ("fixed")
+                        No stream cameras found — launcher will use default ("fixed")
                       </span>
                     ) : (
                       <select
