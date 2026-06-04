@@ -98,9 +98,9 @@ done
 
 # Accept both "world_name" and "world_name.sdf" inputs.
 WORLD="${WORLD%.sdf}"
-if [[ "$WORLD" == "hangar_1_wall_pursuit" ]]; then
+if [[ "$WORLD" == "hangar_1_wall_pursuit" || "$WORLD" == "drone_hangar_light" ]]; then
     DEFAULT_POSE="-9,4.5,0,0,0,0"
-elif [[ "$WORLD" == "hangar_1_wall_pursuit_2_3" ]]; then
+elif [[ "$WORLD" == "drone_hangar_small" ]]; then
     DEFAULT_POSE="-6,3,0,0,0,0"
 elif [[ "$WORLD" == "hangar_lite" ]]; then
     DEFAULT_POSE="4,-3,0,0,0,0"
