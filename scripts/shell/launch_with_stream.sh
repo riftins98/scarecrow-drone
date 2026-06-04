@@ -2,7 +2,7 @@
 # Launch the scarecrow drone simulation + start camera stream.
 # Usage:
 #   ./scripts/shell/launch_with_stream.sh [world_name] [--headless] [--port 8080] [--no-open] [--background]
-#   Camera flags (required): --fixed --center
+#   Camera flags (required): --fixed --center --drone_cam --drone_view
 # Default world: drone_garage_pigeon_3d
 set -e
 trap 'echo "[launch_with_stream] ERROR at line $LINENO — exit code $?"' ERR
@@ -28,25 +28,80 @@ REPO_ROOT="$SCARECROW_DIR"
 echo "[launch_with_stream] Cleaning up stale PX4/Gazebo processes..."
 pkill -x px4 2>/dev/null || true
 pkill -f "gz sim" 2>/dev/null || true
+pkill -f "stream_camera" 2>/dev/null || true
 rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
 
-WORLD="${1:-drone_garage_pigeon_3d}"
+WORLD="drone_garage_pigeon_3d"
 HEADLESS_FLAG=""
 STREAM_PORT="8080"
 DEFAULT_POSE="5,-4.5,0,0,0,0"
 OPEN_BROWSER=1
 INTERACTIVE_PXH=1
-STREAM_FPS="${STREAM_FPS:-24}"
+STREAM_FPS_EXPLICIT="${STREAM_FPS:-}"
+STREAM_FPS="${STREAM_FPS:-10}"
 STREAM_QUALITY="${STREAM_QUALITY:-68}"
 STREAM_THREADS="${STREAM_THREADS:-2}"
 STREAM_MODE="${STREAM_MODE:-webrtc}"
 SELECTED_CAMERAS=()
+DRONE_VIEW_ENABLED=0
+WORLD_SET=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --headless)
+            HEADLESS_FLAG="--headless"
+            ;;
+        --port)
+            shift
+            if [ -z "${1:-}" ]; then
+                echo "[launch_with_stream] ERROR: --port requires a value"
+                exit 1
+            fi
+            STREAM_PORT="$1"
+            ;;
+        --no-open)
+            OPEN_BROWSER=0
+            ;;
+        --background)
+            INTERACTIVE_PXH=0
+            ;;
+        --fixed)
+            SELECTED_CAMERAS+=("fixed_cam")
+            ;;
+        --center)
+            SELECTED_CAMERAS+=("center_cam")
+            ;;
+        --drone_cam)
+            SELECTED_CAMERAS+=("drone_cam")
+            ;;
+        --drone_view|--drove_view)
+            SELECTED_CAMERAS+=("drone_view")
+            DRONE_VIEW_ENABLED=1
+            ;;
+        --left_back_corner|--left_back_corncer|--pigeons_looking)
+            echo "[launch_with_stream] WARNING: legacy camera flag ignored: $1"
+            ;;
+        --*)
+            echo "[launch_with_stream] WARNING: unknown option ignored: $1"
+            ;;
+        *)
+            if [ "$WORLD_SET" -eq 0 ]; then
+                WORLD="$1"
+                WORLD_SET=1
+            else
+                echo "[launch_with_stream] WARNING: extra argument ignored: $1"
+            fi
+            ;;
+    esac
+    shift
+done
 
 # Accept both "world_name" and "world_name.sdf" inputs.
 WORLD="${WORLD%.sdf}"
-
 if [[ "$WORLD" == "hangar_1_wall_pursuit" ]]; then
     DEFAULT_POSE="-9,4.5,0,0,0,0"
+elif [[ "$WORLD" == "hangar_1_wall_pursuit_2_3" ]]; then
+    DEFAULT_POSE="-6,3,0,0,0,0"
 elif [[ "$WORLD" == "hangar_lite" ]]; then
     DEFAULT_POSE="4,-3,0,0,0,0"
 fi
@@ -56,42 +111,37 @@ if [ -z "${PX4_GZ_MODEL_POSE}" ]; then
     export PX4_GZ_MODEL_POSE="$DEFAULT_POSE"
 fi
 
-if [[ "$2" == "--headless" ]] || [[ "$1" == "--headless" ]]; then
-    HEADLESS_FLAG="--headless"
-    if [[ "$1" == "--headless" ]]; then
-        WORLD="drone_garage_pigeon_3d"
-    fi
-fi
+prepare_drone_view_overlay() {
+    local overlay_root="$REPO_ROOT/output/model_overlays/drone_view"
+    local overlay_model="$overlay_root/holybro_x500"
+    mkdir -p "$overlay_model"
+    cp "$REPO_ROOT/models/holybro_x500/model.config" "$overlay_model/model.config"
+    awk '
+        /<\/model>/ && !inserted {
+            print "    <!-- Optional collisionless chase camera, enabled by launch_with_stream.sh --drone_view. -->"
+            print "    <include merge='\''true'\''>"
+            print "      <uri>model://drone_view_cam</uri>"
+            print "      <pose relative_to=\"base_link\">-1.5 0 0.5 0 0.174533 0</pose>"
+            print "    </include>"
+            print ""
+            print "    <joint name=\"DroneViewCameraJoint\" type=\"fixed\">"
+            print "      <parent>base_link</parent>"
+            print "      <child>drone_view_camera_link</child>"
+            print "    </joint>"
+            print ""
+            inserted=1
+        }
+        { print }
+    ' "$REPO_ROOT/models/holybro_x500/model.sdf" > "$overlay_model/model.sdf"
+    export SCARECROW_MODEL_OVERLAY_DIR="$overlay_root"
+}
 
-if [[ "$3" == "--port" ]]; then
-    STREAM_PORT="$4"
-elif [[ "$2" == "--port" ]]; then
-    STREAM_PORT="$3"
-fi
-if [[ "$1" == "--no-open" ]] || [[ "$2" == "--no-open" ]] || [[ "$3" == "--no-open" ]] || [[ "$4" == "--no-open" ]]; then
-    OPEN_BROWSER=0
-fi
-for arg in "$@"; do
-    if [[ "$arg" == "--background" ]]; then
-        INTERACTIVE_PXH=0
-        break
+if [ "$DRONE_VIEW_ENABLED" -eq 1 ]; then
+    if [ -z "$STREAM_FPS_EXPLICIT" ]; then
+        STREAM_FPS="10"
     fi
-done
-
-for arg in "$@"; do
-    case "$arg" in
-        --fixed)
-            SELECTED_CAMERAS+=("fixed_cam")
-            ;;
-        --center)
-            SELECTED_CAMERAS+=("center_cam")
-            ;;
-        --left_back_corner|--left_back_corncer)
-            ;;
-        --pigeons_looking)
-            ;;
-    esac
-done
+    prepare_drone_view_overlay
+fi
 
 echo "============================================"
 echo "  Scarecrow Drone — Sim + Live Stream"
@@ -103,6 +153,9 @@ echo "  Stream Mode: $STREAM_MODE"
 echo "  Stream FPS: $STREAM_FPS | JPEG Quality: $STREAM_QUALITY | Camera Threads: $STREAM_THREADS"
 if [ ${#SELECTED_CAMERAS[@]} -gt 0 ]; then
     echo "  Cameras: ${SELECTED_CAMERAS[*]}"
+fi
+if [ "$DRONE_VIEW_ENABLED" -eq 1 ]; then
+    echo "  Drone View Overlay: ENABLED"
 fi
 echo "============================================"
 
@@ -125,7 +178,7 @@ start_stream_worker() {
     _log_timer_begin step2_drone_topic
     DRONE_READY=0
     for _ in {1..90}; do
-        if gz topic -l 2>/dev/null | grep -q -E "/model/holybro_x500"; then
+        if gz topic -l 2>/dev/null | grep -q -E "^/world/${WORLD}/model/holybro_x500"; then
             DRONE_READY=1
             break
         fi
@@ -143,14 +196,26 @@ start_stream_worker() {
     if [ ${#SELECTED_CAMERAS[@]} -eq 0 ]; then
         _log_error camera_flags_missing
         echo "[launch_with_stream] ERROR: no camera flags provided"
-        echo "[launch_with_stream] Use one or more: --fixed --center"
+        echo "[launch_with_stream] Use one or more: --fixed --center --drone_cam --drone_view"
         exit 1
     fi
 
     for cam_name in "${SELECTED_CAMERAS[@]}"; do
         CAMERA_TOPIC=""
+        CAMERA_PATTERN=""
+        case "$cam_name" in
+            fixed_cam|center_cam)
+                CAMERA_PATTERN="^/world/${WORLD}/model/${cam_name}/link/camera_link/sensor/camera/image$"
+                ;;
+            drone_cam)
+                CAMERA_PATTERN="^/world/${WORLD}/model/holybro_x500[^/]*/link/camera_link/sensor/camera/image$"
+                ;;
+            drone_view)
+                CAMERA_PATTERN="^/world/${WORLD}/model/holybro_x500[^/]*/link/drone_view_camera_link/sensor/drone_view_camera/image$"
+                ;;
+        esac
         for _ in {1..90}; do
-            CAMERA_TOPIC=$(gz topic -l 2>/dev/null | grep -m 1 -E "/model/${cam_name}/link/camera_link/sensor/camera/image$" || true)
+            CAMERA_TOPIC=$(gz topic -l 2>/dev/null | grep -m 1 -E "$CAMERA_PATTERN" || true)
             if [ -n "$CAMERA_TOPIC" ]; then
                 break
             fi
@@ -182,18 +247,23 @@ start_stream_worker() {
 
     if [ ${#CAMERA_TOPICS[@]} -eq 0 ]; then
         _log_error camera_topic_missing
-        echo "[launch_with_stream] ERROR: fixed camera topic not found; refusing to start stream on the drone camera"
-        echo "[launch_with_stream] Check world/model setup for model names: fixed_cam / mono_cam_hd"
+        echo "[launch_with_stream] ERROR: selected camera topic not found"
+        echo "[launch_with_stream] Check world/model setup for: fixed_cam, center_cam, drone_cam, drone_view"
         echo "[launch_with_stream] Available camera topics:"
-        gz topic -l 2>/dev/null | grep -E "camera_link/sensor/camera/image$|sensor/camera/image$" || true
+        gz topic -l 2>/dev/null | grep -E "camera_link/sensor/.*/image$|sensor/camera/image$" || true
         exit 1
     else
         echo "[launch_with_stream] Camera topics:  ${CAMERA_TOPICS[*]}"
     fi
 
     if [ ${#CAMERA_TOPICS[@]} -gt 1 ] && [ "$STREAM_MODE" = "webrtc" ]; then
-        _log_warn webrtc_multi_camera_fallback
-        STREAM_MODE="mjpeg"
+        LAST_CAMERA_INDEX=$((${#CAMERA_TOPICS[@]} - 1))
+        SELECTED_CAMERA="${SELECTED_CAMERAS[$LAST_CAMERA_INDEX]}"
+        SELECTED_TOPIC="${CAMERA_TOPICS[$LAST_CAMERA_INDEX]}"
+        _log_warn webrtc_multi_camera_single_topic selected="$SELECTED_CAMERA" ignored_count="$LAST_CAMERA_INDEX"
+        echo "[launch_with_stream] WARNING: WebRTC supports one live stream; using ${SELECTED_CAMERA}"
+        CAMERA_TOPICS=("$SELECTED_TOPIC")
+        SELECTED_CAMERAS=("$SELECTED_CAMERA")
     fi
     _log_event stream_exec mode="$STREAM_MODE" port="$STREAM_PORT" topics="\"${CAMERA_TOPICS[*]:-}\""
     _log_timer_end step4_stream
