@@ -54,9 +54,10 @@ from scarecrow.sensors.rangefinder import GazeboRangefinder  # noqa: E402
 
 
 SYSTEM_ADDRESS = "udp://:14540"
-DEFAULT_TARGET_ALT = 2.5
 DEFAULT_TARGET_DIST = 1.5
-DEFAULT_WALL_DISTANCE = 3.0
+DEFAULT_WALL_DISTANCE = 2.0
+DEFAULT_START_SIDE = "left"
+TARGET_CEILING_CLEARANCE_M = 2.0
 DEFAULT_HOVER_SECONDS = 5.0
 DEFAULT_LEG_TIMEOUT = 300.0
 DEFAULT_MAX_LEGS = 4
@@ -345,7 +346,7 @@ def _refine_boundary_from_route_samples(
     *,
     wall_distance: float,
 ) -> list[dict]:
-    """Adjust startup boundary sides using stable 3m wall-follow evidence."""
+    """Adjust startup boundary sides using stable wall-follow evidence."""
     if len(boundaries) < 4:
         return boundaries
 
