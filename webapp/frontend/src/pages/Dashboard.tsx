@@ -14,7 +14,7 @@ import SpawnPicker from '../components/SpawnPicker';
 import { spawnMapForWorld } from '../components/spawnMapLookup';
 import {
   Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams,
-  SimOptions, WorldInfo, SpawnPoint,
+  SimOptions, CameraInfo, SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
 
@@ -34,12 +34,14 @@ export default function Dashboard() {
   // Sim options (worlds + cameras + scripts) — fetched once on mount so
   // CameraStream knows the available cameras for the active world.
   const [simOptions, setSimOptions] = useState<SimOptions | null>(null);
+  const [streamCameras, setStreamCameras] = useState<CameraInfo[]>([]);
   const [previewWorld, setPreviewWorld] = useState<string>(DEFAULT_WORLD);
   const [previewSpawn, setPreviewSpawn] = useState<SpawnPoint | null>(null);
   useEffect(() => {
-    api.getSimOptions()
-      .then((data: SimOptions) => {
+    Promise.all([api.getSimOptions(), api.getSimCameras()])
+      .then(([data, camerasRes]) => {
         setSimOptions(data);
+        setStreamCameras(camerasRes.cameras);
         if (data.worlds.length > 0 && !data.worlds.find((w) => w.name === DEFAULT_WORLD)) {
           setPreviewWorld(data.worlds[0].name);
         }
@@ -297,11 +299,7 @@ export default function Dashboard() {
                       launching={launching}
                       connected={connected}
                       camera={simStatus.camera}
-                      availableCameras={
-                        simOptions?.worlds.find(
-                          (w: WorldInfo) => w.name === simStatus.world,
-                        )?.cameras ?? []
-                      }
+                      availableCameras={streamCameras}
                     />
                   )}
                 </div>

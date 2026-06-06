@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the scarecrow drone simulation.
 # One command — PX4 manages Gazebo with GUI.
-# Usage: ./scripts/shell/launch.sh [world_name] [--headless]
+# Usage: ./scripts/shell/launch.sh [world_name] [--headless] [--no-build]
 #   Default world: indoor_room
 #   Set spawn position: PX4_GZ_MODEL_POSE="-7,-7,0,0,0,0" ./scripts/shell/launch.sh
 #
@@ -27,12 +27,20 @@ _log_env_snapshot
 
 WORLD="${1:-indoor_room}"
 HEADLESS_FLAG=""
+NO_BUILD=0
 if [[ "$2" == "--headless" ]] || [[ "$1" == "--headless" ]]; then
     HEADLESS_FLAG="HEADLESS=1"
     if [[ "$1" == "--headless" ]]; then
         WORLD="indoor_room"
     fi
 fi
+
+for arg in "$@"; do
+    if [[ "$arg" == "--no-build" ]]; then
+        NO_BUILD=1
+        break
+    fi
+done
 
 # Accept both "world_name" and "world_name.sdf" inputs.
 WORLD="${WORLD%.sdf}"
@@ -47,6 +55,7 @@ echo "  Scarecrow Drone — Simulation Launcher"
 echo "  World: $WORLD"
 echo "  Spawn: ${PX4_GZ_MODEL_POSE:-0,0,0,0,0,0}"
 echo "  GUI: $([ -z "$HEADLESS_FLAG" ] && echo 'YES' || echo 'NO')"
+echo "  Build PX4: $([ "$NO_BUILD" -eq 1 ] && echo 'NO' || echo 'YES')"
 echo "============================================"
 echo ""
 
@@ -143,13 +152,18 @@ fi
 _log_timer_begin build_px4
 _BUILD_CACHE_HIT=true
 [ -f "$PX4_DIR/build/$PX4_BUILD_DIR_NAME/bin/px4" ] || _BUILD_CACHE_HIT=false
-echo "[launch] Building PX4 (this may take a few minutes on first run)..."
-if [[ "$(uname)" == "Darwin" ]]; then
-    make -j1 "$PX4_BUILD_TARGET"
+if [ "$NO_BUILD" -eq 1 ]; then
+    echo "[launch] Skipping PX4 build (--no-build)"
+    _log_timer_end build_px4 cache_hit="$_BUILD_CACHE_HIT" target="$PX4_BUILD_TARGET" build_dir="$PX4_BUILD_DIR_NAME" skipped=true
 else
-    make "$PX4_BUILD_TARGET"
+    echo "[launch] Building PX4 (this may take a few minutes on first run)..."
+    if [[ "$(uname)" == "Darwin" ]]; then
+        make -j1 "$PX4_BUILD_TARGET"
+    else
+        make "$PX4_BUILD_TARGET"
+    fi
+    _log_timer_end build_px4 cache_hit="$_BUILD_CACHE_HIT" target="$PX4_BUILD_TARGET" build_dir="$PX4_BUILD_DIR_NAME" skipped=false
 fi
-_log_timer_end build_px4 cache_hit="$_BUILD_CACHE_HIT" target="$PX4_BUILD_TARGET" build_dir="$PX4_BUILD_DIR_NAME"
 
 if [[ "$(uname)" == "Darwin" ]]; then
     # PX4's Gazebo optical-flow plugin links against libOpticalFlow.dylib via

@@ -71,6 +71,17 @@ def test_sim_reset_orchestrates_kill_disarm_teleport(api_client):
         mock_values.assert_called_once()
 
 
+def test_sim_cameras_lists_launcher_flags(api_client):
+    response = api_client.get("/api/sim/cameras")
+    assert response.status_code == 200
+    data = response.json()
+    assert [c["name"] for c in data["cameras"]] == [
+        "fixed", "center", "drone_cam", "drone_view",
+    ]
+    assert data["cameras"][0]["label"] == "Fixed"
+    assert data["cameras"][0]["model"] == "mono_cam_hd"
+
+
 def test_sim_options_includes_spawn_bounds(api_client):
     response = api_client.get("/api/sim/options")
     assert response.status_code == 200

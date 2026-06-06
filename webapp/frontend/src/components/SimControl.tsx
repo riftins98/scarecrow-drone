@@ -45,6 +45,7 @@ export default function SimControl({
   // Sim options (worlds + scripts) — fetched once on mount
   const [options, setOptions] = useState<SimOptions | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [streamCameras, setStreamCameras] = useState<CameraInfo[]>([]);
 
   // Pre-connect form state
   const [selectedWorld, setSelectedWorld] = useState<string>(DEFAULT_WORLD);
@@ -81,9 +82,10 @@ export default function SimControl({
   };
 
   useEffect(() => {
-    api.getSimOptions()
-      .then((data: SimOptions) => {
+    Promise.all([api.getSimOptions(), api.getSimCameras()])
+      .then(([data, camerasRes]) => {
         setOptions(data);
+        setStreamCameras(camerasRes.cameras);
         // If our default world isn't actually available, fall back to the first.
         if (data.worlds.length > 0 && !data.worlds.find((w: { name: string }) => w.name === DEFAULT_WORLD)) {
           setSelectedWorld(data.worlds[0].name);
@@ -95,11 +97,7 @@ export default function SimControl({
       .catch((e: unknown) => setOptionsError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  // Cameras the selected world can stream. The backend derives this from
-  // launch_with_stream.sh and merges in SDF model metadata where available.
-  const availableCameras = options?.worlds.find(
-    (w: WorldInfo) => w.name === selectedWorld,
-  )?.cameras ?? [];
+  const availableCameras = streamCameras;
 
   // Sync the camera selection with the current world. When the world
   // changes (or options first arrive), reset to the first available camera
@@ -112,9 +110,9 @@ export default function SimControl({
     if (!availableCameras.find((c: CameraInfo) => c.name === selectedCamera)) {
       setSelectedCamera(availableCameras[0].name);
     }
-    // selectedCamera intentionally omitted from deps: we only reseed it when
-    // the available-set changes (world swap), not on every user click.
-  }, [selectedWorld, options]);
+    // selectedCamera intentionally omitted from deps: we only reseed when the
+    // camera list first arrives or shrinks, not on every user click.
+  }, [availableCameras]);
 
   // When the selected script changes, reset arg values to that script's defaults
   // (so the form fields reflect the new arg set, not stale values from another script).
