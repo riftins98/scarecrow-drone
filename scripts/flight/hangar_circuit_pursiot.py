@@ -1628,7 +1628,7 @@ async def run() -> None:
                 print(
                     f"  [leg {leg} {result.elapsed_s:5.1f}s] "
                     f"fwd={cmd.forward_m_s:+.2f} lat={cmd.right_m_s:+.2f} "
-                    f"yaw={cmd.yawspeed_deg_s:+.1f} | "
+                    f"down={cmd.down_m_s:+.2f} yaw={cmd.yawspeed_deg_s:+.1f} | "
                     f"left={_fmt_m(result.wall_distance_m)} "
                     f"front={_fmt_m(result.front_distance_m)} "
                     f"raw_front={_fmt_m(result.raw_front_distance_m)} "
@@ -1649,6 +1649,10 @@ async def run() -> None:
                 max_lateral_speed=WALL_FOLLOW_MAX_LATERAL,
                 yaw_kp=WALL_FOLLOW_YAW_KP,
                 max_yaw_speed=WALL_FOLLOW_MAX_YAW,
+                target_alt_m=args.target_alt,
+                altitude_kp=ALTITUDE_HOLD_KP,
+                altitude_tolerance_m=ALTITUDE_HOLD_TOLERANCE_M,
+                max_vertical_speed_m_s=ALTITUDE_HOLD_MAX_DOWN_SPEED,
             )
             print(
                 f"  Leg {leg} ended: {wall_result.reason} "

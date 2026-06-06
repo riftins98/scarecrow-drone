@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -96,6 +97,10 @@ class NavigationUnit:
         min_safe_distance: float = 0.5,
         yaw_kp: float = 1.5,
         max_yaw_speed: float = 10.0,
+        target_alt_m: float | None = None,
+        altitude_kp: float = 0.45,
+        altitude_tolerance_m: float = 0.12,
+        max_vertical_speed_m_s: float = 0.18,
     ) -> bool:
         """Follow a wall until front obstacle detected. Returns True if stopped
         normally, False on timeout."""
@@ -111,6 +116,10 @@ class NavigationUnit:
             min_safe_distance=min_safe_distance,
             yaw_kp=yaw_kp,
             max_yaw_speed=max_yaw_speed,
+            target_alt_m=target_alt_m,
+            altitude_kp=altitude_kp,
+            altitude_tolerance_m=altitude_tolerance_m,
+            max_vertical_speed_m_s=max_vertical_speed_m_s,
         )
         return result.done and result.reason == "front_wall"
 
@@ -129,6 +138,10 @@ class NavigationUnit:
         min_safe_distance: float = 0.5,
         yaw_kp: float = 1.5,
         max_yaw_speed: float = 10.0,
+        target_alt_m: float | None = None,
+        altitude_kp: float = 0.45,
+        altitude_tolerance_m: float = 0.12,
+        max_vertical_speed_m_s: float = 0.18,
     ) -> WallFollowResult:
         """Follow a wall until a front wall, timeout, or external condition.
 
@@ -140,6 +153,7 @@ class NavigationUnit:
             timeout: Maximum segment duration in seconds.
             stop_condition: Optional synchronous predicate checked each loop.
             on_status: Optional callback with the latest segment status.
+            target_alt_m: Optional AGL altitude to hold while wall-following.
         """
         ctrl = WallFollowController(
             side=side,
@@ -180,7 +194,16 @@ class NavigationUnit:
 
             scan = self.lidar.get_scan()
             if scan is None:
-                await self.drone.set_velocity(VelocityCommand())
+                await self.drone.set_velocity(
+                    VelocityCommand(
+                        down_m_s=await self._altitude_hold_down_speed(
+                            target_alt_m,
+                            kp=altitude_kp,
+                            tolerance_m=altitude_tolerance_m,
+                            max_vertical_speed_m_s=max_vertical_speed_m_s,
+                        )
+                    )
+                )
                 await asyncio.sleep(0.05)
                 continue
 
@@ -200,6 +223,12 @@ class NavigationUnit:
                 wall_angle_error=wall_error,
                 front_wall_confirmed=front_state.front_wall_visible,
                 front_stop_reached=front_state.stop_confirmed,
+            )
+            cmd.down_m_s = await self._altitude_hold_down_speed(
+                target_alt_m,
+                kp=altitude_kp,
+                tolerance_m=altitude_tolerance_m,
+                max_vertical_speed_m_s=max_vertical_speed_m_s,
             )
             await self.drone.set_velocity(cmd)
 
@@ -254,6 +283,30 @@ class NavigationUnit:
             stop_confirmed=last_status.stop_confirmed,
             command=last_status.command,
         )
+
+    async def _altitude_hold_down_speed(
+        self,
+        target_alt_m: float | None,
+        *,
+        kp: float,
+        tolerance_m: float,
+        max_vertical_speed_m_s: float,
+    ) -> float:
+        """Return body-frame down speed needed to hold an AGL altitude."""
+        if target_alt_m is None:
+            return 0.0
+        try:
+            pos = await self.drone.get_position()
+            ground_z = getattr(self.drone, "ground_z", 0.0)
+            agl_m = -(pos.position.down_m - ground_z)
+        except Exception:
+            return 0.0
+        if not math.isfinite(agl_m):
+            return 0.0
+        error = agl_m - target_alt_m
+        if abs(error) <= tolerance_m:
+            return 0.0
+        return max(-max_vertical_speed_m_s, min(max_vertical_speed_m_s, error * kp))
 
     async def hover(self, duration_s: float) -> None:
         """Hold position by sending zero body-frame velocity for a duration."""
