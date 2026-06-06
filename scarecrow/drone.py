@@ -50,6 +50,7 @@ class Drone:
         self._address = system_address
         self.mode = mode
         self._ground_z: float = 0.0
+        self._takeoff_prepared: bool = False
         self._in_offboard: bool = False
         self._in_air: bool = False
         self._armed: bool = False
@@ -296,6 +297,7 @@ class Drone:
         ground = await get_position(self._system)
         self._ground_z = ground.position.down_m
         await self._system.action.set_takeoff_altitude(altitude)
+        self._takeoff_prepared = True
         if settle_delay > 0:
             await asyncio.sleep(settle_delay)
         return ground
@@ -310,7 +312,7 @@ class Drone:
         $SCARECROW_TAKEOFF_TIMEOUT (set on WSL by scripts/shell/env.sh).
         """
         log_event(_log, "takeoff_request", altitude=altitude, timeout=timeout)
-        if self._ground_z == 0.0:
+        if not self._takeoff_prepared:
             await self.prepare_takeoff(altitude)
         with Timer(_log, "takeoff", altitude=altitude):
             await self._system.action.takeoff()
