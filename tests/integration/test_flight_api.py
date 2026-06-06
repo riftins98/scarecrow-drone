@@ -129,3 +129,20 @@ def test_legacy_flight_status(api_client):
     data = response.json()
     assert "isFlying" in data
     assert "isConnected" in data
+
+
+def test_flight_log_returns_cursor_payload(api_client):
+    from dependencies import detection_service
+
+    detection_service._output_lines = ["line one", "line two"]
+    detection_service._output_offset = 0
+    detection_service.running = True
+    detection_service.flight_id = "abc12345"
+
+    response = api_client.get("/api/flight/log?since=0")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["lines"] == ["line one", "line two"]
+    assert data["cursor"] == 2
+    assert data["running"] is True
+    assert data["flight_id"] == "abc12345"
