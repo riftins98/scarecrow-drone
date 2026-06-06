@@ -6,11 +6,12 @@ from scarecrow.controllers.target_pursuit import (
 )
 
 
-def _observation(center_x=640.0, now=100.0):
+def _observation(center_x=640.0, center_y=360.0, now=100.0):
     return TargetObservation(
         center_x=center_x,
-        center_y=240.0,
+        center_y=center_y,
         image_width=1280.0,
+        image_height=720.0,
         confidence=0.9,
         timestamp=now,
     )
@@ -39,6 +40,33 @@ def test_centered_target_approaches_forward(mock_lidar_scan):
     assert result.state == TargetPursuitState.APPROACHING
     assert result.command.forward_m_s > 0
     assert result.command.yawspeed_deg_s == 0
+    assert result.command.down_m_s == 0
+
+
+def test_target_high_in_frame_commands_climb(mock_lidar_scan):
+    scan = mock_lidar_scan(front=5.0, left=2.0, right=8.0)
+    controller = TargetPursuitController()
+
+    result = controller.update(scan, _observation(center_y=180.0), now=100.0)
+
+    assert result.state == TargetPursuitState.ALIGNING
+    assert result.command.yawspeed_deg_s == 0
+    assert result.command.down_m_s < 0
+    assert result.vertical_error_ratio is not None
+    assert result.vertical_error_ratio < 0
+
+
+def test_target_low_in_frame_commands_descent(mock_lidar_scan):
+    scan = mock_lidar_scan(front=5.0, left=2.0, right=8.0)
+    controller = TargetPursuitController()
+
+    result = controller.update(scan, _observation(center_y=540.0), now=100.0)
+
+    assert result.state == TargetPursuitState.ALIGNING
+    assert result.command.yawspeed_deg_s == 0
+    assert result.command.down_m_s > 0
+    assert result.vertical_error_ratio is not None
+    assert result.vertical_error_ratio > 0
 
 
 def test_front_distance_at_target_stops_successfully(mock_lidar_scan):

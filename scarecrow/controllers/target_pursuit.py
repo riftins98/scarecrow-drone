@@ -31,6 +31,7 @@ class TargetObservation:
     image_width: float
     confidence: float
     timestamp: float
+    image_height: float = 720.0
     class_name: str | None = None
     bbox: tuple[int, int, int, int] | None = None
 
@@ -43,11 +44,15 @@ class TargetPursuitConfig:
     """Configuration for lidar-and-vision target pursuit."""
 
     target_distance_m: float = 1.5
-    max_forward_speed_m_s: float = 0.4
-    min_forward_speed_m_s: float = 0.05
-    kp_forward: float = 0.3
-    yaw_kp: float = 15.0
-    max_yaw_speed_deg_s: float = 20.0
+    max_forward_speed_m_s: float = 0.45
+    min_forward_speed_m_s: float = 0.08
+    kp_forward: float = 0.35
+    yaw_kp: float = 20.0
+    max_yaw_speed_deg_s: float = 30.0
+    vertical_kp: float = 0.40
+    max_vertical_speed_m_s: float = 0.28
+    vertical_center_enter_ratio: float = 0.08
+    vertical_center_exit_ratio: float = 0.12
     min_wall_distance_m: float = 0.8
     side_wall_push_m_s: float = 0.15
     center_enter_ratio: float = 0.05
@@ -72,6 +77,7 @@ class TargetPursuitResult:
     front_distance_m: float | None = None
     target_age_s: float | None = None
     center_error_ratio: float | None = None
+    vertical_error_ratio: float | None = None
     elapsed_s: float = 0.0
 
 
@@ -151,14 +157,16 @@ class TargetPursuitController:
         centered = self._is_centered(observation)
         center_error = self._center_error_ratio(observation)
         yaw = self._align_yaw(observation)
+        down = self._align_vertical(observation)
         if not centered:
             self.state = TargetPursuitState.ALIGNING
             return self._result(
-                command=VelocityCommand(yawspeed_deg_s=yaw),
+                command=VelocityCommand(down_m_s=down, yawspeed_deg_s=yaw),
                 reason="aligning",
                 front_distance=front_dist,
                 target_age=target_age,
                 center_error=center_error,
+                vertical_error=self._vertical_error_ratio(observation),
                 elapsed=elapsed,
             )
 
@@ -168,13 +176,14 @@ class TargetPursuitController:
             command=VelocityCommand(
                 forward_m_s=base_cmd.forward_m_s,
                 right_m_s=base_cmd.right_m_s,
-                down_m_s=0.0,
+                down_m_s=down,
                 yawspeed_deg_s=yaw,
             ),
             reason="approaching",
             front_distance=front_dist,
             target_age=target_age,
             center_error=center_error,
+            vertical_error=self._vertical_error_ratio(observation),
             elapsed=elapsed,
         )
 
@@ -216,7 +225,20 @@ class TargetPursuitController:
             else self.config.center_enter_ratio
         )
         image_cx = observation.image_width / 2.0
-        return abs(observation.center_x - image_cx) <= image_cx * ratio
+        if image_cx <= 0.0:
+            return False
+        if abs(observation.center_x - image_cx) > image_cx * ratio:
+            return False
+
+        image_cy = observation.image_height / 2.0
+        if image_cy <= 0.0:
+            return False
+        vertical_ratio = (
+            self.config.vertical_center_exit_ratio
+            if self.state == TargetPursuitState.APPROACHING
+            else self.config.vertical_center_enter_ratio
+        )
+        return abs(observation.center_y - image_cy) <= image_cy * vertical_ratio
 
     def _center_error_ratio(
         self,
@@ -225,15 +247,44 @@ class TargetPursuitController:
         if observation is None:
             return None
         image_cx = observation.image_width / 2.0
+        if image_cx <= 0.0:
+            return None
         return abs(observation.center_x - image_cx) / image_cx
+
+    def _vertical_error_ratio(
+        self,
+        observation: TargetObservation | None,
+    ) -> float | None:
+        if observation is None:
+            return None
+        image_cy = observation.image_height / 2.0
+        if image_cy <= 0.0:
+            return None
+        return (observation.center_y - image_cy) / image_cy
 
     def _align_yaw(self, observation: TargetObservation | None) -> float:
         if observation is None:
             return 0.0
         image_cx = observation.image_width / 2.0
+        if image_cx <= 0.0:
+            return 0.0
         yaw_error = (observation.center_x - image_cx) / image_cx
         yaw = yaw_error * self.config.yaw_kp
         return max(-self.config.max_yaw_speed_deg_s, min(self.config.max_yaw_speed_deg_s, yaw))
+
+    def _align_vertical(self, observation: TargetObservation | None) -> float:
+        vertical_error = self._vertical_error_ratio(observation)
+        if vertical_error is None:
+            return 0.0
+        ratio = (
+            self.config.vertical_center_exit_ratio
+            if self.state == TargetPursuitState.APPROACHING
+            else self.config.vertical_center_enter_ratio
+        )
+        if abs(vertical_error) <= ratio:
+            return 0.0
+        down = vertical_error * self.config.vertical_kp
+        return max(-self.config.max_vertical_speed_m_s, min(self.config.max_vertical_speed_m_s, down))
 
     def _result(
         self,
@@ -245,6 +296,7 @@ class TargetPursuitController:
         front_distance: float | None = None,
         target_age: float | None = None,
         center_error: float | None = None,
+        vertical_error: float | None = None,
         elapsed: float = 0.0,
     ) -> TargetPursuitResult:
         return TargetPursuitResult(
@@ -256,5 +308,6 @@ class TargetPursuitController:
             front_distance_m=front_distance,
             target_age_s=target_age,
             center_error_ratio=center_error,
+            vertical_error_ratio=vertical_error,
             elapsed_s=elapsed,
         )
