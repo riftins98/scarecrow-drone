@@ -147,11 +147,7 @@ async def flight_status():
 
 @router.get("/api/flight/log")
 async def flight_log(since: int = 0):
-    """Return flight-script stdout lines with absolute index >= since.
-
-    Polled by the frontend SystemLog after the sim is connected so operators
-    see mission output instead of the PX4/Gazebo launcher log.
-    """
+    """Flight-script stdout for SystemLog after the sim is connected."""
     return detection_service.get_log(since=since)
 
 
@@ -167,100 +163,49 @@ _FLIGHT_LOG_VIEW_HTML = """<!doctype html>
 <meta charset="utf-8">
 <title>Scarecrow // Flight Script Log</title>
 <style>
-  :root {
-    --bg: #0a0d08; --panel: #0d1208; --border: #2a3a1a;
-    --text: #c0c0c0; --muted: #707070; --olive: #8b9a5b;
-    --olive-bright: #d4e090; --teal: #7a9a9a; --warn: #d8a05a;
-  }
+  :root { --bg: #0a0d08; --border: #2a3a1a; --text: #c0c0c0; --muted: #707070; --olive: #8b9a5b; --warn: #d8a05a; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
-    height: 100%; background: var(--bg); color: var(--text);
-    font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;
-  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: Consolas, monospace; font-size: 13px; }
   body { display: flex; flex-direction: column; }
-  header {
-    display: flex; align-items: center; gap: 14px;
-    padding: 10px 16px;
-    background: linear-gradient(180deg, #1a1f15 0%, #0d1208 100%);
-    border-bottom: 1px solid var(--border);
-  }
-  h1 {
-    color: var(--olive); font-size: 13px; letter-spacing: 3px;
-    font-weight: 700; text-shadow: 0 0 6px rgba(139,154,91,0.3);
-  }
-  .pill {
-    padding: 3px 8px; border: 1px solid var(--border); border-radius: 1px;
-    font-size: 11px; letter-spacing: 1.5px; color: var(--muted);
-    background: var(--bg);
-  }
-  .pill.on  { color: var(--olive); border-color: #4a5a3a; box-shadow: 0 0 6px rgba(139,154,91,0.3); }
-  .pill.off { color: #555; }
-  .meta { margin-left: auto; color: var(--muted); font-size: 11px; letter-spacing: 1.5px; }
-  #log { flex: 1; overflow-y: auto; padding: 12px 16px; background: var(--bg); }
-  .line {
-    display: flex; gap: 10px; line-height: 1.55;
-    border-bottom: 1px dashed rgba(139,154,91,0.05);
-    padding: 2px 0; white-space: pre-wrap; word-break: break-all;
-  }
-  .idx  { color: #3a4a2a; flex-shrink: 0; width: 56px; text-align: right; }
-  .body { color: var(--text); flex: 1; }
-  .gap {
-    color: var(--warn); font-style: italic; padding: 4px 0;
-    border-top: 1px solid rgba(216,160,90,0.3);
-    border-bottom: 1px solid rgba(216,160,90,0.3); margin: 4px 0;
-  }
-  #log::-webkit-scrollbar { width: 6px; }
-  #log::-webkit-scrollbar-track { background: var(--bg); }
-  #log::-webkit-scrollbar-thumb { background: var(--border); }
-  footer {
-    display: flex; align-items: center; gap: 14px;
-    padding: 8px 16px;
-    background: linear-gradient(180deg, #0d1208 0%, #0a0d08 100%);
-    border-top: 1px solid var(--border);
-    color: var(--muted); font-size: 11px; letter-spacing: 1.5px;
-  }
-  label { display: flex; gap: 6px; align-items: center; cursor: pointer; user-select: none; }
-  input[type=checkbox] { accent-color: var(--olive); }
+  header { display: flex; gap: 14px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  h1 { color: var(--olive); font-size: 13px; letter-spacing: 3px; }
+  .pill { padding: 3px 8px; border: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+  .pill.on { color: var(--olive); }
+  .meta { margin-left: auto; color: var(--muted); font-size: 11px; }
+  #log { flex: 1; overflow-y: auto; padding: 12px 16px; }
+  .line { display: flex; gap: 10px; line-height: 1.55; white-space: pre-wrap; word-break: break-all; }
+  .idx { color: #3a4a2a; width: 56px; text-align: right; flex-shrink: 0; }
+  .gap { color: var(--warn); font-style: italic; margin: 4px 0; }
+  footer { padding: 8px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 </style>
 </head>
 <body>
   <header>
     <h1>SCARECROW // FLIGHT SCRIPT LOG</h1>
-    <span id="state" class="pill off">IDLE</span>
+    <span id="state" class="pill">IDLE</span>
     <span id="flight" class="pill"></span>
     <span class="meta" id="meta">lines: 0</span>
   </header>
   <div id="log"></div>
-  <footer>
-    <label><input type="checkbox" id="follow" checked> AUTOSCROLL</label>
-    <span class="meta" id="rate">poll: 1.0s</span>
-  </footer>
+  <footer><label><input type="checkbox" id="follow" checked> AUTOSCROLL</label></footer>
 <script>
-  const apiBase = (window.location.origin || 'http://127.0.0.1:8000');
+  const apiBase = window.location.origin || 'http://127.0.0.1:8000';
   let cursor = 0;
   const logEl = document.getElementById('log');
   const stateEl = document.getElementById('state');
   const flightEl = document.getElementById('flight');
   const metaEl = document.getElementById('meta');
   const followEl = document.getElementById('follow');
-
   function append(line, absIdx) {
-    const row = document.createElement('div');
-    row.className = 'line';
-    const idx = document.createElement('span');
-    idx.className = 'idx';
+    const row = document.createElement('div'); row.className = 'line';
+    const idx = document.createElement('span'); idx.className = 'idx';
     idx.textContent = String(absIdx).padStart(5, '0');
-    const body = document.createElement('span');
-    body.className = 'body';
-    body.textContent = line;
-    row.appendChild(idx); row.appendChild(body);
-    logEl.appendChild(row);
+    const body = document.createElement('span'); body.textContent = line;
+    row.appendChild(idx); row.appendChild(body); logEl.appendChild(row);
   }
   function appendGap(n) {
-    const row = document.createElement('div');
-    row.className = 'gap';
-    row.textContent = '... ' + n + ' line(s) dropped (buffer rolled) ...';
-    logEl.appendChild(row);
+    const row = document.createElement('div'); row.className = 'gap';
+    row.textContent = '... ' + n + ' line(s) dropped ...'; logEl.appendChild(row);
   }
   async function tick() {
     try {
@@ -271,17 +216,13 @@ _FLIGHT_LOG_VIEW_HTML = """<!doctype html>
       for (const line of data.lines) { append(line, idx); idx += 1; }
       cursor = data.cursor;
       stateEl.textContent = data.running ? 'RUNNING' : 'IDLE';
-      stateEl.className = 'pill ' + (data.running ? 'on' : 'off');
+      stateEl.className = 'pill ' + (data.running ? 'on' : '');
       flightEl.textContent = data.flight_id ? ('FLIGHT: ' + data.flight_id) : '';
-      metaEl.textContent = 'lines: ' + cursor + '  buffer-start: ' + data.start;
+      metaEl.textContent = 'lines: ' + cursor;
       if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
-    } catch (e) {
-      stateEl.textContent = 'OFFLINE';
-      stateEl.className = 'pill off';
-    }
+    } catch (e) { stateEl.textContent = 'OFFLINE'; }
   }
-  tick();
-  setInterval(tick, 1000);
+  tick(); setInterval(tick, 1000);
 </script>
 </body>
 </html>

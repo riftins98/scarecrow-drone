@@ -76,13 +76,13 @@ export interface LogPollResponse {
   running: boolean;
 }
 
-// Sim launcher stdout — shown in SystemLog while connecting (pre-drone).
+// Sim launcher stdout — SystemLog while connecting (pre-drone).
 export const getSimLog = (since: number = 0): Promise<LogPollResponse & { world: string }> =>
   fetchJson(`/api/sim/log?since=${since}`);
 
 export const simLogViewUrl = () => `${API_BASE}/api/sim/log/view`;
 
-// Flight-script stdout — shown in SystemLog after the sim is connected.
+// Flight-script stdout — SystemLog after the sim is connected.
 export const getFlightLog = (since: number = 0): Promise<LogPollResponse & { flight_id: string | null }> =>
   fetchJson(`/api/flight/log?since=${since}`);
 

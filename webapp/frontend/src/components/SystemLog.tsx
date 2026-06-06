@@ -10,14 +10,11 @@ import {
 } from '../services/api';
 
 interface Props {
-  /** Are we currently connected to the sim? Controls poll rate + placeholder state. */
   connected: boolean;
-  /** Active flight? Just used to label the header pill. */
   flying: boolean;
 }
 
 interface LogEntry {
-  /** Absolute line index from the backend. Stable across the run. */
   idx: number;
   text: string;
 }
@@ -34,11 +31,8 @@ const MAX_RENDERED_ROWS = 600;
 
 /**
  * Live stdout tail with two sources:
- *   pre-connect  — /api/sim/log (PX4/Gazebo launcher during connect)
- *   post-connect — /api/flight/log (active mission script)
- *
- * Cursor protocol: poll every second, pass back the last cursor so the
- * backend only sends new lines. Buffer drops surface as gap markers.
+ *   pre-connect  — /api/sim/log (PX4/Gazebo launcher)
+ *   post-connect — /api/flight/log (mission script)
  */
 export default function SystemLog({ connected, flying }: Props) {
   const [rows, setRows] = useState<Row[]>([]);
@@ -50,7 +44,7 @@ export default function SystemLog({ connected, flying }: Props) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const flightIdRef = useRef<string | null>(null);
 
-  // Switching log source (connect / disconnect) clears stale launcher output.
+  // Clear stale lines when switching between launcher and flight log sources.
   useEffect(() => {
     setRows([]);
     setCursor(0);
@@ -65,12 +59,32 @@ export default function SystemLog({ connected, flying }: Props) {
   useEffect(() => {
     if (routeMissing) return;
     let cancelled = false;
+
+    const appendLogLines = (data: LogPollResponse) => {
+      if (cancelled) return;
+      setRows(prev => {
+        const next: Row[] = [...prev];
+        if (data.dropped > 0) {
+          next.push({ kind: 'gap', idx: data.start, count: data.dropped });
+        }
+        let idx = data.start;
+        for (const text of data.lines) {
+          next.push({ idx, text });
+          idx += 1;
+        }
+        if (next.length > MAX_RENDERED_ROWS) {
+          return next.slice(next.length - MAX_RENDERED_ROWS);
+        }
+        return next;
+      });
+      setCursor(data.cursor);
+    };
+
     const tick = async () => {
       try {
         if (connected) {
           const data = await getFlightLog(cursorRef.current);
           if (cancelled) return;
-          // New mission started — detection buffer resets; snap cursor back.
           if (data.flight_id && data.flight_id !== flightIdRef.current) {
             flightIdRef.current = data.flight_id;
             setRows([]);
@@ -97,28 +111,8 @@ export default function SystemLog({ connected, flying }: Props) {
       }
     };
 
-    const appendLogLines = (data: LogPollResponse) => {
-      if (cancelled) return;
-      setRows(prev => {
-        const next: Row[] = [...prev];
-        if (data.dropped > 0) {
-          next.push({ kind: 'gap', idx: data.start, count: data.dropped });
-        }
-        let idx = data.start;
-        for (const text of data.lines) {
-          next.push({ idx, text });
-          idx += 1;
-        }
-        if (next.length > MAX_RENDERED_ROWS) {
-          return next.slice(next.length - MAX_RENDERED_ROWS);
-        }
-        return next;
-      });
-      setCursor(data.cursor);
-    };
-
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, connected ? 1000 : 3000);
     return () => { cancelled = true; clearInterval(id); };
   }, [connected, routeMissing]);
 
