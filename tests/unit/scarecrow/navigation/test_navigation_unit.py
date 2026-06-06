@@ -14,7 +14,11 @@ from scarecrow.controllers.target_pursuit import (
 def _make_drone():
     drone = MagicMock()
     drone.set_velocity = AsyncMock()
+    drone.start_offboard = AsyncMock(return_value=True)
     drone.system = MagicMock()
+    drone.system.action.takeoff = AsyncMock()
+    drone.is_in_air = False
+    drone.is_in_offboard = False
     return drone
 
 
@@ -128,6 +132,36 @@ async def test_wall_follow_until_reports_timeout(mock_lidar_scan):
 
     assert not result.done
     assert result.reason == "timeout"
+
+
+async def test_wall_follow_until_holds_target_altitude(mock_lidar_scan):
+    """Verify wall follow commands climb when below its target altitude."""
+    drone = _make_drone()
+    drone.ground_z = 0.0
+    pos = MagicMock()
+    pos.position.down_m = -2.0
+    drone.get_position = AsyncMock(return_value=pos)
+    scan = mock_lidar_scan(front=10.0, left=2.0)
+    lidar = _make_lidar_source(scan)
+
+    from scarecrow.navigation.navigation_unit import NavigationUnit
+    nav = NavigationUnit(drone, lidar)
+
+    result = await nav.wall_follow_until(
+        side="left",
+        target_distance=2.0,
+        front_stop_distance=2.0,
+        target_alt_m=2.5,
+        timeout=0.06,
+    )
+
+    assert not result.done
+    climb_commands = [
+        call.args[0]
+        for call in drone.set_velocity.await_args_list
+        if call.args and getattr(call.args[0], "down_m_s", 0.0) < 0.0
+    ]
+    assert climb_commands
 
 
 async def test_hover_sends_zero_velocity():
@@ -329,8 +363,9 @@ class _Tracker:
 def _target_observation(now=100.0):
     return TargetObservation(
         center_x=640.0,
-        center_y=240.0,
+        center_y=360.0,
         image_width=1280.0,
+        image_height=720.0,
         confidence=0.9,
         timestamp=now,
     )

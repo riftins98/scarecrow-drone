@@ -14,8 +14,9 @@ class TargetTracker:
     Designed to be passed as ``YoloDetector(on_detection_data=tracker.update_from_yolo)``.
     """
 
-    def __init__(self, image_width: float = 1280.0) -> None:
+    def __init__(self, image_width: float = 1280.0, image_height: float = 720.0) -> None:
         self.image_width = image_width
+        self.image_height = image_height
         self._lock = threading.Lock()
         self._observation: TargetObservation | None = None
 
@@ -29,9 +30,10 @@ class TargetTracker:
         observation = TargetObservation(
             center_x=float(cx),
             center_y=float(cy),
-            image_width=self.image_width,
+            image_width=float(best.get("image_width", self.image_width)),
             confidence=float(best["conf"]),
             timestamp=time.time(),
+            image_height=float(best.get("image_height", self.image_height)),
             class_name=best.get("class"),
             bbox=best.get("bbox"),
         )

@@ -233,6 +233,7 @@ class YoloDetector:
             verbose=False
         )
 
+        image_height, image_width = frame.shape[:2]
         detections = []
         best_candidate_conf = 0.0
         for result in results:
@@ -246,8 +247,14 @@ class YoloDetector:
                     continue
                 cls_name = self._model.names[int(box.cls[0])]
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-                detections.append({'class': cls_name, 'conf': conf,
-                                   'bbox': (x1, y1, x2, y2), 'center': (cx, cy)})
+                detections.append({
+                    'class': cls_name,
+                    'conf': conf,
+                    'bbox': (x1, y1, x2, y2),
+                    'center': (cx, cy),
+                    'image_width': image_width,
+                    'image_height': image_height,
+                })
 
         if detections:
             self.detections_total += len(detections)

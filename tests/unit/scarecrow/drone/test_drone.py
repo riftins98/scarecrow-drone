@@ -61,6 +61,25 @@ async def test_land_clears_in_air(drone):
     drone._system.action.land.assert_awaited_once()
 
 
+async def test_takeoff_does_not_reprepare_when_ground_z_is_zero(drone):
+    """Verify takeoff reuses an already prepared PX4 takeoff altitude."""
+    pos = MagicMock()
+    pos.position.down_m = 0.0
+
+    with (
+        patch("scarecrow.drone.get_position", AsyncMock(return_value=pos)) as get_position,
+        patch("scarecrow.drone.wait_for_altitude", AsyncMock(return_value=True)),
+        patch("scarecrow.drone.wait_for_stable", AsyncMock()),
+    ):
+        await drone.prepare_takeoff(4.58)
+        ok = await drone.takeoff(4.58)
+
+    assert ok is True
+    assert get_position.await_count == 1
+    drone._system.action.set_takeoff_altitude.assert_awaited_once_with(4.58)
+    drone._system.action.takeoff.assert_awaited_once()
+
+
 async def test_set_velocity_converts_command(drone):
     cmd = VelocityCommand(forward_m_s=0.5, right_m_s=0.1, yawspeed_deg_s=10.0)
     await drone.set_velocity(cmd)
