@@ -96,6 +96,31 @@ _STOP_REASON_RE = re.compile(r"Wall follow stopped:\s*(.+?)\s*$", re.IGNORECASE)
 _FPS_RE = re.compile(r"\bFPS:\s*([\d.]+)", re.IGNORECASE)
 
 
+def parse_map_result_line(line: str) -> Optional[str]:
+    """Extract map JSON path from a MAP_RESULT: stdout protocol line."""
+    if not line.startswith("MAP_RESULT:"):
+        return None
+    try:
+        payload = json.loads(line.split("MAP_RESULT:", 1)[1].strip())
+    except (json.JSONDecodeError, IndexError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    for key in ("map_path", "map_json_path"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def resolve_map_json_path_for_flight(flight_id: str) -> Optional[str]:
+    """Disk fallback when MAP_RESULT was not parsed from stdout."""
+    path = os.path.join(REPO_ROOT, "webapp", "output", flight_id, "map.json")
+    if os.path.isfile(path):
+        return os.path.realpath(path)
+    return None
+
+
 def _parse_dist(inf_grp: Optional[str], num_grp: Optional[str]) -> Optional[float]:
     """Parse a distance match into meters. The "inf" sentinel (no wall on that
     side) -> None; a numeric group -> rounded float; nothing usable -> None."""
@@ -139,6 +164,7 @@ class DetectionService:
         self.frames_processed = 0
         self.detection_images = []
         self.video_path: Optional[str] = None
+        self.map_json_path: Optional[str] = None
         self.latest_telemetry: dict = {}
         self._on_detection: Optional[Callable] = None
         self._last_error: Optional[str] = None
@@ -193,6 +219,7 @@ class DetectionService:
         self.frames_processed = 0
         self.detection_images = []
         self.video_path = None
+        self.map_json_path = None
         self.latest_telemetry = {}
         self._on_detection = on_detection
         self._last_error = None
@@ -284,6 +311,7 @@ class DetectionService:
           DETECTION_IMAGE:/path/to/img.png       -- a bird was detected
           TELEMETRY:{"battery":...,"distance":...,"detections":N}
           VIDEO_PATH:/path/to/flight_camera.mp4  -- video built after landing
+          MAP_RESULT:{"map_path":"/path/to/map.json"}  -- mission map saved
 
         Also tolerant of older v1-style lines for backwards compat.
         """
@@ -321,6 +349,11 @@ class DetectionService:
 
                 elif line.startswith("VIDEO_PATH:"):
                     self.video_path = line.split("VIDEO_PATH:", 1)[1].strip()
+
+                elif line.startswith("MAP_RESULT:"):
+                    map_path = parse_map_result_line(line)
+                    if map_path:
+                        self.map_json_path = map_path
 
                 # Shared: both v1 and v2 print "[detection] Frame N: ..."
                 elif "Frame " in line:
@@ -445,6 +478,7 @@ class DetectionService:
             "frames_processed": self.frames_processed,
             "detection_images": list(self.detection_images),
             "video_path": self.video_path,
+            "map_json_path": self.map_json_path,
         }
 
         # Fallback: if the subprocess already built the video and printed
@@ -456,6 +490,12 @@ class DetectionService:
             if os.path.exists(video):
                 result["video_path"] = video
                 self.video_path = video
+
+        if not result["map_json_path"] and self.flight_id:
+            map_path = resolve_map_json_path_for_flight(self.flight_id)
+            if map_path:
+                result["map_json_path"] = map_path
+                self.map_json_path = map_path
 
         return result
 
@@ -504,6 +544,7 @@ class DetectionService:
         self.frames_processed = 0
         self.detection_images = []
         self.video_path = None
+        self.map_json_path = None
         with self._output_lock:
             self._output_lines = []
             self._output_offset = 0

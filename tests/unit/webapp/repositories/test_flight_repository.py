@@ -64,12 +64,19 @@ class TestFlightRepository:
     def test_end_flight_sets_completed_and_counts(self, repo_db):
         repo = FlightRepository()
         flight = repo.create()
-        repo.end_flight(flight.id, pigeons=5, frames=100, video_path="/tmp/v.mp4")
+        repo.end_flight(
+            flight.id,
+            pigeons=5,
+            frames=100,
+            video_path="/tmp/v.mp4",
+            map_json_path="/tmp/map.json",
+        )
         updated = repo.get_by_id(flight.id)
         assert updated.status == "completed"
         assert updated.pigeons_detected == 5
         assert updated.frames_processed == 100
         assert updated.video_path == "/tmp/v.mp4"
+        assert updated.map_json_path == "/tmp/map.json"
         assert updated.end_time is not None
 
     def test_fail_flight_sets_failed(self, repo_db):

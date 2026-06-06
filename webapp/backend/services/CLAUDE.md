@@ -21,4 +21,5 @@ Business logic layer. Services coordinate repositories and external resources (s
 ## Subprocess stdout protocol
 Flight scripts communicate with services via stdout lines parsed by the monitoring thread:
 - `DETECTION_IMAGE:/path/to/img.png` — parsed by DetectionService (implemented)
-- Future (Phase 4-6): `TELEMETRY:{json}`, `CHASE_START:type`, `CHASE_END:outcome`, `MAP_RESULT:{json}`, `ABORT_REQUESTED`
+- `MAP_RESULT:{"map_path":"..."}` — mission map JSON path; persisted on `flights.map_json_path` and rendered on demand via `mission_map_service.py` + `GET /api/flights/{id}/map/image`
+- Future (Phase 4-6): `CHASE_START:type`, `CHASE_END:outcome`, `ABORT_REQUESTED`

@@ -17,6 +17,7 @@ class FlightDTO(BaseModel):
     frames_processed: int = 0
     status: str = "in_progress"
     video_path: Optional[str] = None
+    map_json_path: Optional[str] = None
 
 
 class FlightSummaryDTO(BaseModel):

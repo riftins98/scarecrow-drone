@@ -25,3 +25,5 @@ webapp/backend/database/*.db
 .pytest_cache/
 htmlcov/
 scarecrow/mapped_env/*
+docs/guides/*.docx
+.tools/

@@ -93,3 +93,5 @@ export const detectionImageUrl = (flightId: string, filename: string) =>
   `${API_BASE}/detection_images/${flightId}/${filename}`;
 export const recordingUrl = (flightId: string, filename: string) =>
   `${API_BASE}/recordings/${flightId}/${filename}`;
+export const missionMapImageUrl = (flightId: string) =>
+  `${API_BASE}/api/flights/${flightId}/map/image`;

@@ -8,6 +8,7 @@ export interface Flight {
   framesProcessed: number;
   status: 'completed' | 'in_progress' | 'failed';
   videoPath?: string;
+  mapJsonPath?: string;
 }
 
 export interface LaunchStep {

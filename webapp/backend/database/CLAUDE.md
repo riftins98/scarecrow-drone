@@ -10,7 +10,7 @@ SQLite persistence layer for flight history, detection results, area maps, telem
 - `migrations/` — Numbered migration files (`NNN_description.py`). Each exports an `up(conn)` function. Run in sorted filename order.
 
 ## Current Schema (6 tables)
-- `flights` — id TEXT PK, area_map_id FK (nullable), start_time, end_time, duration, pigeons_detected, frames_processed, status, video_path
+- `flights` — id TEXT PK, area_map_id FK (nullable), start_time, end_time, duration, pigeons_detected, frames_processed, status, video_path, map_json_path
 - `detection_images` — id INTEGER PK, flight_id FK, image_path, timestamp
 - `area_maps` — id INTEGER PK, name, created_at, updated_at, boundaries (JSON), area_size, status (UC1)
 - `telemetry` — flight_id PK/FK, battery_level, distance, detections (per-flight totals)

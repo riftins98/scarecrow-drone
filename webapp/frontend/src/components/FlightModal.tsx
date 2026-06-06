@@ -1,6 +1,6 @@
 import React from 'react';
 import { Flight } from '../types/flight';
-import { detectionImageUrl, recordingUrl } from '../services/api';
+import { detectionImageUrl, missionMapImageUrl, recordingUrl } from '../services/api';
 
 interface Props {
   flight: Flight;
@@ -16,7 +16,7 @@ function formatDuration(seconds: number): string {
 }
 
 export default function FlightModal({ flight, images, recording, onClose }: Props) {
-  const [tab, setTab] = React.useState<'summary' | 'detections' | 'recording'>('summary');
+  const [tab, setTab] = React.useState<'summary' | 'detections' | 'recording' | 'map'>('summary');
   const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
 
   return (
@@ -37,6 +37,12 @@ export default function FlightModal({ flight, images, recording, onClose }: Prop
               className={`modal-tab ${tab === 'recording' ? 'active' : ''}`}
               onClick={() => setTab('recording')}
             >Recording</button>
+            {flight.mapJsonPath && (
+              <button
+                className={`modal-tab ${tab === 'map' ? 'active' : ''}`}
+                onClick={() => setTab('map')}
+              >Mission Map</button>
+            )}
           </div>
         </div>
 
@@ -116,6 +122,23 @@ export default function FlightModal({ flight, images, recording, onClose }: Prop
               ) : (
                 <p>No recording available</p>
               )}
+            </div>
+          )}
+
+          {tab === 'map' && flight.mapJsonPath && (
+            <div className="modal-map-container">
+              <img
+                src={missionMapImageUrl(flight.id)}
+                alt="Mission map"
+                className="mission-map-image"
+                style={{
+                  width: '100%',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  border: '1px solid #3a3a3a',
+                }}
+                onClick={() => setSelectedImage(missionMapImageUrl(flight.id))}
+              />
             </div>
           )}
         </div>
