@@ -8,7 +8,7 @@ def test_full_detection_flight_lifecycle(api_client):
     with patch("services.sim_service.SimService.is_connected", True), \
          patch("services.detection_service.DetectionService.start") as mock_start:
         # Configure the mock to set the service state as if it really started
-        def fake_start(flight_id, on_detection=None):
+        def fake_start(flight_id, on_detection=None, **kwargs):
             from dependencies import detection_service
             detection_service.running = True
             detection_service.flight_id = flight_id
@@ -69,7 +69,7 @@ def test_abort_lifecycle(api_client):
     """Start a flight, abort it, verify status is 'aborted' and data preserved."""
     with patch("services.sim_service.SimService.is_connected", True), \
          patch("services.detection_service.DetectionService.start") as mock_start:
-        def fake_start(flight_id, on_detection=None):
+        def fake_start(flight_id, on_detection=None, **kwargs):
             from dependencies import detection_service
             detection_service.running = True
             detection_service.flight_id = flight_id

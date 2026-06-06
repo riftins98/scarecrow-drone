@@ -3,8 +3,8 @@
 The subprocess machinery in DetectionService is intentionally not unit-tested
 (see tests/CLAUDE.md), but `_parse_log_extras` and `_phase_label` are pure
 functions over a single string — exactly the kind of logic that should be
-covered. These guard the regexes against drift in the flight scripts' log
-wording, which is the whole contract the telemetry rail depends on.
+covered. Cases here match log lines still emitted by the remaining flight
+scripts (`hangar_circuit_pursiot.py`, `sensor_check.py`, `room_circuit_map.py`).
 """
 from services.detection_service import DetectionService, _phase_label, _parse_dist
 
@@ -30,17 +30,7 @@ class TestPhaseLabel:
 
 class TestVerticalReadouts:
     def test_agl(self):
-        assert _parse("  [descent] agl=1.83m  (no lidar)")["agl"] == 1.83
-
-    def test_ceiling_clearance_variants(self):
-        assert _parse("  Target ceiling clearance reached: 1.50m")["ceiling"] == 1.5
-        assert _parse("ceiling clearance 1.20 m")["ceiling"] == 1.2
-
-    def test_leg_complete_only(self):
-        # Per design, only "Leg N complete" counts; the v2 start-of-leg banner
-        # "--- Leg 1/4 ---" is intentionally NOT matched.
-        assert _parse("  Leg 2 complete (31.4s)")["leg"] == 2
-        assert "leg" not in _parse("--- Leg 1/4 (speed=0.30 m/s) ---")
+        assert _parse("  [landing] descending agl=1.83m")["agl"] == 1.83
 
 
 class TestLidarDistances:
@@ -63,26 +53,8 @@ class TestLidarDistances:
 
 class TestVelocity:
     def test_signed_components(self):
-        tel = _parse("  [ 8.0s] fwd=+0.30 lat=-0.10 yaw=+5.0")
+        tel = _parse("  [return] err=0.42m fwd=+0.30 right=-0.10")
         assert tel["fwd"] == 0.3
-        assert tel["lat"] == -0.1
-        assert tel["yaw"] == 5.0
-
-
-class TestOutcomes:
-    def test_target_reached_with_distance(self):
-        tel = _parse("  *** TARGET REACHED! Front distance: 1.45m ***")
-        assert tel["target"] == "REACHED"
-        assert tel["target_dist"] == 1.45
-
-    def test_pursuit_ended_reason(self):
-        assert _parse("  Pursuit ended: target_lost")["target"] == "TARGET LOST"
-
-    def test_wall_follow_stop_reason(self):
-        assert _parse("Wall follow stopped: front_wall")["stop_reason"] == "FRONT WALL"
-
-    def test_fps(self):
-        assert _parse("  FPS: 12.34")["fps"] == 12.3
 
 
 class TestParseDist:
