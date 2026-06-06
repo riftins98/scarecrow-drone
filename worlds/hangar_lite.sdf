@@ -163,6 +163,8 @@
       <link name="link">
         <collision name="c"><geometry><box><size>0.2 8.4 8.0</size></box></geometry></collision>
         <visual name="v">
+          <!-- GUI-only: frosted in editor, invisible to camera sensors -->
+          <visibility_flags>1</visibility_flags>
           <transparency>0.78</transparency>
           <geometry><box><size>0.2 8.4 8.0</size></box></geometry>
           <material><ambient>0.42 0.44 0.45 0.22</ambient><diffuse>0.42 0.44 0.45 0.22</diffuse><specular>0.12 0.12 0.12 0.22</specular></material></visual>
@@ -232,8 +234,8 @@
     <include>
       <uri>model://mono_cam_hd</uri>
       <name>fixed_cam</name>
-      <!-- Behind transparent south wall, centered, looking +X across the bay -->
-      <pose>-0.5 -3.5 2 0 0 0</pose>
+      <!-- Outside transparent south wall (x=-0.1), elevated overview facing +X -->
+      <pose>-4 -3.5 5.5 0 0.4 0</pose>
       <static>true</static>
     </include>
 
