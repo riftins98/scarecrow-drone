@@ -32,6 +32,7 @@ from scarecrow.controllers.distance_stabilizer import (  # noqa: E402
     DistanceTargets,
 )
 from scarecrow.controllers.corner_approach import CornerApproachController  # noqa: E402
+from scarecrow.controllers.rotation import rotate_90  # noqa: E402
 from scarecrow.controllers.target_pursuit import TargetPursuitConfig, TargetPursuitResult  # noqa: E402
 from scarecrow.controllers.wall_follow import VelocityCommand, WallFollowController  # noqa: E402
 from scarecrow.detection.tracking import TargetTracker  # noqa: E402
@@ -118,7 +119,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--flight-id", default=None)
     parser.add_argument("--system-address", default=SYSTEM_ADDRESS)
-    parser.add_argument("--target-alt", type=float, default=DEFAULT_TARGET_ALT)
+    parser.add_argument(
+        "--target-alt",
+        type=float,
+        default=None,
+        help=(
+            "Optional takeoff altitude in meters AGL. When omitted, the mission "
+            f"uses upward rangefinder ceiling distance minus {TARGET_CEILING_CLEARANCE_M:.1f}m."
+        ),
+    )
     parser.add_argument(
         "--ceiling-clearance",
         type=float,
@@ -127,6 +136,27 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--target-dist", type=float, default=DEFAULT_TARGET_DIST)
     parser.add_argument("--wall-distance", type=float, default=DEFAULT_WALL_DISTANCE)
+    parser.set_defaults(start_side=DEFAULT_START_SIDE)
+    start_side_group = parser.add_mutually_exclusive_group()
+    start_side_group.add_argument(
+        "--start-side",
+        choices=("left", "right"),
+        help="Side wall at the launch corner: left or right. Defaults to left.",
+    )
+    start_side_group.add_argument(
+        "--l",
+        dest="start_side",
+        action="store_const",
+        const="left",
+        help="Launch with the side wall on the drone's left.",
+    )
+    start_side_group.add_argument(
+        "--r",
+        dest="start_side",
+        action="store_const",
+        const="right",
+        help="Launch with the side wall on the drone's right.",
+    )
     parser.add_argument("--hover-seconds", type=float, default=DEFAULT_HOVER_SECONDS)
     parser.add_argument("--leg-timeout", type=float, default=DEFAULT_LEG_TIMEOUT)
     parser.add_argument("--max-legs", type=int, default=DEFAULT_MAX_LEGS)
@@ -211,6 +241,22 @@ def _altitude_hold_down_speed(
     if abs(error) <= tolerance_m:
         return 0.0, error, True
     return _clamp(error * kp, -max_down_speed_m_s, max_down_speed_m_s), error, False
+
+
+def _target_alt_from_ceiling_distance(
+    ceiling_distance_m: float,
+    *,
+    target_clearance_m: float = TARGET_CEILING_CLEARANCE_M,
+) -> float:
+    """Return AGL target altitude that leaves requested upward clearance."""
+    if not math.isfinite(ceiling_distance_m):
+        raise ValueError("ceiling distance must be finite")
+    if ceiling_distance_m <= target_clearance_m:
+        raise ValueError(
+            f"ceiling distance {ceiling_distance_m:.2f}m is not above "
+            f"target clearance {target_clearance_m:.2f}m"
+        )
+    return ceiling_distance_m - target_clearance_m
 
 
 def _normalize_angle(deg: float) -> float:
@@ -812,39 +858,14 @@ def _save_map_payload(payload: dict, output_dir: str) -> str:
 
 async def _rotate_relative_simple(
     drone: Drone,
+    lidar: GazeboLidar,
     degrees: float,
-    speed_deg_s: float = ROTATE_SPEED,
-    tolerance_deg: float = ROTATE_TOLERANCE,
-    timeout_s: float = ROTATE_TIMEOUT_S,
 ) -> bool:
-    """Rotate by a relative angle using the compass-only corner-circuit logic."""
-    await drone.set_velocity(VelocityCommand())
-    await asyncio.sleep(0.2)
-    start_yaw = await drone.get_yaw()
-    target_yaw = _normalize_angle(start_yaw + degrees)
-    started = time.time()
-    stable_hits = 0
-
-    while time.time() - started < timeout_s:
-        current_yaw = await drone.get_yaw()
-        error = _normalize_angle(target_yaw - current_yaw)
-        if abs(error) <= tolerance_deg:
-            stable_hits += 1
-            await drone.set_velocity(VelocityCommand())
-            await asyncio.sleep(0.15)
-            if stable_hits >= 3:
-                return True
-            continue
-
-        stable_hits = 0
-        yaw_cmd = _clamp(error * 0.8, -speed_deg_s, speed_deg_s)
-        if abs(yaw_cmd) < 3.0:
-            yaw_cmd = 3.0 if yaw_cmd >= 0 else -3.0
-        await drone.set_velocity(VelocityCommand(yawspeed_deg_s=yaw_cmd))
-        await asyncio.sleep(0.08)
-
-    await drone.set_velocity(VelocityCommand())
-    return False
+    """Rotate 90 degrees using the package compass + lidar-SVD logic."""
+    if not math.isclose(abs(degrees), 90.0, abs_tol=1e-6):
+        raise ValueError("package rotation wrapper only supports +/-90 degrees")
+    direction = "right" if degrees > 0.0 else "left"
+    return await rotate_90(drone.system, lidar, direction=direction)
 
 
 async def _approach_circuit_start_corner(
@@ -1060,7 +1081,13 @@ async def run() -> None:
     print("=" * 64)
     print(f"Flight ID:         {flight_id}")
     print(f"Output:            {output_dir}")
-    print(f"Takeoff altitude:  {args.target_alt:.2f}m AGL")
+    if args.target_alt is None:
+        print(
+            "Takeoff altitude:  auto "
+            f"(ceiling - {TARGET_CEILING_CLEARANCE_M:.1f}m)"
+        )
+    else:
+        print(f"Takeoff altitude:  {args.target_alt:.2f}m AGL")
     print(f"Wall distance:     {args.wall_distance:.2f}m")
     print(f"Target distance:   {args.target_dist:.2f}m")
     print(f"Max legs:          {max_legs}")
@@ -1137,7 +1164,8 @@ async def run() -> None:
         lidar.start()
         print(f"  Lidar topic: {lidar.topic}")
 
-        if args.ceiling_clearance is not None:
+        needs_ceiling_sensor = args.target_alt is None or args.ceiling_clearance is not None
+        if needs_ceiling_sensor:
             print("Starting upward ceiling rangefinder...")
             ceiling_sensor = GazeboRangefinder(env=gz_env)
             ceiling_sensor._topic = ceiling_sensor._discover_topic(topic_list=topics)
@@ -1146,6 +1174,23 @@ async def run() -> None:
             if not await _wait_for_rangefinder(ceiling_sensor):
                 print("ERROR: no upward rangefinder data -- aborting")
                 return
+            if args.target_alt is None:
+                ceiling_distance = ceiling_sensor.get_distance_m()
+                if ceiling_distance is None:
+                    print("ERROR: no upward rangefinder distance for auto altitude -- aborting")
+                    return
+                try:
+                    args.target_alt = _target_alt_from_ceiling_distance(ceiling_distance)
+                except ValueError as exc:
+                    print(f"ERROR: cannot compute takeoff altitude: {exc}")
+                    return
+                altitude_ref["target_alt_m"] = args.target_alt
+                print(
+                    "  Auto takeoff altitude: "
+                    f"ceiling={ceiling_distance:.2f}m - "
+                    f"clearance={TARGET_CEILING_CLEARANCE_M:.2f}m -> "
+                    f"{args.target_alt:.2f}m AGL"
+                )
 
         for _ in range(30):
             await asyncio.sleep(0.1)
@@ -1169,7 +1214,7 @@ async def run() -> None:
         await drone.arm()
         print("Armed.")
 
-        print(f"Taking off to {args.target_alt:.2f}m...")
+        print(f"Taking off to {args.target_alt:.2f}m with PX4...")
         if not await drone.takeoff(altitude=args.target_alt):
             print("ERROR: takeoff failed")
             return
@@ -1192,7 +1237,7 @@ async def run() -> None:
             return
         if start_side == "right":
             print("  [hangar-circuit-start] right-side corner selected; rotating left to start scan")
-            if not await _rotate_relative_simple(drone, -90.0):
+            if not await _rotate_relative_simple(drone, lidar, -90.0):
                 print("ERROR: start heading normalization failed. Landing safely.")
                 return
         mapper.start_mapping()
@@ -1818,7 +1863,7 @@ async def run() -> None:
             route_phase["phase"] = "corner_turn"
             turn_label = "final right turn" if leg == max_legs else "right turn"
             print(f"  Turning {turn_label}...")
-            if not await _rotate_relative_simple(drone, 90.0):
+            if not await _rotate_relative_simple(drone, lidar, 90.0):
                 print("  ERROR: rotation failed. Landing safely.")
                 return
 

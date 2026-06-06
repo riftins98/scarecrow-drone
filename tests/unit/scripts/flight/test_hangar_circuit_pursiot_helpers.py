@@ -27,22 +27,51 @@ def _lidar(scan):
     return lidar
 
 
+def test_parse_args_defaults_start_side_left(monkeypatch):
+    monkeypatch.setattr(hangar.sys, "argv", ["hangar_circuit_pursiot.py"])
+
+    args = hangar.parse_args()
+
+    assert args.start_side == "left"
+    assert args.target_alt is None
+
+
+def test_parse_args_accepts_explicit_target_alt(monkeypatch):
+    monkeypatch.setattr(
+        hangar.sys,
+        "argv",
+        ["hangar_circuit_pursiot.py", "--target-alt", "2.5"],
+    )
+
+    args = hangar.parse_args()
+
+    assert args.target_alt == 2.5
+
+
+def test_parse_args_accepts_start_side_aliases(monkeypatch):
+    monkeypatch.setattr(hangar.sys, "argv", ["hangar_circuit_pursiot.py", "--r"])
+    assert hangar.parse_args().start_side == "right"
+
+    monkeypatch.setattr(hangar.sys, "argv", ["hangar_circuit_pursiot.py", "--l"])
+    assert hangar.parse_args().start_side == "left"
+
+
 def test_arena_boundary_from_start_surrounds_start_pose():
     boundary = hangar._arena_boundary_from_start(
         x=0.0,
         y=0.0,
         yaw_deg=0.0,
-        rear_distance=3.0,
-        left_distance=3.0,
+        rear_distance=2.0,
+        left_distance=2.0,
         front_distance=10.0,
         right_distance=7.0,
     )
 
     xs = [p["x"] for p in boundary]
     ys = [p["y"] for p in boundary]
-    assert min(xs) == -3.0
+    assert min(xs) == -2.0
     assert max(xs) == 10.0
-    assert min(ys) == -3.0
+    assert min(ys) == -2.0
     assert max(ys) == 7.0
 
 
@@ -54,15 +83,15 @@ def test_refine_boundary_from_route_samples_uses_stable_wall_evidence():
         {"x": 7.7, "y": 2.9},
     ]
     samples = [
-        # Leg 1 front wall evidence: max X should be near 6.7, not 7.7.
+        # Leg 1 front wall evidence: max X should be near 5.7, not 7.7.
         {
             "phase": "wall_follow",
             "x": 3.7,
             "y": -0.6,
             "yaw_deg": 0.0,
-            "front_dist": 3.0,
+            "front_dist": 2.0,
             "rear_dist": 8.9,
-            "left_dist": 3.0,
+            "left_dist": 2.0,
             "right_dist": 5.0,
         },
         {
@@ -70,12 +99,12 @@ def test_refine_boundary_from_route_samples_uses_stable_wall_evidence():
             "x": 3.8,
             "y": -0.5,
             "yaw_deg": 0.0,
-            "front_dist": 2.9,
+            "front_dist": 1.9,
             "rear_dist": 9.0,
-            "left_dist": 3.0,
+            "left_dist": 2.0,
             "right_dist": 5.0,
         },
-        # Leg 3 left wall evidence: max Y should be near 4.4, not 2.9.
+        # Leg 3 left wall evidence: max Y should be near 3.4, not 2.9.
         {
             "phase": "wall_follow",
             "x": 1.0,
@@ -83,7 +112,7 @@ def test_refine_boundary_from_route_samples_uses_stable_wall_evidence():
             "yaw_deg": 180.0,
             "front_dist": 5.0,
             "rear_dist": 6.0,
-            "left_dist": 3.0,
+            "left_dist": 2.0,
             "right_dist": 5.0,
         },
         {
@@ -92,8 +121,8 @@ def test_refine_boundary_from_route_samples_uses_stable_wall_evidence():
             "y": 1.5,
             "yaw_deg": 180.0,
             "front_dist": 8.8,
-            "rear_dist": 3.0,
-            "left_dist": 3.0,
+            "rear_dist": 2.0,
+            "left_dist": 2.0,
             "right_dist": 5.0,
         },
         # Pursuit samples are intentionally ignored for boundary correction.
@@ -102,31 +131,31 @@ def test_refine_boundary_from_route_samples_uses_stable_wall_evidence():
             "x": 0.0,
             "y": 2.0,
             "yaw_deg": 140.0,
-            "front_dist": 3.0,
-            "rear_dist": 3.0,
-            "left_dist": 3.0,
-            "right_dist": 3.0,
+            "front_dist": 2.0,
+            "rear_dist": 2.0,
+            "left_dist": 2.0,
+            "right_dist": 2.0,
         },
     ]
 
     refined = hangar._refine_boundary_from_route_samples(
         boundary,
         samples,
-        wall_distance=3.0,
+        wall_distance=2.0,
     )
 
     xs = [point["x"] for point in refined]
     ys = [point["y"] for point in refined]
-    assert abs(max(xs) - 6.75) < 0.2
-    assert abs(max(ys) - 4.45) < 0.2
+    assert abs(max(xs) - 5.75) < 0.2
+    assert abs(max(ys) - 3.45) < 0.2
     assert abs(min(xs) + 4.3) < 0.2
-    assert abs(min(ys) + 3.6) < 0.2
+    assert abs(min(ys) + 2.55) < 0.2
 
 
 def test_current_landing_targets_use_current_rear_left(mock_lidar_scan):
     targets = hangar._current_landing_targets(
         _lidar(mock_lidar_scan(rear=8.0, left=2.5)),
-        fallback_wall_distance=3.0,
+        fallback_wall_distance=2.0,
     )
 
     assert abs(targets.rear - 8.0) < 0.5
@@ -136,6 +165,15 @@ def test_current_landing_targets_use_current_rear_left(mock_lidar_scan):
 def test_nearest_start_side_prefers_closer_side(mock_lidar_scan):
     assert hangar._nearest_start_side(mock_lidar_scan(left=4.0, right=8.0)) == "left"
     assert hangar._nearest_start_side(mock_lidar_scan(left=8.0, right=4.0)) == "right"
+
+
+def test_target_alt_from_ceiling_distance_leaves_configured_clearance():
+    assert hangar._target_alt_from_ceiling_distance(8.0) == 6.0
+
+
+def test_target_alt_from_ceiling_distance_rejects_low_ceiling():
+    with pytest.raises(ValueError):
+        hangar._target_alt_from_ceiling_distance(2.0)
 
 
 def test_altitude_hold_commands_descent_when_too_high():
@@ -218,6 +256,23 @@ async def test_rotate_to_yaw_stops_within_tolerance():
     assert result["ok"] is True
     assert result["reason"] == "reached"
     assert drone.set_velocity.await_count >= 3
+
+
+@pytest.mark.asyncio
+async def test_rotate_relative_simple_uses_package_rotation(mock_lidar_scan, monkeypatch):
+    drone = _drone(positions=[(10.0, 20.0, -2.5)], yaw=0.0)
+    lidar = _lidar(mock_lidar_scan(front=2.0, left=2.0))
+    rotate = AsyncMock(return_value=True)
+    monkeypatch.setattr(hangar, "rotate_90", rotate)
+
+    ok = await hangar._rotate_relative_simple(
+        drone,
+        lidar,
+        90.0,
+    )
+
+    assert ok is True
+    rotate.assert_awaited_once_with(drone.system, lidar, direction="right")
 
 
 @pytest.mark.asyncio

@@ -331,9 +331,15 @@ async def run() -> None:
                 if result.center_error_ratio is None
                 else f"{result.center_error_ratio:.2f}"
             )
+            vertical = (
+                "?"
+                if result.vertical_error_ratio is None
+                else f"{result.vertical_error_ratio:+.2f}"
+            )
             print(
                 f"  [{result.elapsed_s:5.1f}s] {result.state.value} "
-                f"front={front} age={age} center_err={center} "
+                f"front={front} age={age} center_err={center} vert_err={vertical} "
+                f"down={result.command.down_m_s:+.2f} "
                 f"yaw={result.command.yawspeed_deg_s:+.1f} reason={result.reason}"
             )
 
