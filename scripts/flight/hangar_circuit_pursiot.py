@@ -1359,10 +1359,15 @@ async def run() -> None:
                     if result.center_error_ratio is None
                     else f"{result.center_error_ratio:.2f}"
                 )
+                vertical = (
+                    "?"
+                    if result.vertical_error_ratio is None
+                    else f"{result.vertical_error_ratio:+.2f}"
+                )
                 print(
                     f"  [{result.elapsed_s:5.1f}s] {result.state.value} "
-                    f"front={front} age={age} center_err={center} "
-                    f"yaw={result.command.yawspeed_deg_s:+.1f} "
+                    f"front={front} age={age} center_err={center} vert_err={vertical} "
+                    f"down={result.command.down_m_s:+.2f} yaw={result.command.yawspeed_deg_s:+.1f} "
                     f"{_fmt_altitude(altitude_ref)} reason={result.reason}"
                 )
 
@@ -1411,12 +1416,18 @@ async def run() -> None:
                 tracker=tracker,
                 config=TargetPursuitConfig(
                     target_distance_m=args.target_dist,
-                    max_forward_speed_m_s=0.25,
-                    min_forward_speed_m_s=0.06,
-                    kp_forward=0.25,
+                    max_forward_speed_m_s=0.40,
+                    min_forward_speed_m_s=0.10,
+                    kp_forward=0.40,
+                    yaw_kp=22.0,
+                    max_yaw_speed_deg_s=32.0,
+                    vertical_kp=0.50,
+                    max_vertical_speed_m_s=0.32,
                     pursuit_timeout_s=args.pursuit_timeout,
                     center_enter_ratio=0.12,
                     center_exit_ratio=0.18,
+                    vertical_center_enter_ratio=0.10,
+                    vertical_center_exit_ratio=0.16,
                     detection_miss_timeout_s=2.5,
                     detection_miss_count_required=3,
                 ),
