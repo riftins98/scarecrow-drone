@@ -7,6 +7,7 @@ from scarecrow.controllers.target_pursuit import (
 
 
 def _observation(center_x=640.0, center_y=360.0, now=100.0):
+    """Build a target observation centered in a 1280x720 frame by default."""
     return TargetObservation(
         center_x=center_x,
         center_y=center_y,
@@ -44,6 +45,7 @@ def test_centered_target_approaches_forward(mock_lidar_scan):
 
 
 def test_target_high_in_frame_commands_climb(mock_lidar_scan):
+    """Verify a high target in the frame commands upward pursuit motion."""
     scan = mock_lidar_scan(front=5.0, left=2.0, right=8.0)
     controller = TargetPursuitController()
 
@@ -57,6 +59,7 @@ def test_target_high_in_frame_commands_climb(mock_lidar_scan):
 
 
 def test_target_low_in_frame_commands_descent(mock_lidar_scan):
+    """Verify a low target in the frame commands downward pursuit motion."""
     scan = mock_lidar_scan(front=5.0, left=2.0, right=8.0)
     controller = TargetPursuitController()
 

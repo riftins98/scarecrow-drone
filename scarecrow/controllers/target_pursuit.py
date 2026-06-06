@@ -255,6 +255,7 @@ class TargetPursuitController:
         self,
         observation: TargetObservation | None,
     ) -> float | None:
+        """Return signed vertical offset from image center as a frame ratio."""
         if observation is None:
             return None
         image_cy = observation.image_height / 2.0
@@ -273,6 +274,7 @@ class TargetPursuitController:
         return max(-self.config.max_yaw_speed_deg_s, min(self.config.max_yaw_speed_deg_s, yaw))
 
     def _align_vertical(self, observation: TargetObservation | None) -> float:
+        """Return body-frame down speed that recenters the target vertically."""
         vertical_error = self._vertical_error_ratio(observation)
         if vertical_error is None:
             return 0.0

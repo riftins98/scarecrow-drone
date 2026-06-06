@@ -62,6 +62,7 @@ async def test_land_clears_in_air(drone):
 
 
 async def test_takeoff_does_not_reprepare_when_ground_z_is_zero(drone):
+    """Verify takeoff reuses an already prepared PX4 takeoff altitude."""
     pos = MagicMock()
     pos.position.down_m = 0.0
 

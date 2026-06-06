@@ -135,6 +135,7 @@ async def test_wall_follow_until_reports_timeout(mock_lidar_scan):
 
 
 async def test_wall_follow_until_holds_target_altitude(mock_lidar_scan):
+    """Verify wall follow commands climb when below its target altitude."""
     drone = _make_drone()
     drone.ground_z = 0.0
     pos = MagicMock()

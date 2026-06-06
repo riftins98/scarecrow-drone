@@ -28,6 +28,7 @@ def _lidar(scan):
 
 
 def test_parse_args_defaults_start_side_left(monkeypatch):
+    """Verify hangar CLI defaults to left start side and automatic altitude."""
     monkeypatch.setattr(hangar.sys, "argv", ["hangar_circuit_pursiot.py"])
 
     args = hangar.parse_args()
@@ -37,6 +38,7 @@ def test_parse_args_defaults_start_side_left(monkeypatch):
 
 
 def test_parse_args_accepts_explicit_target_alt(monkeypatch):
+    """Verify hangar CLI accepts an explicit target altitude override."""
     monkeypatch.setattr(
         hangar.sys,
         "argv",
@@ -49,6 +51,7 @@ def test_parse_args_accepts_explicit_target_alt(monkeypatch):
 
 
 def test_parse_args_accepts_start_side_aliases(monkeypatch):
+    """Verify hangar CLI maps short side aliases onto the start side."""
     monkeypatch.setattr(hangar.sys, "argv", ["hangar_circuit_pursiot.py", "--r"])
     assert hangar.parse_args().start_side == "right"
 
@@ -168,10 +171,12 @@ def test_nearest_start_side_prefers_closer_side(mock_lidar_scan):
 
 
 def test_target_alt_from_ceiling_distance_leaves_configured_clearance():
+    """Verify automatic target altitude preserves configured ceiling clearance."""
     assert hangar._target_alt_from_ceiling_distance(8.0) == 6.0
 
 
 def test_target_alt_from_ceiling_distance_rejects_low_ceiling():
+    """Verify automatic target altitude rejects insufficient ceiling distance."""
     with pytest.raises(ValueError):
         hangar._target_alt_from_ceiling_distance(2.0)
 
@@ -260,6 +265,7 @@ async def test_rotate_to_yaw_stops_within_tolerance():
 
 @pytest.mark.asyncio
 async def test_rotate_relative_simple_uses_package_rotation(mock_lidar_scan, monkeypatch):
+    """Verify hangar relative rotation delegates to the package rotation helper."""
     drone = _drone(positions=[(10.0, 20.0, -2.5)], yaw=0.0)
     lidar = _lidar(mock_lidar_scan(front=2.0, left=2.0))
     rotate = AsyncMock(return_value=True)
