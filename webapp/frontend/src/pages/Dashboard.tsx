@@ -14,7 +14,7 @@ import SpawnPicker from '../components/SpawnPicker';
 import { spawnMapForWorld } from '../components/spawnMapLookup';
 import {
   Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams,
-  SimOptions, CameraInfo, SpawnPoint,
+  SimOptions, CameraInfo, WorldInfo, SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
 
@@ -42,7 +42,7 @@ export default function Dashboard() {
       .then(([data, camerasRes]) => {
         setSimOptions(data);
         setStreamCameras(camerasRes.cameras);
-        if (data.worlds.length > 0 && !data.worlds.find((w) => w.name === DEFAULT_WORLD)) {
+        if (data.worlds.length > 0 && !data.worlds.find((w: WorldInfo) => w.name === DEFAULT_WORLD)) {
           setPreviewWorld(data.worlds[0].name);
         }
       })
