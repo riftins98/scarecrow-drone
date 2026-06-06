@@ -1,6 +1,6 @@
 import React from 'react';
 import { Flight } from '../types/flight';
-import { detectionImageUrl, missionMapImageUrl, recordingUrl } from '../services/api';
+import { detectionImageUrl, missionMapUrl, recordingUrl } from '../services/api';
 
 interface Props {
   flight: Flight;
@@ -37,7 +37,7 @@ export default function FlightModal({ flight, images, recording, onClose }: Prop
               className={`modal-tab ${tab === 'recording' ? 'active' : ''}`}
               onClick={() => setTab('recording')}
             >Recording</button>
-            {flight.mapJsonPath && (
+            {flight.mapPath && (
               <button
                 className={`modal-tab ${tab === 'map' ? 'active' : ''}`}
                 onClick={() => setTab('map')}
@@ -125,10 +125,10 @@ export default function FlightModal({ flight, images, recording, onClose }: Prop
             </div>
           )}
 
-          {tab === 'map' && flight.mapJsonPath && (
+          {tab === 'map' && flight.mapPath && (
             <div className="modal-map-container">
               <img
-                src={missionMapImageUrl(flight.id)}
+                src={missionMapUrl(flight.id, flight.mapPath.split('/').pop() || 'map_annotated.png')}
                 alt="Mission map"
                 className="mission-map-image"
                 style={{
@@ -137,7 +137,9 @@ export default function FlightModal({ flight, images, recording, onClose }: Prop
                   cursor: 'pointer',
                   border: '1px solid #3a3a3a',
                 }}
-                onClick={() => setSelectedImage(missionMapImageUrl(flight.id))}
+                onClick={() => setSelectedImage(
+                  missionMapUrl(flight.id, flight.mapPath!.split('/').pop() || 'map_annotated.png')
+                )}
               />
             </div>
           )}

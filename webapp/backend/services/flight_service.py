@@ -65,7 +65,7 @@ class FlightService:
             "pigeons_detected": 0,
             "frames_processed": 0,
             "video_path": None,
-            "map_json_path": None,
+            "map_path": None,
         }
         if self.detection_service is not None:
             result = self.detection_service.stop() or result
@@ -75,7 +75,7 @@ class FlightService:
             pigeons=result.get("pigeons_detected", 0),
             frames=result.get("frames_processed", 0),
             video_path=result.get("video_path"),
-            map_json_path=result.get("map_json_path"),
+            map_path=result.get("map_path"),
         )
         return self.flight_repo.get_by_id(flight_id)
 

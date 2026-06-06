@@ -7,7 +7,7 @@ Covers:
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from dependencies import (
@@ -17,8 +17,7 @@ from dependencies import (
     telemetry_service,
 )
 from repositories import DetectionImageRepository
-from services.mission_map_service import render_flight_map_png
-from services.detection_service import resolve_map_json_path_for_flight
+from services.detection_service import resolve_map_path_for_flight
 
 router = APIRouter(tags=["flights"])
 
@@ -113,11 +112,11 @@ async def flight_status():
                     video_path = video_file
                     detection_service.video_path = video_path  # cache
 
-            map_json_path = detection_service.map_json_path
-            if not map_json_path:
-                map_json_path = resolve_map_json_path_for_flight(detection_service.flight_id)
-                if map_json_path:
-                    detection_service.map_json_path = map_json_path
+            map_path = detection_service.map_path
+            if not map_path:
+                map_path = resolve_map_path_for_flight(detection_service.flight_id)
+                if map_path:
+                    detection_service.map_path = map_path
 
             if flight.status == "in_progress":
                 # Subprocess exited without explicit stop -- finalize now.
@@ -126,14 +125,14 @@ async def flight_status():
                     pigeons=detection_service.pigeons_detected,
                     frames=detection_service.frames_processed,
                     video_path=video_path,
-                    map_json_path=map_json_path,
+                    map_path=map_path,
                 )
             else:
                 patch = {}
                 if video_path and not flight.video_path:
                     patch["video_path"] = video_path
-                if map_json_path and not flight.map_json_path:
-                    patch["map_json_path"] = map_json_path
+                if map_path and not flight.map_path:
+                    patch["map_path"] = map_path
                 if patch:
                     flight_service.flight_repo.update(
                         detection_service.flight_id, **patch
@@ -243,7 +242,7 @@ def _to_frontend_dict(flight):
         "framesProcessed": flight.frames_processed,
         "status": flight.status,
         "videoPath": flight.video_path,
-        "mapJsonPath": flight.map_json_path,
+        "mapPath": flight.map_path,
         "areaMapId": flight.area_map_id,
     }
 
@@ -290,25 +289,6 @@ async def get_flight_recording(flight_id: str):
     if flight is None:
         raise HTTPException(404, "Flight not found")
     return {"recording": flight.video_path}
-
-
-@router.get("/api/flights/{flight_id}/map/image")
-async def get_flight_map_image(flight_id: str):
-    """Render the annotated mission map on demand from the saved map.json."""
-    flight = flight_service.get_flight(flight_id)
-    if flight is None:
-        raise HTTPException(404, "Flight not found")
-    try:
-        png_bytes = render_flight_map_png(flight_id, flight.map_json_path)
-    except FileNotFoundError:
-        raise HTTPException(404, "No mission map for this flight")
-    except ValueError:
-        raise HTTPException(403, "Invalid mission map path")
-    return Response(
-        content=png_bytes,
-        media_type="image/png",
-        headers={"Cache-Control": "private, max-age=3600"},
-    )
 
 
 @router.delete("/api/flights/{flight_id}")

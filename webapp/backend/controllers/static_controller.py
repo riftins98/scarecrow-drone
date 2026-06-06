@@ -36,3 +36,11 @@ async def serve_recording(flight_id: str, filename: str):
     if not os.path.exists(path):
         raise HTTPException(404, "Recording not found")
     return FileResponse(path, media_type="video/mp4")
+
+
+@router.get("/mission_maps/{flight_id}/{filename}")
+async def serve_mission_map(flight_id: str, filename: str):
+    path = _safe_path(flight_id, filename)
+    if not os.path.exists(path):
+        raise HTTPException(404, "Mission map not found")
+    return FileResponse(path, media_type="image/png")

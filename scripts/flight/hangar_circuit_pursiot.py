@@ -1876,8 +1876,14 @@ async def run() -> None:
                     wall_distance=args.wall_distance,
                 )
                 map_path = _save_map_payload(payload, output_dir)
+                annotated_path = MapUnit.annotate_map(map_path)
                 map_saved = True
                 print(f"\nMap saved: {map_path}")
+                print(f"Annotated map: {annotated_path}")
+                print(
+                    f"MAP_RESULT:{json.dumps({'map_path': str(annotated_path)})}",
+                    flush=True,
+                )
             except Exception as exc:
                 print(f"  WARNING: map save/annotation failed: {exc}")
         if camera is not None:
