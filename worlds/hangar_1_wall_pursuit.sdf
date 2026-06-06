@@ -507,8 +507,10 @@
       <static>true</static><pose>-12.1 0 4.0 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>0.2 15.4 8.0</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.2 15.4 8.0</size></box></geometry>
-          <material><ambient>0.42 0.44 0.45 1</ambient><diffuse>0.42 0.44 0.45 1</diffuse><specular>0.18 0.18 0.18 1</specular></material></visual>
+        <visual name="v">
+          <transparency>0.78</transparency>
+          <geometry><box><size>0.2 15.4 8.0</size></box></geometry>
+          <material><ambient>0.42 0.44 0.45 0.22</ambient><diffuse>0.42 0.44 0.45 0.22</diffuse><specular>0.18 0.18 0.18 0.22</specular></material></visual>
       </link>
     </model>
     <model name="wall_east">
@@ -650,11 +652,11 @@
       <pose>0 -6.5 2.5 0 0 0</pose>
     </include>
 
-    <!-- Fixed external HD camera: 5m behind spawn, 2m high, facing +X -->
+    <!-- Fixed monitor cam: behind transparent south wall, centered, facing +X -->
     <include>
       <uri>model://mono_cam_hd</uri>
       <name>fixed_cam</name>
-      <pose>0 -4.5 2 0 0 0</pose>
+      <pose>-12.5 0 2 0 0 0</pose>
       <static>true</static>
     </include>
 

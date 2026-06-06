@@ -232,7 +232,8 @@
     <include>
       <uri>model://mono_cam_hd</uri>
       <name>fixed_cam</name>
-      <pose>1 -4.5 2 0 0 0</pose>
+      <!-- Behind transparent south wall, centered, looking +X across the bay -->
+      <pose>-0.5 -3.5 2 0 0 0</pose>
       <static>true</static>
     </include>
 
