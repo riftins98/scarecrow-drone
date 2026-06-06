@@ -1880,6 +1880,10 @@ async def run() -> None:
                 map_saved = True
                 print(f"\nMap saved: {map_path}")
                 print(f"Annotated map: {annotated_path}")
+                print(
+                    f"MAP_RESULT:{json.dumps({'map_path': str(annotated_path)})}",
+                    flush=True,
+                )
             except Exception as exc:
                 print(f"  WARNING: map save/annotation failed: {exc}")
         if camera is not None:

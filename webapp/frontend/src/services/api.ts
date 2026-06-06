@@ -68,19 +68,25 @@ export const resetDrone = (): Promise<{
   error?: string;
 }> => postJson('/api/sim/reset');
 
-// Sim launcher stdout. Polled by SystemLog with the last cursor.
-// Shows PX4 build, Gazebo start, and other launcher output during connect.
-export const getSimLog = (since: number = 0): Promise<{
+export interface LogPollResponse {
   lines: string[];
   start: number;
   cursor: number;
   dropped: number;
   running: boolean;
-  world: string;
-}> => fetchJson(`/api/sim/log?since=${since}`);
+}
 
-// URL of the standalone full-page log view (opens in a new browser tab).
+// Sim launcher stdout — SystemLog while connecting (pre-drone).
+export const getSimLog = (since: number = 0): Promise<LogPollResponse & { world: string }> =>
+  fetchJson(`/api/sim/log?since=${since}`);
+
 export const simLogViewUrl = () => `${API_BASE}/api/sim/log/view`;
+
+// Flight-script stdout — SystemLog after the sim is connected.
+export const getFlightLog = (since: number = 0): Promise<LogPollResponse & { flight_id: string | null }> =>
+  fetchJson(`/api/flight/log?since=${since}`);
+
+export const flightLogViewUrl = () => `${API_BASE}/api/flight/log/view`;
 
 // Flight history
 export const getFlights = () => fetchJson('/api/flights');
@@ -93,3 +99,5 @@ export const detectionImageUrl = (flightId: string, filename: string) =>
   `${API_BASE}/detection_images/${flightId}/${filename}`;
 export const recordingUrl = (flightId: string, filename: string) =>
   `${API_BASE}/recordings/${flightId}/${filename}`;
+export const missionMapUrl = (flightId: string, filename: string) =>
+  `${API_BASE}/mission_maps/${flightId}/${filename}`;

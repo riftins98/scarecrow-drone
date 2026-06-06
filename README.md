@@ -66,6 +66,15 @@ pip install -e .
 
 ---
 
+## Guides
+
+Step-by-step user guides (with screenshots and optional Word export) live in [`docs/guides/`](docs/guides/README.md):
+
+- **Part 1:** [Simulation from the command line](docs/guides/simulation-cli.md) — no webapp
+- **Part 2:** [Webapp user guide](docs/guides/simulation-webapp.md) — HUD console for demos
+
+---
+
 ## Running the Web UI
 
 The primary interface is a one-click launcher that opens a browser-based control panel.

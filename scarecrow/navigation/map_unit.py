@@ -182,46 +182,40 @@ class MapUnit:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def annotate_map(
-        map_json_path: Union[str, Path],
-        output_path: Optional[Union[str, Path]] = None,
-        *,
-        show: bool = False,
-        debug: bool = False,
-    ) -> Path:
-        """Render a production-friendly top-down view of a saved map JSON.
-
-        The default image hides developer-only samples such as raw wall hits,
-        lidar distance points, turn points, and heading-restore events. Pass
-        debug=True to include those map construction details.
-        """
+    def _use_agg_backend(show: bool) -> None:
         import os
         import matplotlib
         if not show or not os.environ.get("DISPLAY"):
             matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
 
-        map_json_path = Path(map_json_path)
-        with open(map_json_path, "r") as fh:
-            data = json.load(fh)
-
-        if output_path is None:
-            output_path = map_json_path.parent / "map_annotated.png"
-        else:
-            output_path = Path(output_path)
-
-        # --- extract data ---
+    @staticmethod
+    def _prepare_map_data(data: dict) -> dict:
+        """Normalize legacy map payloads before plotting."""
         boundaries = data.get("boundaries", [])
         route = data.get("route") or data.get("route_points") or []
+        wall_points = data.get("wall_points", [])
+        if wall_points and not route and boundaries:
+            route = boundaries
+            boundaries = MapUnit._axis_aligned_boundary(wall_points)
+        return {
+            **data,
+            "boundaries": boundaries,
+            "route": route,
+        }
+
+    @staticmethod
+    def _render_annotated_figure(data: dict, *, debug: bool = False):
+        """Build a matplotlib figure for a saved map payload."""
+        import matplotlib.pyplot as plt
+
+        data = MapUnit._prepare_map_data(data)
+        boundaries = data.get("boundaries", [])
+        route = data.get("route", [])
         points = data.get("points", [])
         route_samples = data.get("route_samples", [])
         wall_points = data.get("wall_points", [])
         takeoff = data.get("takeoff_point", None)
         events = data.get("events", [])
-        if wall_points and not route and boundaries:
-            # Legacy maps used the route/turn points as "boundaries".
-            route = boundaries
-            boundaries = MapUnit._axis_aligned_boundary(wall_points)
 
         # --- set up figure ---
         fig, ax = plt.subplots(figsize=(10, 10))
@@ -390,8 +384,57 @@ class MapUnit:
             loc="upper right", fontsize=9, framealpha=0.7,
             facecolor="#1a1a2e", edgecolor="#4fc3f7", labelcolor="white",
         )
+        return fig
 
-        # --- save ---
+    @staticmethod
+    def render_annotated_png_bytes(
+        map_json_path: Union[str, Path],
+        *,
+        debug: bool = False,
+    ) -> bytes:
+        """Load map.json and return annotated PNG bytes without writing a file."""
+        import io
+        import matplotlib.pyplot as plt
+
+        MapUnit._use_agg_backend(show=False)
+        map_json_path = Path(map_json_path)
+        with open(map_json_path, "r") as fh:
+            data = json.load(fh)
+        fig = MapUnit._render_annotated_figure(data, debug=debug)
+        buf = io.BytesIO()
+        fig.savefig(
+            buf, format="png", dpi=150, bbox_inches="tight",
+            facecolor=fig.get_facecolor(),
+        )
+        plt.close(fig)
+        return buf.getvalue()
+
+    @staticmethod
+    def annotate_map(
+        map_json_path: Union[str, Path],
+        output_path: Optional[Union[str, Path]] = None,
+        *,
+        show: bool = False,
+        debug: bool = False,
+    ) -> Path:
+        """Render a production-friendly top-down view of a saved map JSON.
+
+        The default image hides developer-only samples such as raw wall hits,
+        lidar distance points, turn points, and heading-restore events. Pass
+        debug=True to include those map construction details.
+        """
+        import matplotlib.pyplot as plt
+
+        MapUnit._use_agg_backend(show=show)
+        map_json_path = Path(map_json_path)
+        if output_path is None:
+            output_path = map_json_path.parent / "map_annotated.png"
+        else:
+            output_path = Path(output_path)
+
+        with open(map_json_path, "r") as fh:
+            data = json.load(fh)
+        fig = MapUnit._render_annotated_figure(data, debug=debug)
         fig.savefig(
             output_path, dpi=150, bbox_inches="tight",
             facecolor=fig.get_facecolor(),
@@ -399,7 +442,6 @@ class MapUnit:
         if show:
             plt.show()
         plt.close(fig)
-
         return output_path.resolve()
 
     def _wall_points(self) -> list[dict]:
