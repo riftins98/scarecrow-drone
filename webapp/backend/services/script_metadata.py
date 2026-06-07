@@ -18,6 +18,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
+from services.stream_cameras import list_stream_cameras as _list_stream_cameras
+
 # Default to whatever Python is running the backend. On Mac/Linux this is
 # usually python3; on Windows native it's python.exe. Avoids "python3 not
 # found" when the same interpreter is right there.
@@ -73,58 +75,19 @@ class WorldInfo:
 # Model URIs whose included instances are streamable world-mounted cameras.
 _STREAMABLE_CAMERA_MODELS = {"mono_cam_hd", "mono_cam"}
 
-_CAMERA_LABELS = {
-    "fixed": "Fixed",
-    "center": "Center",
-    "drone_cam": "Drone Camera",
-    "drone_view": "Drone View",
-}
-
-_CAMERA_MODELS = {
-    "drone_cam": "holybro_x500",
-    "drone_view": "drone_view_cam",
-}
-
 
 def list_launch_stream_cameras(
-    launcher_path: str = STREAM_LAUNCHER,
+    launcher_path: str = STREAM_LAUNCHER,  # noqa: ARG001 — kept for API compat
 ) -> list[CameraInfo]:
-    """Return camera flags accepted by launch_with_stream.sh, in script order."""
-    try:
-        with open(launcher_path, "r", encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError:
-        return []
-
-    names: list[str] = []
-    for line in text.splitlines():
-        if "Camera flags" not in line:
-            continue
-        for flag in re.findall(r"--([A-Za-z][A-Za-z0-9_]*)", line):
-            if flag not in names:
-                names.append(flag)
-
-    # Fallback: parse simple case labels if the usage comment changes.
-    if not names:
-        for match in re.finditer(r"^\s*--([A-Za-z][A-Za-z0-9_]*)(?:\)|\|)", text, re.MULTILINE):
-            flag = match.group(1)
-            if flag in ("headless", "port", "no-open", "background"):
-                continue
-            if flag not in names:
-                names.append(flag)
-
+    """Return camera flags accepted by launch_with_stream.sh."""
     return [
-        CameraInfo(
-            name=name,
-            label=_CAMERA_LABELS.get(name, name.replace("_", " ").title()),
-            model=_CAMERA_MODELS.get(name, "launcher"),
-        )
-        for name in names
+        CameraInfo(name=c.name, label=c.label, model=c.model)
+        for c in _list_stream_cameras()
     ]
 
 
 def launch_stream_camera_names(
-    launcher_path: str = STREAM_LAUNCHER,
+    launcher_path: str = STREAM_LAUNCHER,  # noqa: ARG001 — kept for API compat
 ) -> tuple[str, ...]:
     return tuple(cam.name for cam in list_launch_stream_cameras(launcher_path))
 

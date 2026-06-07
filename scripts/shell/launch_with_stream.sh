@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the scarecrow drone simulation + start camera stream.
 # Usage:
-#   ./scripts/shell/launch_with_stream.sh [world_name] [--headless] [--port 8080] [--no-open] [--background]
+#   ./scripts/shell/launch_with_stream.sh [world_name] [--headless] [--no-build] [--port 8080] [--no-open] [--background]
 #   Camera flags (required): --fixed --center --drone_cam --drone_view
 # Default world: drone_garage_pigeon_3d
 set -e
@@ -33,6 +33,7 @@ rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
 
 WORLD="drone_garage_pigeon_3d"
 HEADLESS_FLAG=""
+NO_BUILD_FLAG=""
 STREAM_PORT="8080"
 DEFAULT_POSE="5,-4.5,0,0,0,0"
 OPEN_BROWSER=1
@@ -50,6 +51,9 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --headless)
             HEADLESS_FLAG="--headless"
+            ;;
+        --no-build)
+            NO_BUILD_FLAG="--no-build"
             ;;
         --port)
             shift
@@ -149,6 +153,7 @@ echo "  World: $WORLD"
 echo "  Stream: http://localhost:${STREAM_PORT}/"
 echo "  Open Browser: $([ "$OPEN_BROWSER" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Interactive PXH: $([ "$INTERACTIVE_PXH" -eq 1 ] && echo 'YES' || echo 'NO')"
+echo "  Build PX4: $([ -n "$NO_BUILD_FLAG" ] && echo 'NO' || echo 'YES')"
 echo "  Stream Mode: $STREAM_MODE"
 echo "  Stream FPS: $STREAM_FPS | JPEG Quality: $STREAM_QUALITY | Camera Threads: $STREAM_THREADS"
 if [ ${#SELECTED_CAMERAS[@]} -gt 0 ]; then
@@ -298,11 +303,11 @@ if [ "$INTERACTIVE_PXH" -eq 1 ]; then
     echo "[launch_with_stream] Stream log:        $REPO_ROOT/output/stream_camera.log"
     _log_timer_end step1_create_sim
     _log_event ready stream_url="http://localhost:${STREAM_PORT}/" stream_pid="$STREAM_PID" interactive=true
-    "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG"
+    "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" "$NO_BUILD_FLAG"
     _log_event sim_exited
 else
     # Background mode: sim and stream both detached, sim log goes to file.
-    "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" \
+    "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" "$NO_BUILD_FLAG" \
         > "$REPO_ROOT/output/launch_sim.log" 2>&1 &
     SIM_PID=$!
     _log_event sim_spawned pid="$SIM_PID" sim_log="$REPO_ROOT/output/launch_sim.log"

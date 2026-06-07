@@ -1,4 +1,4 @@
-import { ConnectSimParams, StartFlightParams } from '../types/flight';
+import { CameraInfo, ConnectSimParams, StartFlightParams } from '../types/flight';
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://127.0.0.1:8000';
 
@@ -36,6 +36,9 @@ export const connectSim = (params?: ConnectSimParams) =>
 export const disconnectSim = () => fetchJson('/api/sim/connect', { method: 'DELETE' });
 export const getSimStatus = () => fetchJson('/api/sim/status');
 export const getSimOptions = () => fetchJson('/api/sim/options');
+/** All stream cameras the headless launcher accepts (droplist source). */
+export const getSimCameras = (): Promise<{ cameras: CameraInfo[] }> =>
+  fetchJson('/api/sim/cameras');
 /** Live-swap the headless camera without restarting PX4/Gazebo. */
 export const setSimCamera = (camera: string): Promise<{
   success: boolean;

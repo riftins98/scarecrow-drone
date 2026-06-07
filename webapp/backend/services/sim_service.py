@@ -11,7 +11,7 @@ from services.world_geometry import (
     spawn_map_for_world,
     validate_spawn as validate_world_spawn,
 )
-from services.script_metadata import launch_stream_camera_names
+from services.stream_cameras import stream_camera_names
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -118,7 +118,7 @@ class SimService:
     # Camera names we'll pass through to launch_with_stream.sh as ``--<name>``
     # flags. Derived from the launcher script so the backend stays aligned
     # with the UI options and no arbitrary CLI flags can sneak through.
-    _ALLOWED_CAMERAS = set(launch_stream_camera_names()) or {"fixed"}
+    _ALLOWED_CAMERAS = set(stream_camera_names())
     _DEFAULT_CAMERA = "fixed"
 
     def launch(self, world: str = DEFAULT_WORLD, headless: bool = False,

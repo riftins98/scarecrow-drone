@@ -14,6 +14,7 @@ from services.script_metadata import (
     script_info_to_dict,
     world_info_to_dict,
 )
+from services.stream_cameras import list_stream_cameras, stream_camera_info_to_dict
 from services.world_geometry import all_spawn_maps
 
 router = APIRouter(prefix="/api/sim", tags=["sim"])
@@ -323,6 +324,17 @@ _SIM_LOG_VIEW_HTML = """<!doctype html>
 </body>
 </html>
 """
+
+
+@router.get("/cameras")
+async def sim_cameras():
+    """List every stream camera the headless launcher accepts.
+
+    Powers the pre-connect and live-switch camera droplists in the frontend.
+    """
+    return {
+        "cameras": [stream_camera_info_to_dict(c) for c in list_stream_cameras()],
+    }
 
 
 @router.get("/options")
