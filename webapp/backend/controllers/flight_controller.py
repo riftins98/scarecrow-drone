@@ -4,10 +4,12 @@ Covers:
   - Legacy (kept for frontend compatibility): /api/flight/start, /stop, /status
   - ADD A.4 flight history: /api/flights, /api/flights/{id}, /summary, /telemetry, /images, /recording, DELETE
 """
+import asyncio
+import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from dependencies import (
@@ -155,6 +157,32 @@ async def flight_log(since: int = 0):
     return detection_service.get_log(since=since)
 
 
+@router.get("/api/flight/log/stream")
+async def flight_log_stream(request: Request, since: int = 0):
+    """Stream flight-script stdout as Server-Sent Events."""
+    async def events():
+        cursor = max(since, 0)
+        last_state = None
+        while not await request.is_disconnected():
+            data = await asyncio.to_thread(detection_service.wait_for_log, cursor, 15.0)
+            cursor = data["cursor"]
+            state = (data["running"], data.get("flight_id"))
+            if data["lines"] or data["dropped"] or state != last_state:
+                last_state = state
+                yield f"data: {json.dumps(data)}\n\n"
+            else:
+                yield "event: ping\ndata: {}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/api/flight/log/view", response_class=HTMLResponse)
 async def flight_log_view():
     """Standalone page that tails the live flight-script log."""
@@ -211,22 +239,31 @@ _FLIGHT_LOG_VIEW_HTML = """<!doctype html>
     const row = document.createElement('div'); row.className = 'gap';
     row.textContent = '... ' + n + ' line(s) dropped ...'; logEl.appendChild(row);
   }
+  function render(data) {
+    if (data.dropped > 0) appendGap(data.dropped);
+    let idx = data.start;
+    for (const line of data.lines) { append(line, idx); idx += 1; }
+    cursor = data.cursor;
+    stateEl.textContent = data.running ? 'RUNNING' : 'IDLE';
+    stateEl.className = 'pill ' + (data.running ? 'on' : '');
+    flightEl.textContent = data.flight_id ? ('FLIGHT: ' + data.flight_id) : '';
+    metaEl.textContent = 'lines: ' + cursor;
+    if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
+  }
   async function tick() {
     try {
       const res = await fetch(apiBase + '/api/flight/log?since=' + cursor);
-      const data = await res.json();
-      if (data.dropped > 0) appendGap(data.dropped);
-      let idx = data.start;
-      for (const line of data.lines) { append(line, idx); idx += 1; }
-      cursor = data.cursor;
-      stateEl.textContent = data.running ? 'RUNNING' : 'IDLE';
-      stateEl.className = 'pill ' + (data.running ? 'on' : '');
-      flightEl.textContent = data.flight_id ? ('FLIGHT: ' + data.flight_id) : '';
-      metaEl.textContent = 'lines: ' + cursor;
-      if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
+      render(await res.json());
     } catch (e) { stateEl.textContent = 'OFFLINE'; }
   }
-  tick(); setInterval(tick, 1000);
+  function startPolling() { tick(); setInterval(tick, 1000); }
+  if ('EventSource' in window) {
+    const source = new EventSource(apiBase + '/api/flight/log/stream?since=' + cursor);
+    source.onmessage = (event) => render(JSON.parse(event.data));
+    source.onerror = () => { source.close(); startPolling(); };
+  } else {
+    startPolling();
+  }
 </script>
 </body>
 </html>

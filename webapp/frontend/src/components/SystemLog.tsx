@@ -5,6 +5,8 @@ import {
   getFlightLog,
   simLogViewUrl,
   flightLogViewUrl,
+  simLogStreamUrl,
+  flightLogStreamUrl,
   ApiError,
   LogPollResponse,
 } from '../services/api';
@@ -48,6 +50,7 @@ export default function SystemLog({ connected, flying }: Props) {
   useEffect(() => {
     setRows([]);
     setCursor(0);
+    cursorRef.current = 0;
     setRunning(false);
     setRouteMissing(false);
     flightIdRef.current = null;
@@ -78,6 +81,24 @@ export default function SystemLog({ connected, flying }: Props) {
         return next;
       });
       setCursor(data.cursor);
+      cursorRef.current = data.cursor;
+    };
+
+    const handleLogData = (data: LogPollResponse & { flight_id?: string | null }) => {
+      if (cancelled) return;
+      if (connected && data.flight_id && data.flight_id !== flightIdRef.current) {
+        flightIdRef.current = data.flight_id;
+        setRows([]);
+        setCursor(0);
+        cursorRef.current = 0;
+      }
+      setRunning(data.running);
+      if (data.lines.length === 0 && data.dropped === 0) {
+        setCursor(data.cursor);
+        cursorRef.current = data.cursor;
+        return;
+      }
+      appendLogLines(data);
     };
 
     const tick = async () => {
@@ -85,25 +106,13 @@ export default function SystemLog({ connected, flying }: Props) {
         if (connected) {
           const data = await getFlightLog(cursorRef.current);
           if (cancelled) return;
-          if (data.flight_id && data.flight_id !== flightIdRef.current) {
-            flightIdRef.current = data.flight_id;
-            setRows([]);
-            setCursor(0);
-            cursorRef.current = 0;
-            setRunning(data.running);
-            return;
-          }
-          setRunning(data.running);
-          if (data.lines.length === 0 && data.dropped === 0) return;
-          appendLogLines(data);
+          handleLogData(data);
           return;
         }
 
         const data = await getSimLog(cursorRef.current);
         if (cancelled) return;
-        setRunning(data.running);
-        if (data.lines.length === 0 && data.dropped === 0) return;
-        appendLogLines(data);
+        handleLogData(data);
       } catch (e) {
         if (e instanceof ApiError && e.status === 404) {
           if (!cancelled) setRouteMissing(true);
@@ -111,9 +120,40 @@ export default function SystemLog({ connected, flying }: Props) {
       }
     };
 
-    tick();
-    const id = setInterval(tick, connected ? 1000 : 3000);
-    return () => { cancelled = true; clearInterval(id); };
+    let pollId: number | null = null;
+    const startPollingFallback = () => {
+      if (cancelled || pollId !== null) return;
+      tick();
+      pollId = window.setInterval(tick, connected ? 1000 : 3000);
+    };
+
+    let source: EventSource | null = null;
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      const url = connected
+        ? flightLogStreamUrl(cursorRef.current)
+        : simLogStreamUrl(cursorRef.current);
+      source = new EventSource(url);
+      source.onmessage = (event) => {
+        try {
+          handleLogData(JSON.parse(event.data));
+        } catch {
+          // Ignore malformed stream events and keep the connection alive.
+        }
+      };
+      source.onerror = () => {
+        source?.close();
+        source = null;
+        startPollingFallback();
+      };
+    } else {
+      startPollingFallback();
+    }
+
+    return () => {
+      cancelled = true;
+      source?.close();
+      if (pollId !== null) window.clearInterval(pollId);
+    };
   }, [connected, routeMissing]);
 
   useEffect(() => {
