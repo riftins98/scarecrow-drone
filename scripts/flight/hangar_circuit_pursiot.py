@@ -21,6 +21,13 @@ import sys
 import time
 from dataclasses import asdict
 
+# Keep webapp/live terminal output line-by-line even when this script is run
+# outside DetectionService's `python -u` launcher path.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True)
+
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
 
@@ -1937,7 +1944,7 @@ async def run() -> None:
                     wall_distance=args.wall_distance,
                 )
                 map_path = _save_map_payload(payload, output_dir)
-                annotated_path = MapUnit.annotate_map(map_path)
+                annotated_path = MapUnit.annotate_map(map_path, center_origin=True)
                 map_saved = True
                 print(f"\nMap saved: {map_path}")
                 print(f"Annotated map: {annotated_path}")
