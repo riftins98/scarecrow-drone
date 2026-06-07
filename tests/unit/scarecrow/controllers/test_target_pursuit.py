@@ -1,4 +1,4 @@
-from scarecrow.controllers.target_pursuit import (
+from scarecrow.controllers.pursuit import (
     TargetObservation,
     TargetPursuitConfig,
     TargetPursuitController,
