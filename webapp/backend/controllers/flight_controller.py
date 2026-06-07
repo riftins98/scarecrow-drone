@@ -120,7 +120,7 @@ async def flight_status():
 
             if flight.status == "in_progress":
                 # Subprocess exited without explicit stop -- finalize now.
-                flight_service.flight_repo.end_flight(
+                flight_service.complete_flight(
                     detection_service.flight_id,
                     pigeons=detection_service.pigeons_detected,
                     frames=detection_service.frames_processed,
@@ -136,6 +136,11 @@ async def flight_status():
                 if patch:
                     flight_service.flight_repo.update(
                         detection_service.flight_id, **patch
+                    )
+                if map_path:
+                    flight_service.refresh_mission_summary(
+                        detection_service.flight_id,
+                        map_path=map_path,
                     )
     return {
         "isFlying": detection_service.running,
@@ -239,6 +244,8 @@ def _to_frontend_dict(flight):
         "endTime": flight.end_time,
         "duration": flight.duration,
         "pigeonsDetected": flight.pigeons_detected,
+        "pigeonsDeterred": flight.pigeons_deterred,
+        "pursuitFlowCount": flight.pursuit_flow_count,
         "framesProcessed": flight.frames_processed,
         "status": flight.status,
         "videoPath": flight.video_path,
@@ -247,9 +254,24 @@ def _to_frontend_dict(flight):
     }
 
 
+def _refresh_summary_if_needed(flight):
+    if (
+        flight.map_path
+        and (
+            flight.pigeons_detected == 0
+            or flight.pigeons_deterred == 0
+            or flight.pursuit_flow_count == 0
+        )
+    ):
+        flight_service.refresh_mission_summary(flight.id, map_path=flight.map_path)
+        return flight_service.get_flight(flight.id) or flight
+    return flight
+
+
 @router.get("/api/flights")
 async def list_flights():
     flights = flight_service.get_all_flights()
+    flights = [_refresh_summary_if_needed(f) for f in flights]
     return [_to_frontend_dict(f) for f in flights]
 
 
@@ -258,6 +280,7 @@ async def get_flight_detail(flight_id: str):
     flight = flight_service.get_flight(flight_id)
     if flight is None:
         raise HTTPException(404, "Flight not found")
+    flight = _refresh_summary_if_needed(flight)
     return _to_frontend_dict(flight)
 
 

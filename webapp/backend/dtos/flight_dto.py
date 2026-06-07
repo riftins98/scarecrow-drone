@@ -14,6 +14,8 @@ class FlightDTO(BaseModel):
     end_time: Optional[str] = None
     duration: float = 0
     pigeons_detected: int = 0
+    pigeons_deterred: int = 0
+    pursuit_flow_count: int = 0
     frames_processed: int = 0
     status: str = "in_progress"
     video_path: Optional[str] = None

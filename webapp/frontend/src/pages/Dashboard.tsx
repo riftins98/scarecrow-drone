@@ -27,7 +27,6 @@ export default function Dashboard() {
   const [flights, setFlights] = useState<Flight[]>([]);
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [modalImages, setModalImages] = useState<string[]>([]);
-  const [modalRecording, setModalRecording] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [flightStartTime, setFlightStartTime] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,15 +189,14 @@ export default function Dashboard() {
   const handleSelectFlight = useCallback(async (flight: Flight) => {
     setSelectedFlight(flight);
     try {
-      const [imgData, recData] = await Promise.all([
+      const [freshFlight, imgData] = await Promise.all([
+        api.getFlight(flight.id),
         api.getFlightImages(flight.id),
-        api.getFlightRecording(flight.id),
       ]);
+      setSelectedFlight(freshFlight);
       setModalImages(imgData.images || []);
-      setModalRecording(recData.recording || null);
     } catch {
       setModalImages([]);
-      setModalRecording(null);
     }
   }, []);
 
@@ -323,7 +321,6 @@ export default function Dashboard() {
         <FlightModal
           flight={selectedFlight}
           images={modalImages}
-          recording={modalRecording}
           onClose={() => setSelectedFlight(null)}
         />
       )}
