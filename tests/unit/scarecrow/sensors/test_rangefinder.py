@@ -1,5 +1,9 @@
 """Tests for single-ray Gazebo rangefinder support."""
 
+from unittest.mock import patch
+
+import pytest
+
 from scarecrow.sensors.rangefinder import GazeboRangefinder
 
 
@@ -52,3 +56,30 @@ class TestGazeboRangefinder:
         assert GazeboRangefinder._parse_reading("ranges: 0") is None
         assert GazeboRangefinder._parse_reading("ranges: inf") is None
         assert GazeboRangefinder._parse_reading("ranges: nan") is None
+
+    def test_start_retries_topic_discovery_until_timeout(self):
+        """Verify rangefinder discovery polls gz until the topic appears."""
+        rangefinder = GazeboRangefinder(env={"TEST": "1"})
+        topic = (
+            "/world/drone_hangar_small/model/holybro_x500_0/link/"
+            "tf_luna_up_link/sensor/ceiling_rangefinder/scan"
+        )
+        with patch.object(
+            GazeboRangefinder,
+            "_discover_topic",
+            side_effect=[None, None, topic],
+        ), patch("scarecrow.sensors.rangefinder.gazebo.time.sleep"):
+            rangefinder.start(discover_timeout_s=5.0)
+
+        assert rangefinder.topic == topic
+
+    def test_start_raises_after_discovery_timeout(self):
+        """Verify rangefinder startup fails clearly when the topic never appears."""
+        rangefinder = GazeboRangefinder(env={"TEST": "1"})
+        with patch.object(
+            GazeboRangefinder,
+            "_discover_topic",
+            return_value=None,
+        ), patch("scarecrow.sensors.rangefinder.gazebo.time.sleep"):
+            with pytest.raises(RuntimeError, match="within 1s"):
+                rangefinder.start(discover_timeout_s=1.0)

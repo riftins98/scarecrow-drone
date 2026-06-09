@@ -1117,8 +1117,17 @@ async def run() -> None:
 
         print("Starting upward ceiling rangefinder...")
         ceiling_sensor = GazeboRangefinder(env=gz_env)
-        ceiling_sensor._topic = ceiling_sensor._discover_topic(topic_list=topics)
-        ceiling_sensor.start()
+        try:
+            # Do not reuse the prefetched topic list here — the upward sensor
+            # topic often appears a few seconds after the 2D lidar.
+            ceiling_sensor.start(discover_timeout_s=30.0)
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}")
+            print(
+                "  Hint: confirm model://tf_luna_up is on the drone "
+                "(gz topic -l | grep ceiling_rangefinder)"
+            )
+            return
         print(f"  Ceiling topic: {ceiling_sensor.topic}")
         if not await _wait_for_rangefinder(ceiling_sensor):
             print("ERROR: no upward rangefinder data -- aborting")

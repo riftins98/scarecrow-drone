@@ -39,13 +39,22 @@ class GazeboRangefinder:
         self._running = False
         self._thread: threading.Thread | None = None
 
-    def start(self) -> None:
+    def start(self, *, discover_timeout_s: float = 15.0) -> None:
         if self._running:
             return
-        if self._topic is None:
+        deadline = time.time() + max(0.0, discover_timeout_s)
+        while self._topic is None:
             self._topic = self._discover_topic()
+            if self._topic is not None:
+                break
+            if time.time() >= deadline:
+                break
+            time.sleep(0.5)
         if self._topic is None:
-            raise RuntimeError(f"Could not find rangefinder topic matching {self._topic_hint!r}")
+            raise RuntimeError(
+                f"Could not find rangefinder topic matching {self._topic_hint!r} "
+                f"within {discover_timeout_s:.0f}s"
+            )
         self._running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
