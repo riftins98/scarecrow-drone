@@ -48,6 +48,15 @@ const PURSUIT_MISSION_ARGS: ScriptArg[] = [
   },
 ];
 
+function formatArgLabel(flagOrName: string): string {
+  const raw = flagOrName.replace(/^--+/, '');
+  return raw
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function defaultPursuitArgValues(): ScriptArgValues {
   const initial: ScriptArgValues = {};
   for (const arg of PURSUIT_MISSION_ARGS) {
@@ -328,9 +337,9 @@ export default function SimControl({
       {!flying && (
         <div className="script-config pursuit-config">
           <p className="script-description">
-            Autonomous hangar circuit with live pigeon detection. On sight, the
-            drone breaks off the wall-follow leg, pursues to deterrence range,
-            then resumes scanning.
+            Autonomous hangar circuit with live pigeon detection. On pigeon
+            detection, pursues to deterrence range until deterrence, then
+            resumes scanning.
           </p>
 
           <div className="script-args">
@@ -350,11 +359,11 @@ export default function SimControl({
       <div className="control-buttons">
         {!flying ? (
           <button className="btn btn-start" onClick={handleStart}>
-            Start Pursuit
+            Start Patrol
           </button>
         ) : (
           <button className="btn btn-stop" onClick={onStopFlight}>
-            Stop Pursuit
+            Stop Patrol
           </button>
         )}
         <button className="btn btn-disconnect" onClick={onDisconnect} disabled={flying}>
@@ -433,7 +442,7 @@ interface ArgFieldProps {
 }
 
 function ArgField({ arg, value, onChange }: ArgFieldProps) {
-  const label = arg.flag.replace(/^-+/, '');
+  const label = formatArgLabel(arg.flag || arg.name);
 
   if (arg.type === 'bool') {
     return (
