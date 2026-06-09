@@ -314,7 +314,7 @@ assert "ABORT_REQUESTED" in output
 source scripts/shell/env.sh && ./scripts/shell/launch.sh drone_garage
 
 # 2. Start flight via webapp or CLI
-source .venv-mavsdk/bin/activate
+source .venv/bin/activate
 python3 scripts/flight/demo_flight.py &
 FLIGHT_PID=$!
 
