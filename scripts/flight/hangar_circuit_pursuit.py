@@ -6,7 +6,7 @@ wall-follow and target-pursuit behavior used by wall_follow_pigeon_pursuit.py.
 
 Run with Gazebo already launched, for example:
     ./scripts/shell/launch_with_stream.sh hangar_lite
-    .venv/bin/python scripts/flight/hangar_circuit_pursiot.py --ceiling-clearance 1.0
+    .venv/bin/python scripts/flight/hangar_circuit_pursuit.py --ceiling-clearance 1.0
 """
 from __future__ import annotations
 
@@ -57,11 +57,13 @@ from scarecrow.sensors.rangefinder import GazeboRangefinder  # noqa: E402
 SYSTEM_ADDRESS = "udp://:14540"
 DEFAULT_TARGET_DIST = 1.5
 DEFAULT_WALL_DISTANCE = 2.0
-DEFAULT_START_SIDE = "left"
-TARGET_CEILING_CLEARANCE_M = 2.0
+DEFAULT_CEILING_CLEARANCE = 2.0
 DEFAULT_HOVER_SECONDS = 5.0
 DEFAULT_LEG_TIMEOUT = 300.0
 DEFAULT_MAX_LEGS = 4
+DEFAULT_PURSUIT_TIMEOUT = 75.0
+DEFAULT_TARGET_MODEL_PREFIXES = ("pigeon",)
+DEFAULT_TARGET_URI_KEYWORDS = ("pigeon",)
 DEFAULT_IMAGE_WIDTH = 1280
 YOLO_CONFIDENCE = 0.75
 YOLO_PURSUIT_CONFIDENCE = 0.6
@@ -117,83 +119,31 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Circuit the hangar while detecting a pigeon, then pursue on sight."
     )
-    parser.add_argument("--flight-id", default=None)
-    parser.add_argument("--system-address", default=SYSTEM_ADDRESS)
     parser.add_argument(
-        "--target-alt",
-        type=float,
+        "--flight-id",
         default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--wall-distance",
+        "--wall-dist",
+        type=float,
+        default=DEFAULT_WALL_DISTANCE,
+        dest="wall_distance",
         help=(
-            "Optional takeoff altitude in meters AGL. When omitted, the mission "
-            f"uses upward rangefinder ceiling distance minus {TARGET_CEILING_CLEARANCE_M:.1f}m."
+            "Target distance to the followed wall in meters during circuit legs "
+            f"(default: {DEFAULT_WALL_DISTANCE:.1f})."
         ),
     )
     parser.add_argument(
         "--ceiling-clearance",
         type=float,
         default=None,
-        help="Optional minimum safe upward ceiling clearance in meters.",
-    )
-    parser.add_argument("--target-dist", type=float, default=DEFAULT_TARGET_DIST)
-    parser.add_argument("--wall-distance", type=float, default=DEFAULT_WALL_DISTANCE)
-    parser.set_defaults(start_side=DEFAULT_START_SIDE)
-    start_side_group = parser.add_mutually_exclusive_group()
-    start_side_group.add_argument(
-        "--start-side",
-        choices=("left", "right"),
-        help="Side wall at the launch corner: left or right. Defaults to left.",
-    )
-    start_side_group.add_argument(
-        "--l",
-        dest="start_side",
-        action="store_const",
-        const="left",
-        help="Launch with the side wall on the drone's left.",
-    )
-    start_side_group.add_argument(
-        "--r",
-        dest="start_side",
-        action="store_const",
-        const="right",
-        help="Launch with the side wall on the drone's right.",
-    )
-    parser.add_argument("--hover-seconds", type=float, default=DEFAULT_HOVER_SECONDS)
-    parser.add_argument("--leg-timeout", type=float, default=DEFAULT_LEG_TIMEOUT)
-    parser.add_argument("--max-legs", type=int, default=DEFAULT_MAX_LEGS)
-    parser.add_argument("--pursuit-timeout", type=float, default=75.0)
-    parser.add_argument(
-        "--world",
-        default=None,
-        help="Gazebo world name; auto-detected from topics when omitted.",
-    )
-    parser.add_argument(
-        "--target-model-name",
-        action="append",
-        default=None,
-        help="Exact removable target model name. Repeat for multiple targets.",
-    )
-    parser.add_argument(
-        "--target-model-prefix",
-        action="append",
-        default=None,
-        help="Removable target model name prefix. Defaults to 'pigeon'.",
-    )
-    parser.add_argument(
-        "--target-model-uri-keyword",
-        action="append",
-        default=None,
-        help="Keyword matched against target model:// URI. Defaults to 'pigeon'.",
-    )
-    parser.add_argument(
-        "--target-remove-max-distance",
-        type=float,
-        default=None,
-        help="Optional maximum distance from success pose to removable target model.",
-    )
-    parser.add_argument(
-        "--disable-target-removal",
-        action="store_true",
-        help="Keep the pursued target model in Gazebo after success.",
+        help=(
+            "Optional minimum safe upward ceiling clearance in meters. When set, "
+            "enforces ceiling safety after takeoff and during the mission. "
+            f"Takeoff altitude always uses ceiling minus {DEFAULT_CEILING_CLEARANCE:.1f}m."
+        ),
     )
     return parser.parse_args()
 
@@ -246,7 +196,7 @@ def _altitude_hold_down_speed(
 def _target_alt_from_ceiling_distance(
     ceiling_distance_m: float,
     *,
-    target_clearance_m: float = TARGET_CEILING_CLEARANCE_M,
+    target_clearance_m: float = DEFAULT_CEILING_CLEARANCE,
 ) -> float:
     """Return AGL target altitude that leaves requested upward clearance."""
     if not math.isfinite(ceiling_distance_m):
@@ -1071,29 +1021,29 @@ async def _safe_land(drone: Drone) -> None:
 
 async def run() -> None:
     args = parse_args()
-    max_legs = max(1, int(args.max_legs))
-    flight_id = args.flight_id or f"hangar_circuit_pursiot_{int(time.time())}"
+    wall_distance = args.wall_distance
+    ceiling_clearance = args.ceiling_clearance
+    target_dist = DEFAULT_TARGET_DIST
+    max_legs = max(1, DEFAULT_MAX_LEGS)
+    flight_id = args.flight_id or f"hangar_circuit_pursuit_{int(time.time())}"
     output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
     os.makedirs(output_dir, exist_ok=True)
 
     print("\n" + "=" * 64)
-    print("  SCARECROW DRONE - HANGAR CIRCUIT PURSIOT")
+    print("  SCARECROW DRONE - HANGAR CIRCUIT PURSUIT")
     print("=" * 64)
     print(f"Flight ID:         {flight_id}")
     print(f"Output:            {output_dir}")
-    if args.target_alt is None:
-        print(
-            "Takeoff altitude:  auto "
-            f"(ceiling - {TARGET_CEILING_CLEARANCE_M:.1f}m)"
-        )
-    else:
-        print(f"Takeoff altitude:  {args.target_alt:.2f}m AGL")
-    print(f"Wall distance:     {args.wall_distance:.2f}m")
-    print(f"Target distance:   {args.target_dist:.2f}m")
+    print(
+        "Takeoff altitude:  auto "
+        f"(ceiling - {DEFAULT_CEILING_CLEARANCE:.1f}m)"
+    )
+    print(f"Wall distance:     {wall_distance:.2f}m")
+    print(f"Target distance:   {target_dist:.2f}m")
     print(f"Max legs:          {max_legs}")
     print("Camera recording:  disabled (live YOLO frames only)")
-    if args.ceiling_clearance is not None:
-        print(f"Min ceiling clear: {args.ceiling_clearance:.2f}m")
+    if ceiling_clearance is not None:
+        print(f"Min ceiling clear: {ceiling_clearance:.2f}m")
 
     subprocess.run(["pkill", "-f", "mavsdk_server"], capture_output=True)
 
@@ -1108,7 +1058,7 @@ async def run() -> None:
     yolo_thread = detector.preload_async()
     gz_thread, gz_result = prefetch_gz_env_async()
 
-    drone = Drone(system_address=args.system_address)
+    drone = Drone(system_address=SYSTEM_ADDRESS)
     nav: NavigationUnit | None = None
     lidar: GazeboLidar | None = None
     camera: GazeboCamera | None = None
@@ -1118,7 +1068,8 @@ async def run() -> None:
     map_tasks: list[asyncio.Task] = []
     route_samples: list[dict] = []
     route_phase = {"phase": "wall_follow"}
-    altitude_ref: dict = {"agl_m": None, "target_alt_m": args.target_alt, "error_m": None}
+    target_alt: float | None = None
+    altitude_ref: dict = {"agl_m": None, "target_alt_m": None, "error_m": None}
     route_stop_event = asyncio.Event()
     route_task: asyncio.Task | None = None
     map_saved = False
@@ -1148,10 +1099,10 @@ async def run() -> None:
         gz_thread.join(timeout=10)
         gz_env = gz_result.env or {}
         topics = gz_result.topics
-        sim_world = args.world or discover_world_name(topics)
+        sim_world = discover_world_name(topics)
         drone_model_name = discover_model_name(topics, contains="holybro_x500") or "holybro_x500"
-        target_model_prefixes = tuple(args.target_model_prefix or ["pigeon"])
-        target_uri_keywords = tuple(args.target_model_uri_keyword or ["pigeon"])
+        target_model_prefixes = DEFAULT_TARGET_MODEL_PREFIXES
+        target_uri_keywords = DEFAULT_TARGET_URI_KEYWORDS
         if sim_world:
             print(f"  Gazebo world: {sim_world}")
         else:
@@ -1164,33 +1115,30 @@ async def run() -> None:
         lidar.start()
         print(f"  Lidar topic: {lidar.topic}")
 
-        needs_ceiling_sensor = args.target_alt is None or args.ceiling_clearance is not None
-        if needs_ceiling_sensor:
-            print("Starting upward ceiling rangefinder...")
-            ceiling_sensor = GazeboRangefinder(env=gz_env)
-            ceiling_sensor._topic = ceiling_sensor._discover_topic(topic_list=topics)
-            ceiling_sensor.start()
-            print(f"  Ceiling topic: {ceiling_sensor.topic}")
-            if not await _wait_for_rangefinder(ceiling_sensor):
-                print("ERROR: no upward rangefinder data -- aborting")
-                return
-            if args.target_alt is None:
-                ceiling_distance = ceiling_sensor.get_distance_m()
-                if ceiling_distance is None:
-                    print("ERROR: no upward rangefinder distance for auto altitude -- aborting")
-                    return
-                try:
-                    args.target_alt = _target_alt_from_ceiling_distance(ceiling_distance)
-                except ValueError as exc:
-                    print(f"ERROR: cannot compute takeoff altitude: {exc}")
-                    return
-                altitude_ref["target_alt_m"] = args.target_alt
-                print(
-                    "  Auto takeoff altitude: "
-                    f"ceiling={ceiling_distance:.2f}m - "
-                    f"clearance={TARGET_CEILING_CLEARANCE_M:.2f}m -> "
-                    f"{args.target_alt:.2f}m AGL"
-                )
+        print("Starting upward ceiling rangefinder...")
+        ceiling_sensor = GazeboRangefinder(env=gz_env)
+        ceiling_sensor._topic = ceiling_sensor._discover_topic(topic_list=topics)
+        ceiling_sensor.start()
+        print(f"  Ceiling topic: {ceiling_sensor.topic}")
+        if not await _wait_for_rangefinder(ceiling_sensor):
+            print("ERROR: no upward rangefinder data -- aborting")
+            return
+        ceiling_distance = ceiling_sensor.get_distance_m()
+        if ceiling_distance is None:
+            print("ERROR: no upward rangefinder distance for auto altitude -- aborting")
+            return
+        try:
+            target_alt = _target_alt_from_ceiling_distance(ceiling_distance)
+        except ValueError as exc:
+            print(f"ERROR: cannot compute takeoff altitude: {exc}")
+            return
+        altitude_ref["target_alt_m"] = target_alt
+        print(
+            "  Auto takeoff altitude: "
+            f"ceiling={ceiling_distance:.2f}m - "
+            f"clearance={DEFAULT_CEILING_CLEARANCE:.2f}m -> "
+            f"{target_alt:.2f}m AGL"
+        )
 
         for _ in range(30):
             await asyncio.sleep(0.1)
@@ -1207,15 +1155,15 @@ async def run() -> None:
             print("ERROR: no lidar data -- aborting")
             return
 
-        print(f"\nSetting takeoff altitude to {args.target_alt:.2f}m...")
-        takeoff_origin = await drone.prepare_takeoff(args.target_alt)
+        print(f"\nSetting takeoff altitude to {target_alt:.2f}m...")
+        takeoff_origin = await drone.prepare_takeoff(target_alt)
 
         print("Arming...")
         await drone.arm()
         print("Armed.")
 
-        print(f"Taking off to {args.target_alt:.2f}m with PX4...")
-        if not await drone.takeoff(altitude=args.target_alt):
+        print(f"Taking off to {target_alt:.2f}m with PX4...")
+        if not await drone.takeoff(altitude=target_alt):
             print("ERROR: takeoff failed")
             return
 
@@ -1229,8 +1177,8 @@ async def run() -> None:
         start_side = await _approach_circuit_start_corner(
             drone,
             lidar,
-            args.wall_distance,
-            args.target_alt,
+            wall_distance,
+            target_alt,
         )
         if start_side is None:
             print("ERROR: start stabilization failed. Landing safely.")
@@ -1248,7 +1196,7 @@ async def run() -> None:
                 route_samples,
                 route_phase,
                 route_stop_event,
-                target_alt_m=args.target_alt,
+                target_alt_m=target_alt,
                 altitude_ref=altitude_ref,
             )
         )
@@ -1303,25 +1251,25 @@ async def run() -> None:
             front_distance = start_scan.front_distance()
             right_distance = start_scan.right_distance()
             if not _valid_distance(front_distance, min_m=MAP_MIN_DIST, max_m=MAP_MAX_DIST):
-                front_distance = args.wall_distance
+                front_distance = wall_distance
             if not _valid_distance(right_distance, min_m=MAP_MIN_DIST, max_m=MAP_MAX_DIST):
-                right_distance = args.wall_distance
+                right_distance = wall_distance
             arena_boundary = _arena_boundary_from_start(
                 x=circuit_start_pos.position.north_m,
                 y=circuit_start_pos.position.east_m,
                 yaw_deg=circuit_start_yaw,
-                rear_distance=args.wall_distance,
-                left_distance=args.wall_distance,
+                rear_distance=wall_distance,
+                left_distance=wall_distance,
                 front_distance=front_distance,
                 right_distance=right_distance,
             )
         await record_map_sample(mapper, drone, lidar)
 
-        if args.ceiling_clearance is not None:
+        if ceiling_clearance is not None:
             print("\n--- Phase 2: ceiling safety check ---")
             result = nav.check_ceiling_clearance(
                 ceiling_sensor=ceiling_sensor,
-                min_clearance_m=args.ceiling_clearance,
+                min_clearance_m=ceiling_clearance,
             )
             if not result.done:
                 print(f"  Ceiling safety check failed: {result.reason}")
@@ -1358,11 +1306,11 @@ async def run() -> None:
                 print(f"  Detection disabled: {reason}")
 
         def ceiling_safe_or_stop() -> str | None:
-            if args.ceiling_clearance is None:
+            if ceiling_clearance is None:
                 return None
             result = nav.check_ceiling_clearance(
                 ceiling_sensor=ceiling_sensor,
-                min_clearance_m=args.ceiling_clearance,
+                min_clearance_m=ceiling_clearance,
             )
             return None if result.done else result.reason
 
@@ -1373,7 +1321,7 @@ async def run() -> None:
             pursuit_label = f"pursuit_{pursuit_count:02d}_leg_{leg}"
             route_phase["phase"] = "pursuit"
             print(
-                f"\n--- Phase 4: pursue pigeon to {args.target_dist:.2f}m "
+                f"\n--- Phase 4: pursue pigeon to {target_dist:.2f}m "
                 f"(attempt {attempt}/{MAX_PURSUIT_ATTEMPTS}) ---"
             )
             detector.confidence = YOLO_PURSUIT_CONFIDENCE
@@ -1461,7 +1409,7 @@ async def run() -> None:
             pursuit_result = await nav.pursue_target(
                 tracker=tracker,
                 config=TargetPursuitConfig(
-                    target_distance_m=args.target_dist,
+                    target_distance_m=target_dist,
                     max_forward_speed_m_s=0.40,
                     min_forward_speed_m_s=0.10,
                     kp_forward=0.40,
@@ -1469,7 +1417,7 @@ async def run() -> None:
                     max_yaw_speed_deg_s=32.0,
                     vertical_kp=0.50,
                     max_vertical_speed_m_s=0.32,
-                    pursuit_timeout_s=args.pursuit_timeout,
+                    pursuit_timeout_s=DEFAULT_PURSUIT_TIMEOUT,
                     center_enter_ratio=0.12,
                     center_exit_ratio=0.18,
                     vertical_center_enter_ratio=0.10,
@@ -1507,7 +1455,7 @@ async def run() -> None:
             print(
                 "  Target reached at "
                 f"{pursuit_result.front_distance_m:.2f}m. "
-                f"Hovering {args.hover_seconds:.1f}s."
+                f"Hovering {DEFAULT_HOVER_SECONDS:.1f}s."
             )
             detector.capture_next_detection(f"{pursuit_label}_target_reached")
             target_pos = await drone.get_position()
@@ -1533,7 +1481,7 @@ async def run() -> None:
             map_events.append(
                 {
                     "type": "target_reached",
-                    "label": f"Target reached at {args.target_dist:.2f}m",
+                    "label": f"Target reached at {target_dist:.2f}m",
                     "x": target_pos.position.north_m,
                     "y": target_pos.position.east_m,
                     "yaw_deg": target_yaw,
@@ -1544,7 +1492,7 @@ async def run() -> None:
                     "leg": leg,
                 }
             )
-            await nav.hover(args.hover_seconds)
+            await nav.hover(DEFAULT_HOVER_SECONDS)
             return pursuit_result
 
         async def return_to_pursuit_entry(
@@ -1684,10 +1632,10 @@ async def run() -> None:
 
             wall_result = await nav.wall_follow_until(
                 side="left",
-                target_distance=args.wall_distance,
+                target_distance=wall_distance,
                 forward_speed=WALL_FOLLOW_SPEED,
-                front_stop_distance=args.wall_distance,
-                timeout=args.leg_timeout,
+                front_stop_distance=wall_distance,
+                timeout=DEFAULT_LEG_TIMEOUT,
                 stop_condition=stop_condition,
                 on_status=on_wall_status,
                 kp=WALL_FOLLOW_KP,
@@ -1695,7 +1643,7 @@ async def run() -> None:
                 max_lateral_speed=WALL_FOLLOW_MAX_LATERAL,
                 yaw_kp=WALL_FOLLOW_YAW_KP,
                 max_yaw_speed=WALL_FOLLOW_MAX_YAW,
-                target_alt_m=args.target_alt,
+                target_alt_m=target_alt,
                 altitude_kp=ALTITUDE_HOLD_KP,
                 altitude_tolerance_m=ALTITUDE_HOLD_TOLERANCE_M,
                 max_vertical_speed_m_s=ALTITUDE_HOLD_MAX_DOWN_SPEED,
@@ -1737,17 +1685,17 @@ async def run() -> None:
                     set_detection_enabled(False, "return to pursuit entry")
 
                     if pursuit_result.reached_target:
-                        if target_removal_event is not None and not args.disable_target_removal:
+                        if target_removal_event is not None:
                             removal = remove_nearest_model(
                                 world_name=sim_world,
                                 x=float(target_removal_event["x"]),
                                 y=float(target_removal_event["y"]),
                                 env=gz_env,
                                 worlds_dir=os.path.join(REPO_ROOT, "worlds"),
-                                model_names=args.target_model_name,
+                                model_names=None,
                                 name_prefixes=target_model_prefixes,
                                 uri_keywords=target_uri_keywords,
-                                max_distance_m=args.target_remove_max_distance,
+                                max_distance_m=None,
                             )
                             map_events.append(
                                 {
@@ -1781,7 +1729,7 @@ async def run() -> None:
                                 )
                             else:
                                 print(f"  WARNING: target removal skipped/failed: {removal.message}")
-                        elif not args.disable_target_removal:
+                        else:
                             print("  WARNING: target removal skipped: PX4/Gazebo frame transform unavailable")
 
                     await drone.set_velocity(VelocityCommand())
@@ -1868,7 +1816,7 @@ async def run() -> None:
                 return
 
             print("  Stabilizing corner...")
-            if not await _stabilize_corner(drone, lidar, args.wall_distance, args.target_alt):
+            if not await _stabilize_corner(drone, lidar, wall_distance, target_alt):
                 print("  WARNING: corner stabilization timed out -- continuing")
 
             if leg == max_legs:
@@ -1903,7 +1851,7 @@ async def run() -> None:
                     result = await nav.land_with_lidar_hold(
                         targets=_current_landing_targets(
                             lidar,
-                            fallback_wall_distance=args.wall_distance,
+                            fallback_wall_distance=wall_distance,
                         ),
                         stabilize_first=False,
                         on_status=on_landing_status,
@@ -1934,7 +1882,7 @@ async def run() -> None:
                     map_events,
                     route_samples,
                     boundary_override=arena_boundary,
-                    wall_distance=args.wall_distance,
+                    wall_distance=wall_distance,
                 )
                 map_path = _save_map_payload(payload, output_dir)
                 annotated_path = MapUnit.annotate_map(map_path)
@@ -1954,7 +1902,7 @@ async def run() -> None:
         if lidar is not None:
             lidar.stop()
 
-    print("\nHangar circuit pursiot complete.")
+    print("\nHangar circuit pursuit complete.")
 
 
 def _cleanup_and_exit(exit_code: int = 0) -> None:

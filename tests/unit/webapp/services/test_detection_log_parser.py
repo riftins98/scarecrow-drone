@@ -4,7 +4,7 @@ The subprocess machinery in DetectionService is intentionally not unit-tested
 (see tests/CLAUDE.md), but `_parse_log_extras` and `_phase_label` are pure
 functions over a single string — exactly the kind of logic that should be
 covered. Cases here match log lines still emitted by the remaining flight
-scripts (`hangar_circuit_pursiot.py`, `sensor_check.py`, `room_circuit_map.py`).
+scripts (`hangar_circuit_pursuit.py`, `sensor_check.py`, `room_circuit_map.py`).
 """
 from services.detection_service import DetectionService, _phase_label, _parse_dist
 

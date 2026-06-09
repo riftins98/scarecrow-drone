@@ -91,9 +91,9 @@ Once connected, choose a **flight script** and any parameters shown in the dynam
 |--------|------------------------|
 | `demo_flight_v2.py` | Short mission: takeoff, hover, YOLO detection, landing, flight video |
 | `demo_flight_pursuit.py` | Hover → detect → pursue pigeon → hold at range |
-| `hangar_circuit_pursiot.py` | **Capstone:** 4-leg hangar circuit, live detection, pursuit, target removal, mission map |
+| `hangar_circuit_pursuit.py` | **Capstone:** 4-leg hangar circuit, live detection, pursuit, target removal, mission map |
 
-For the full deterrence demo, select **`hangar_lite`** as the world and **`hangar_circuit_pursiot.py`** as the flight script. Set `--ceiling-clearance` to `1.0` if the form exposes it.
+For the full deterrence demo, select **`hangar_lite`** as the world and **`hangar_circuit_pursuit.py`** as the flight script. Set `--ceiling-clearance` to `1.0` if the form exposes it.
 
 During flight:
 
@@ -127,7 +127,7 @@ Click a card to open the detail modal:
 | **Detections** | Gallery of saved YOLO frames |
 | **Recording** | Flight video (when the script recorded one, e.g. `demo_flight_v2.py`) |
 
-`hangar_circuit_pursiot.py` saves pursuit images and `map.json` under `webapp/output/<flight_id>/`. View detections in the modal; open the **Mission Map** tab to see the annotated circuit rendered on demand by the backend.
+`hangar_circuit_pursuit.py` saves pursuit images and `map.json` under `webapp/output/<flight_id>/`. View detections in the modal; open the **Mission Map** tab to see the annotated circuit rendered on demand by the backend.
 
 ![Mission log and flight detail modal](images/webapp-05-history.png)
 
@@ -138,7 +138,7 @@ Click a card to open the detail modal:
 1. **Introduce the problem** — GPS-denied indoor flight; optical flow + rangefinder instead of GPS.
 2. **Connect** — `hangar_lite`, headless + fixed camera so the audience sees the overhead stream.
 3. **Show the minimap** — explain spawn placement and live drone tracking.
-4. **Start** `hangar_circuit_pursiot.py` — narrate telemetry as the drone circuits, detects, and pursues.
+4. **Start** `hangar_circuit_pursuit.py` — narrate telemetry as the drone circuits, detects, and pursues.
 5. **Open History** — show detection gallery and discuss saved evidence.
 6. **RESET** if needed — recover quickly without restarting the whole stack.
 
