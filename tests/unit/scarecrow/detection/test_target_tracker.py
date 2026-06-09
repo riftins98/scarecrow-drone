@@ -36,6 +36,17 @@ def test_tracker_reports_age():
     assert tracker.age >= 0.0
 
 
+def test_tracker_clear_forgets_latest_observation():
+    tracker = TargetTracker()
+    tracker.update_from_yolo([
+        {"class": "target", "conf": 0.9, "center": (500, 250), "bbox": (5, 6, 7, 8)},
+    ])
+
+    tracker.clear()
+
+    assert tracker.latest() is None
+
+
 def test_tracker_returns_none_when_observation_is_stale():
     tracker = TargetTracker()
     tracker._observation = TargetObservation(
