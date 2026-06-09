@@ -17,7 +17,7 @@ See `docs/implementation/README.md` for the phased plan to complete the ADD. Eac
 
 ## Development Workflows
 - Launch sim: `source scripts/shell/env.sh && ./scripts/shell/launch.sh [world_name]`
-- Run flights: `source .venv-mavsdk/bin/activate && python3 scripts/flight/<script>.py`
+- Run flights: `source .venv/bin/activate && python3 scripts/flight/<script>.py`
 - Web app: `cd webapp && ./start.sh` (frontend :3000, backend :8000)
 - Commit: use `/commit` skill — updates all CLAUDE.md files and commits with clean message
 

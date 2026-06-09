@@ -426,7 +426,7 @@ def test_countermeasure_oscillates_yaw():
 
 ### Full sim test
 ```bash
-source .venv-mavsdk/bin/activate
+source .venv/bin/activate
 python3 scripts/flight/demo_flight.py 2>&1 | grep -E "CHASE_|DETECTION_"
 
 # Expected output:

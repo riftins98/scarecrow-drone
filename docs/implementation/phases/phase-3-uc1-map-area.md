@@ -225,7 +225,7 @@ source scripts/shell/env.sh && ./scripts/shell/launch.sh drone_garage
 commander set_gps_global_origin 0 0 0
 
 # 3. Run mapping flight
-source .venv-mavsdk/bin/activate
+source .venv/bin/activate
 python3 scripts/flight/map_area.py --map-name "Garage Test"
 
 # 4. Verify output

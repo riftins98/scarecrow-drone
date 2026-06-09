@@ -1,6 +1,6 @@
 # flight
 
-Python scripts for autonomous flight missions. Run with `.venv-mavsdk` activated. Each script is self-contained: connects to MAVSDK, verifies sensors, arms, flies, and lands.
+Python scripts for autonomous flight missions. Run with `.venv` activated. Each script is self-contained: connects to MAVSDK, verifies sensors, arms, flies, and lands.
 
 The webapp spawns these as subprocesses via DetectionService and parses their stdout for status updates. Stdout protocol lines recognized:
 - `DETECTION_IMAGE:/path/to/img.png` — saved detection frame
