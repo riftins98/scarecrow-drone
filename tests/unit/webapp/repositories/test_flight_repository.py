@@ -70,10 +70,14 @@ class TestFlightRepository:
             frames=100,
             video_path="/tmp/v.mp4",
             map_path="/tmp/map_annotated.png",
+            pigeons_deterred=4,
+            pursuit_flow_count=6,
         )
         updated = repo.get_by_id(flight.id)
         assert updated.status == "completed"
         assert updated.pigeons_detected == 5
+        assert updated.pigeons_deterred == 4
+        assert updated.pursuit_flow_count == 6
         assert updated.frames_processed == 100
         assert updated.video_path == "/tmp/v.mp4"
         assert updated.map_path == "/tmp/map_annotated.png"

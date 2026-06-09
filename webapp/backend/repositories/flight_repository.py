@@ -48,7 +48,7 @@ class FlightRepository(BaseRepository):
         allowed = {
             "area_map_id", "start_time", "end_time", "duration",
             "pigeons_detected", "frames_processed", "status", "video_path",
-            "map_path",
+            "map_path", "pigeons_deterred", "pursuit_flow_count",
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
@@ -78,6 +78,8 @@ class FlightRepository(BaseRepository):
         frames: int,
         video_path: Optional[str] = None,
         map_path: Optional[str] = None,
+        pigeons_deterred: int = 0,
+        pursuit_flow_count: int = 0,
     ) -> None:
         """Mark a flight completed. Computes duration from start_time."""
         now = datetime.now()
@@ -91,10 +93,12 @@ class FlightRepository(BaseRepository):
                 duration = (now - datetime.fromisoformat(row["start_time"])).total_seconds()
             conn.execute(
                 """UPDATE flights SET end_time=?, duration=?, pigeons_detected=?,
-                   frames_processed=?, status=?, video_path=?, map_path=? WHERE id=?""",
+                   pigeons_deterred=?, pursuit_flow_count=?, frames_processed=?,
+                   status=?, video_path=?, map_path=? WHERE id=?""",
                 (
-                    now.isoformat(), duration, pigeons, frames, "completed",
-                    video_path, map_path, flight_id,
+                    now.isoformat(), duration, pigeons, pigeons_deterred,
+                    pursuit_flow_count, frames, "completed", video_path,
+                    map_path, flight_id,
                 ),
             )
             conn.commit()

@@ -4,10 +4,12 @@ Covers:
   - Legacy (kept for frontend compatibility): /api/flight/start, /stop, /status
   - ADD A.4 flight history: /api/flights, /api/flights/{id}, /summary, /telemetry, /images, /recording, DELETE
 """
+import asyncio
+import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from dependencies import (
@@ -120,7 +122,7 @@ async def flight_status():
 
             if flight.status == "in_progress":
                 # Subprocess exited without explicit stop -- finalize now.
-                flight_service.flight_repo.end_flight(
+                flight_service.complete_flight(
                     detection_service.flight_id,
                     pigeons=detection_service.pigeons_detected,
                     frames=detection_service.frames_processed,
@@ -137,6 +139,11 @@ async def flight_status():
                     flight_service.flight_repo.update(
                         detection_service.flight_id, **patch
                     )
+                if map_path:
+                    flight_service.refresh_mission_summary(
+                        detection_service.flight_id,
+                        map_path=map_path,
+                    )
     return {
         "isFlying": detection_service.running,
         "isConnected": sim_service.is_connected,
@@ -148,6 +155,32 @@ async def flight_status():
 async def flight_log(since: int = 0):
     """Flight-script stdout for SystemLog after the sim is connected."""
     return detection_service.get_log(since=since)
+
+
+@router.get("/api/flight/log/stream")
+async def flight_log_stream(request: Request, since: int = 0):
+    """Stream flight-script stdout as Server-Sent Events."""
+    async def events():
+        cursor = max(since, 0)
+        last_state = None
+        while not await request.is_disconnected():
+            data = await asyncio.to_thread(detection_service.wait_for_log, cursor, 15.0)
+            cursor = data["cursor"]
+            state = (data["running"], data.get("flight_id"))
+            if data["lines"] or data["dropped"] or state != last_state:
+                last_state = state
+                yield f"data: {json.dumps(data)}\n\n"
+            else:
+                yield "event: ping\ndata: {}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/api/flight/log/view", response_class=HTMLResponse)
@@ -206,22 +239,31 @@ _FLIGHT_LOG_VIEW_HTML = """<!doctype html>
     const row = document.createElement('div'); row.className = 'gap';
     row.textContent = '... ' + n + ' line(s) dropped ...'; logEl.appendChild(row);
   }
+  function render(data) {
+    if (data.dropped > 0) appendGap(data.dropped);
+    let idx = data.start;
+    for (const line of data.lines) { append(line, idx); idx += 1; }
+    cursor = data.cursor;
+    stateEl.textContent = data.running ? 'RUNNING' : 'IDLE';
+    stateEl.className = 'pill ' + (data.running ? 'on' : '');
+    flightEl.textContent = data.flight_id ? ('FLIGHT: ' + data.flight_id) : '';
+    metaEl.textContent = 'lines: ' + cursor;
+    if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
+  }
   async function tick() {
     try {
       const res = await fetch(apiBase + '/api/flight/log?since=' + cursor);
-      const data = await res.json();
-      if (data.dropped > 0) appendGap(data.dropped);
-      let idx = data.start;
-      for (const line of data.lines) { append(line, idx); idx += 1; }
-      cursor = data.cursor;
-      stateEl.textContent = data.running ? 'RUNNING' : 'IDLE';
-      stateEl.className = 'pill ' + (data.running ? 'on' : '');
-      flightEl.textContent = data.flight_id ? ('FLIGHT: ' + data.flight_id) : '';
-      metaEl.textContent = 'lines: ' + cursor;
-      if (followEl.checked) logEl.scrollTop = logEl.scrollHeight;
+      render(await res.json());
     } catch (e) { stateEl.textContent = 'OFFLINE'; }
   }
-  tick(); setInterval(tick, 1000);
+  function startPolling() { tick(); setInterval(tick, 1000); }
+  if ('EventSource' in window) {
+    const source = new EventSource(apiBase + '/api/flight/log/stream?since=' + cursor);
+    source.onmessage = (event) => render(JSON.parse(event.data));
+    source.onerror = () => { source.close(); startPolling(); };
+  } else {
+    startPolling();
+  }
 </script>
 </body>
 </html>
@@ -239,6 +281,8 @@ def _to_frontend_dict(flight):
         "endTime": flight.end_time,
         "duration": flight.duration,
         "pigeonsDetected": flight.pigeons_detected,
+        "pigeonsDeterred": flight.pigeons_deterred,
+        "pursuitFlowCount": flight.pursuit_flow_count,
         "framesProcessed": flight.frames_processed,
         "status": flight.status,
         "videoPath": flight.video_path,
@@ -247,9 +291,24 @@ def _to_frontend_dict(flight):
     }
 
 
+def _refresh_summary_if_needed(flight):
+    if (
+        flight.map_path
+        and (
+            flight.pigeons_detected == 0
+            or flight.pigeons_deterred == 0
+            or flight.pursuit_flow_count == 0
+        )
+    ):
+        flight_service.refresh_mission_summary(flight.id, map_path=flight.map_path)
+        return flight_service.get_flight(flight.id) or flight
+    return flight
+
+
 @router.get("/api/flights")
 async def list_flights():
     flights = flight_service.get_all_flights()
+    flights = [_refresh_summary_if_needed(f) for f in flights]
     return [_to_frontend_dict(f) for f in flights]
 
 
@@ -258,6 +317,7 @@ async def get_flight_detail(flight_id: str):
     flight = flight_service.get_flight(flight_id)
     if flight is None:
         raise HTTPException(404, "Flight not found")
+    flight = _refresh_summary_if_needed(flight)
     return _to_frontend_dict(flight)
 
 

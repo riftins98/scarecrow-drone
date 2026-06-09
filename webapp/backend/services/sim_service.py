@@ -93,6 +93,7 @@ class SimService:
         # detect dropped lines.
         self._log_offset = 0
         self._log_lock = threading.Lock()
+        self._log_condition = threading.Condition(self._log_lock)
         # Bumped from the old 200/500 trim values so a full PX4 build's
         # output fits without rolling.
         self._log_max = 4000
@@ -196,9 +197,10 @@ class SimService:
             bufsize=1,
         )
 
-        with self._log_lock:
+        with self._log_condition:
             self._log_lines = []
             self._log_offset = 0
+            self._log_condition.notify_all()
         self._completed_steps = []
         self._current_step = "cleanup"
         self._step_substatus = {}
@@ -233,7 +235,7 @@ class SimService:
         try:
             for line in self.process.stdout:
                 line = line.strip()
-                with self._log_lock:
+                with self._log_condition:
                     self._log_lines.append(line)
                     overflow = len(self._log_lines) - self._log_max
                     if overflow > 0:
@@ -241,6 +243,7 @@ class SimService:
                         # so absolute indices remain stable.
                         self._log_lines = self._log_lines[overflow:]
                         self._log_offset += overflow
+                    self._log_condition.notify_all()
 
                 # Capture stream URL from headless launcher banner
                 # (e.g., "Stream: http://localhost:8080/")
@@ -327,6 +330,8 @@ class SimService:
                 for line in self._log_lines[-20:]:
                     print(f"  {line}", flush=True)
             self.launching = False
+            with self._log_condition:
+                self._log_condition.notify_all()
 
     def _send_pxh_command(self, cmd: str) -> bool:
         """Send a command to PX4's pxh console. Returns True if it was written.
@@ -759,6 +764,23 @@ class SimService:
         with self._log_lock:
             return self._log_lines[-n:]
 
+    def _log_since_locked(self, since: int = 0) -> dict:
+        base = self._log_offset
+        total = base + len(self._log_lines)
+        requested = max(since, 0)
+        dropped = max(0, base - requested)
+        start = max(requested, base)
+        slice_from = start - base
+        lines = list(self._log_lines[slice_from:])
+        return {
+            "lines": lines,
+            "start": start,
+            "cursor": total,
+            "dropped": dropped,
+            "running": self.launching or self.connected,
+            "world": self._world,
+        }
+
     def get_log_since(self, since: int = 0) -> dict:
         """Return launcher stdout lines with absolute index >= since.
 
@@ -766,21 +788,20 @@ class SimService:
         passes the last cursor, gets back {lines, start, cursor, dropped}.
         """
         with self._log_lock:
-            base = self._log_offset
-            total = base + len(self._log_lines)
-            requested = max(since, 0)
-            dropped = max(0, base - requested)
-            start = max(requested, base)
-            slice_from = start - base
-            lines = list(self._log_lines[slice_from:])
-            return {
-                "lines": lines,
-                "start": start,
-                "cursor": total,
-                "dropped": dropped,
-                "running": self.launching or self.connected,
-                "world": self._world,
-            }
+            return self._log_since_locked(since)
+
+    def wait_for_log_since(self, since: int = 0, timeout: float = 15.0) -> dict:
+        """Block until new launcher log data is available or timeout expires."""
+        deadline = time.monotonic() + timeout
+        with self._log_condition:
+            snapshot = self._log_since_locked(since)
+            while not snapshot["lines"] and snapshot["dropped"] == 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._log_condition.wait(remaining)
+                snapshot = self._log_since_locked(since)
+            return snapshot
 
     @property
     def world(self) -> str:
