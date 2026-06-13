@@ -57,6 +57,10 @@ function formatArgLabel(flagOrName: string): string {
     .join(' ');
 }
 
+function formatWorldLabel(name: string): string {
+  return name.replace(/_/g, ' ');
+}
+
 function defaultPursuitArgValues(): ScriptArgValues {
   const initial: ScriptArgValues = {};
   for (const arg of PURSUIT_MISSION_ARGS) {
@@ -247,7 +251,7 @@ export default function SimControl({
                     disabled={!options}
                   >
                     {options ? options.worlds.map((w: WorldInfo) => (
-                      <option key={w.name} value={w.name}>{w.name}</option>
+                      <option key={w.name} value={w.name}>{formatWorldLabel(w.name)}</option>
                     )) : <option>Loading...</option>}
                   </select>
                 </label>
@@ -326,7 +330,7 @@ export default function SimControl({
           Simulation Online
         </div>
         {simStatus?.world && (
-          <div className="status-line">World: {simStatus.world}</div>
+          <div className="status-line">World: {formatWorldLabel(simStatus.world)}</div>
         )}
         {simStatus?.headless && (
           <div className="status-line">Headless</div>
