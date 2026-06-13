@@ -31,7 +31,7 @@ pkill -f "gz sim" 2>/dev/null || true
 pkill -f "stream_camera" 2>/dev/null || true
 rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
 
-WORLD="$("$REPO_ROOT/scripts/shell/world_meta.py" default-world)"
+WORLD="$(python3 "$REPO_ROOT/scripts/shell/world_meta.py" default-world)"
 HEADLESS_FLAG=""
 NO_BUILD_FLAG=""
 STREAM_PORT="8080"
@@ -102,7 +102,7 @@ done
 
 # Accept both "world_name" and "world_name.sdf" inputs.
 WORLD="${WORLD%.sdf}"
-DEFAULT_POSE="$("$REPO_ROOT/scripts/shell/world_meta.py" spawn-pose "$WORLD")"
+DEFAULT_POSE="$(python3 "$REPO_ROOT/scripts/shell/world_meta.py" spawn-pose "$WORLD")"
 
 # Default spawn pose (can be overridden by exporting PX4_GZ_MODEL_POSE)
 if [ -z "${PX4_GZ_MODEL_POSE}" ] && [ -n "$DEFAULT_POSE" ]; then
