@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from services.stream_cameras import list_stream_cameras as _list_stream_cameras
+from services.world_geometry import format_world_label
 
 # Default to whatever Python is running the backend. On Mac/Linux this is
 # usually python3; on Windows native it's python.exe. Avoids "python3 not
@@ -65,7 +66,8 @@ class CameraInfo:
 
 @dataclass
 class WorldInfo:
-    name: str             # without extension, e.g. "drone_garage_pigeon_3d"
+    name: str             # without extension, e.g. "hangar_lite"
+    label: str            # human-readable, e.g. "Hangar Lite"
     path: str             # absolute path to .sdf
     cameras: list[CameraInfo] = field(default_factory=list)
 
@@ -165,6 +167,7 @@ def list_worlds(worlds_dir: str) -> list[WorldInfo]:
             path = os.path.join(worlds_dir, fname)
             out.append(WorldInfo(
                 name=fname[:-4],
+                label=format_world_label(fname[:-4]),
                 path=path,
                 cameras=_parse_world_cameras(path),
             ))

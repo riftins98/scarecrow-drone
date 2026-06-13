@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { FlightStatus, SimStatus } from '../types/flight';
+import { FlightStatus, SimStatus, SimOptions } from '../types/flight';
+import { worldLabelFor } from './worldLabels';
 
 interface Props {
   simStatus: SimStatus | null;
   flightStatus: FlightStatus | null;
+  simOptions?: SimOptions | null;
 }
 
 /**
@@ -23,7 +25,7 @@ interface Props {
  *   DETS — pigeon detections (grey at zero, green once anything is detected)
  *   DET  — flight active (binary; grey when not flying, green when flying)
  */
-export default function HudHeader({ simStatus, flightStatus }: Props) {
+export default function HudHeader({ simStatus, flightStatus, simOptions }: Props) {
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
@@ -38,6 +40,7 @@ export default function HudHeader({ simStatus, flightStatus }: Props) {
   const launching = !!simStatus?.launching;
   const flying = !!flightStatus?.isFlying;
   const world = simStatus?.world;
+  const worldLabel = worldLabelFor(simOptions, world).toUpperCase();
   const tel = flightStatus?.telemetry ?? {};
 
   let systemState: 'standby' | 'launching' | 'nominal' | 'active' = 'standby';
@@ -78,7 +81,7 @@ export default function HudHeader({ simStatus, flightStatus }: Props) {
           </span>
         </div>
         {world && (
-          <div className="hud-world-tag">WORLD: {world.toUpperCase()}</div>
+          <div className="hud-world-tag">WORLD: {worldLabel}</div>
         )}
       </div>
 

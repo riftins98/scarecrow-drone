@@ -17,25 +17,22 @@ from services.sim_service import (
 from services.world_geometry import all_spawn_maps, spawn_map_for_world
 from services.script_metadata import list_worlds
 
-# A point that is inside the valid box AND clear of both parked aircraft.
-# (The room center is occupied by the two Shadow aircraft, so tests must use a
-# corner.) Corners like (-8, 4) / (8, 4) are clear.
-CLEAR = (-8.0, 4.0)
+# hangar_lite valid interior point (no static obstacles).
+HANGAR_LITE_CLEAR = (6.0, -3.5)
+# hangar valid interior point, clear of parked aircraft.
+HANGAR_CLEAR = (-8.0, 4.0)
 
 
 class TestWorldGeometry:
     def test_all_worlds_with_floor_get_spawn_maps(self):
         maps = all_spawn_maps()
-        assert "drone_garage_pigeon_3d" in maps
-        assert "hangar_1" in maps
-        assert "hangar_lite" in maps
-
-    def test_garage_map_has_dynamic_aircraft_obstacles(self):
-        info = spawn_map_for_world("drone_garage_pigeon_3d")
-        assert info is not None
-        assert info["wallBounds"] == {
-            "xMin": -12.0, "xMax": 12.0, "yMin": -7.5, "yMax": 7.5,
+        assert set(maps.keys()) == {
+            "hangar", "hangar_small", "hangar_detailed", "hangar_lite",
         }
+
+    def test_hangar_map_has_aircraft_obstacles(self):
+        info = spawn_map_for_world("hangar")
+        assert info is not None
         assert info["bounds"] == {
             "xMin": -10.0, "xMax": 10.0, "yMin": -5.5, "yMax": 5.5,
         }
@@ -58,27 +55,32 @@ class TestWorldGeometry:
         names = [c.name for c in worlds["hangar_lite"].cameras]
         assert names[:4] == ["fixed", "center", "drone_cam", "drone_view"]
 
+    def test_worlds_expose_derived_labels(self):
+        worlds = {w.name: w for w in list_worlds("worlds")}
+        assert worlds["hangar"].label == "Hangar"
+        assert worlds["hangar_small"].label == "Hangar Small"
+        assert worlds["hangar_detailed"].label == "Hangar Detailed"
+        assert worlds["hangar_lite"].label == "Hangar Lite"
+
 
 class TestValidateSpawn:
     def test_clear_corners_ok(self):
-        assert validate_spawn(-8.0, 4.0) == (True, None)
-        assert validate_spawn(8.0, 4.0)[0] is True
-        # The far corners of the valid box are clear of the central aircraft.
+        assert validate_spawn(*HANGAR_LITE_CLEAR) == (True, None)
         assert validate_spawn(SPAWN_BOUNDS["xMin"], SPAWN_BOUNDS["yMax"])[0] is True
         assert validate_spawn(SPAWN_BOUNDS["xMin"], SPAWN_BOUNDS["yMin"])[0] is True
 
     def test_too_close_to_wall_rejected(self):
-        assert validate_spawn(SPAWN_BOUNDS["xMax"] + 0.1, 4.0)[0] is False
-        assert validate_spawn(-8.0, SPAWN_BOUNDS["yMax"] + 0.1)[0] is False
-        assert validate_spawn(SPAWN_BOUNDS["xMin"] - 0.1, 4.0)[0] is False
+        assert validate_spawn(SPAWN_BOUNDS["xMax"] + 0.1, -3.5)[0] is False
+        assert validate_spawn(6.0, SPAWN_BOUNDS["yMax"] + 0.1)[0] is False
+        assert validate_spawn(SPAWN_BOUNDS["xMin"] - 0.1, -3.5)[0] is False
 
     def test_on_aircraft_rejected(self):
-        # Both aircraft centers (and the room center between them) are blocked.
-        for obs in SPAWN_OBSTACLES:
-            ok, err = validate_spawn(obs["cx"], obs["cy"])
+        hangar = spawn_map_for_world("hangar")
+        for obs in hangar["obstacles"]:
+            ok, err = validate_spawn(obs["cx"], obs["cy"], world="hangar")
             assert ok is False
             assert obs["label"] in err
-        assert validate_spawn(0.0, 0.0)[0] is False  # center, between the craft
+        assert validate_spawn(0.0, 0.0, world="hangar")[0] is False
 
     def test_error_message_mentions_bounds(self):
         ok, err = validate_spawn(99, 99)
@@ -95,14 +97,13 @@ class TestValidateSpawn:
 class TestLaunchSpawn:
     def test_custom_spawn_sets_pose(self):
         svc = SimService()
-        # Stub out the actual subprocess launch; we only care about _spawn_pose.
         with patch.object(SimService, "stop"), \
              patch("services.sim_service.time.sleep"), \
              patch("services.sim_service.os.path.exists", return_value=True), \
              patch("services.sim_service.subprocess.Popen"), \
              patch("services.sim_service.threading.Thread"):
-            svc.launch(world=SPAWN_WORLD, spawn={"x": -8.0, "y": 4.0})
-            assert svc._spawn_pose == "-8.0,4.0,0,0,0,0"
+            svc.launch(world=SPAWN_WORLD, spawn={"x": 6.0, "y": -3.5})
+            assert svc._spawn_pose == "6.0,-3.5,0,0,0,0"
 
     def test_invalid_spawn_raises(self):
         svc = SimService()
@@ -136,15 +137,15 @@ class TestLaunchSpawn:
             assert "--drone_view" in argv
             assert svc.camera == "drone_view"
 
-    def test_custom_spawn_sets_pose_for_other_mapped_world(self):
+    def test_custom_spawn_sets_pose_for_hangar(self):
         svc = SimService()
         with patch.object(SimService, "stop"), \
              patch("services.sim_service.time.sleep"), \
              patch("services.sim_service.os.path.exists", return_value=True), \
              patch("services.sim_service.subprocess.Popen"), \
              patch("services.sim_service.threading.Thread"):
-            svc.launch(world="hangar_lite", spawn={"x": 6.0, "y": -3.5})
-            assert svc._spawn_pose == "6.0,-3.5,0,0,0,0"
+            svc.launch(world="hangar", spawn={"x": -8.0, "y": 4.0})
+            assert svc._spawn_pose == "-8.0,4.0,0,0,0,0"
 
     def test_custom_spawn_rejected_for_unsupported_world(self):
         svc = SimService()
@@ -163,12 +164,11 @@ class TestSetSpawn:
         svc._world = SPAWN_WORLD
         with patch.object(SimService, "_teleport_to",
                           return_value={"success": True, "model": "holybro_x500_0"}) as mock_tp:
-            res = svc.set_spawn(-8.0, 4.0)
+            res = svc.set_spawn(6.0, -3.5)
             assert res["success"] is True
-            assert res["spawn"] == {"x": -8.0, "y": 4.0}
-            # Panic reset must now return to the NEW spot.
-            assert svc._spawn_pose == "-8.0,4.0,0,0,0,0"
-            mock_tp.assert_called_once_with("-8.0,4.0,0,0,0,0")
+            assert res["spawn"] == {"x": 6.0, "y": -3.5}
+            assert svc._spawn_pose == "6.0,-3.5,0,0,0,0"
+            mock_tp.assert_called_once_with("6.0,-3.5,0,0,0,0")
 
     def test_set_spawn_rejects_out_of_bounds_without_teleport(self):
         svc = SimService()
@@ -192,9 +192,9 @@ class TestSetSpawn:
         svc._spawn_pose = DEFAULT_SPAWN_POSE
         with patch.object(SimService, "_teleport_to",
                           return_value={"success": False, "error": "no model"}):
-            res = svc.set_spawn(-8.0, 4.0)
+            res = svc.set_spawn(6.0, -3.5)
             assert res["success"] is False
-            assert svc._spawn_pose == DEFAULT_SPAWN_POSE  # unchanged
+            assert svc._spawn_pose == DEFAULT_SPAWN_POSE
 
 
 class TestSpawnProperty:

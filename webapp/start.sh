@@ -9,6 +9,9 @@ echo "============================================"
 echo "  Scarecrow Drone — Web App"
 echo "============================================"
 
+# Align default world with simulation scripts (override before sourcing if needed).
+export SCARECROW_DEFAULT_WORLD="${SCARECROW_DEFAULT_WORLD:-hangar_lite}"
+
 # Install backend deps if needed
 echo "[webapp] Checking backend dependencies..."
 cd "$REPO_ROOT"

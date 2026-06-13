@@ -232,6 +232,57 @@ def all_spawn_maps(worlds_dir: str = WORLDS_DIR) -> dict[str, dict]:
     return out
 
 
+def list_available_worlds(worlds_dir: str = WORLDS_DIR) -> list[str]:
+    """Return sorted world ids from ``worlds_dir/*.sdf`` (no hardcoded list)."""
+    if not os.path.isdir(worlds_dir):
+        return []
+    return sorted(
+        fname[:-4]
+        for fname in os.listdir(worlds_dir)
+        if fname.endswith(".sdf")
+    )
+
+
+def resolve_default_world(worlds_dir: str = WORLDS_DIR) -> str:
+    """Pick the default world: ``SCARECROW_DEFAULT_WORLD`` if valid, else ``hangar_lite`` when present."""
+    env = os.environ.get("SCARECROW_DEFAULT_WORLD", "").strip()
+    worlds = list_available_worlds(worlds_dir)
+    if env in worlds:
+        return env
+    if "hangar_lite" in worlds:
+        return "hangar_lite"
+    return worlds[0] if worlds else ""
+
+
+def format_world_label(world_id: str) -> str:
+    """Human label from the SDF stem, e.g. ``hangar_small`` -> ``Hangar Small``."""
+    return " ".join(part.capitalize() for part in world_id.split("_") if part)
+
+
+def default_spawn_point(world_name: str) -> Optional[tuple[float, float]]:
+    """First clear spawn point derived from SDF floor bounds and obstacles."""
+    info = spawn_map_for_world(world_name)
+    if not info:
+        return None
+    b = info["bounds"]
+    xs = (b["xMin"], b["xMax"], (b["xMin"] + b["xMax"]) / 2)
+    ys = (b["yMin"], b["yMax"], (b["yMin"] + b["yMax"]) / 2)
+    for y in ys:
+        for x in xs:
+            ok, _ = validate_spawn(world_name, x, y)
+            if ok:
+                return (round(x, 3), round(y, 3))
+    return None
+
+
+def default_spawn_pose(world_name: str) -> Optional[str]:
+    """PX4_GZ_MODEL_POSE string from SDF-derived spawn geometry."""
+    pt = default_spawn_point(world_name)
+    if not pt:
+        return None
+    return f"{pt[0]},{pt[1]},0,0,0,0"
+
+
 def in_obstacle(x: float, y: float, obs: dict, margin: float) -> bool:
     dx, dy = x - obs["cx"], y - obs["cy"]
     c, s = math.cos(-obs["yaw"]), math.sin(-obs["yaw"])

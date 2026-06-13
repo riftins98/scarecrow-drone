@@ -13,6 +13,7 @@ import {
 } from '../types/flight';
 import * as api from '../services/api';
 import { spawnMapForWorld } from './spawnMapLookup';
+import { defaultWorldFromOptions, worldLabelFor } from './worldLabels';
 
 interface Props {
   simStatus: SimStatus | null;
@@ -27,7 +28,6 @@ interface Props {
   onPreviewWorldChange?: (world: string) => void;
 }
 
-const DEFAULT_WORLD = 'drone_garage_pigeon_3d';
 /** Hardcoded mission entrypoint — not exposed as a user-facing script picker. */
 const PURSUIT_FLIGHT_SCRIPT = 'hangar_circuit_pursuit.py';
 
@@ -57,10 +57,6 @@ function formatArgLabel(flagOrName: string): string {
     .join(' ');
 }
 
-function formatWorldLabel(name: string): string {
-  return name.replace(/_/g, ' ');
-}
-
 function defaultPursuitArgValues(): ScriptArgValues {
   const initial: ScriptArgValues = {};
   for (const arg of PURSUIT_MISSION_ARGS) {
@@ -86,7 +82,7 @@ export default function SimControl({
   const [streamCameras, setStreamCameras] = useState<CameraInfo[]>([]);
 
   // Pre-connect form state
-  const [selectedWorld, setSelectedWorld] = useState<string>(DEFAULT_WORLD);
+  const [selectedWorld, setSelectedWorld] = useState<string>('');
   const [headless, setHeadless] = useState<boolean>(false);
   // Camera the user picked from the dropdown (only meaningful in headless mode).
   // Empty string -> "let backend default it" (currently "fixed").
@@ -123,10 +119,13 @@ export default function SimControl({
       .then(([data, camerasRes]) => {
         setOptions(data);
         setStreamCameras(camerasRes.cameras);
-        // If our default world isn't actually available, fall back to the first.
-        if (data.worlds.length > 0 && !data.worlds.find((w: { name: string }) => w.name === DEFAULT_WORLD)) {
-          setSelectedWorld(data.worlds[0].name);
-        }
+        const preferred = defaultWorldFromOptions(data);
+        setSelectedWorld((current) => {
+          if (current && data.worlds.some((w: WorldInfo) => w.name === current)) {
+            return current;
+          }
+          return preferred;
+        });
       })
       .catch((e: unknown) => setOptionsError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -251,7 +250,7 @@ export default function SimControl({
                     disabled={!options}
                   >
                     {options ? options.worlds.map((w: WorldInfo) => (
-                      <option key={w.name} value={w.name}>{formatWorldLabel(w.name)}</option>
+                      <option key={w.name} value={w.name}>{w.label}</option>
                     )) : <option>Loading...</option>}
                   </select>
                 </label>
@@ -330,7 +329,7 @@ export default function SimControl({
           Simulation Online
         </div>
         {simStatus?.world && (
-          <div className="status-line">World: {formatWorldLabel(simStatus.world)}</div>
+          <div className="status-line">World: {worldLabelFor(options, simStatus.world)}</div>
         )}
         {simStatus?.headless && (
           <div className="status-line">Headless</div>

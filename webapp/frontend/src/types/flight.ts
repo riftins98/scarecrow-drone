@@ -124,6 +124,7 @@ export interface CameraInfo {
 
 export interface WorldInfo {
   name: string;
+  label: string;
   path: string;
   cameras: CameraInfo[];
   /** SDF-derived spawn map. Omitted only if the world has no parseable floor. */
@@ -150,6 +151,8 @@ export interface ScriptInfo {
 
 export interface SimOptions {
   worlds: WorldInfo[];
+  /** Default world id (first SDF in worlds/, or SCARECROW_DEFAULT_WORLD). */
+  defaultWorld?: string;
   scripts: ScriptInfo[];
   /** Per-world SDF-derived spawn geometry, keyed by world name. */
   spawnMaps?: Record<string, SpawnMap>;

@@ -2,8 +2,15 @@
 
 Gazebo world SDF files defining simulation environments. `launch.sh` keeps these files repo-owned and exposes them to PX4/Gazebo through a deterministic symlink mirror under `px4/build/scarecrow_gz_worlds/`.
 
+**Nothing is hardcoded in app code.** The backend scans `worlds/*.sdf` for the dropdown list, derives display labels from each filename (`hangar_small` → "Hangar Small"), and parses spawn geometry from the SDF for the spawn picker and default spawn pose. Optional env override: `SCARECROW_DEFAULT_WORLD=<id>`.
+
 ## Files
-- `hangar_1_wall_pursuit.sdf` — Mission copy of hangar_1 for wall-follow/pursuit testing. Keeps the richer hangar geometry, enables visual-only landing-pad/drone props for camera visibility control, and includes multiple removable pigeon targets.
-- `drone_hangar_light.sdf` — Same-size performance variant of `hangar_1_wall_pursuit.sdf`. Keeps the 24m x 15m arena and mission layout, but reduces render cost with 2m floor tiles, fewer non-shadow lights, and disabled shadows.
-- `drone_hangar_small.sdf` — Smaller 16m x 10m drone hangar arena with reduced side-wall detail, fewer ceiling beams, 2m floor tiles, 2.4m/2.35m pads, brighter wall/frame materials, corner pigeon shelves, and half-size parked drone props while keeping the active X500, pigeon targets, and cameras unscaled.
-- `hangar_lite.sdf` — Lightweight 12m x 8m x 8m hangar shell with checkerboard floor tiles for optical flow, flat ceiling, plain perimeter walls, a transparent visual back wall that still has lidar collision, multiple `pigeon_3d` targets for repeated pursuit attempts, and fixed `mono_cam_hd` observer cameras. Layout is aligned for the hangar circuit pursuit mission; `launch_with_stream.sh hangar_lite` keeps the established stream-spawn position unless `PX4_GZ_MODEL_POSE` is set.
+
+| SDF file | UI label (auto) | Notes |
+|----------|-----------------|-------|
+| `hangar.sdf` | Hangar | 24m × 15m performance hangar (2m floor tiles, reduced lighting/shadows). |
+| `hangar_small.sdf` | Hangar Small | 16m × 10m compact hangar with corner pigeon shelves and half-size parked drone props. |
+| `hangar_detailed.sdf` | Hangar Detailed | Full-detail 24m × 15m hangar with rich geometry, removable pigeon targets, visual landing-pad/drone props. |
+| `hangar_lite.sdf` | Hangar Lite | Lightweight 12m × 8m shell for the capstone pursuit mission (checkerboard floor, multiple `pigeon_3d` targets). |
+
+To add a world: drop `worlds/my_world.sdf` — it appears in the webapp and launch scripts automatically. Set `SCARECROW_DEFAULT_WORLD=my_world` in `env.sh` if it should be the session default.
