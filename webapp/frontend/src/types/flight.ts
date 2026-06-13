@@ -5,6 +5,8 @@ export interface Flight {
   endTime?: string;
   duration: number;
   pigeonsDetected: number;
+  pigeonsDeterred: number;
+  pursuitFlowCount: number;
   framesProcessed: number;
   status: 'completed' | 'in_progress' | 'failed';
   videoPath?: string;

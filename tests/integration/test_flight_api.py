@@ -25,6 +25,8 @@ def test_list_flights_returns_camelcase(api_client):
     f = flights[0]
     # Frontend expects camelCase
     assert "pigeonsDetected" in f
+    assert "pigeonsDeterred" in f
+    assert "pursuitFlowCount" in f
     assert "framesProcessed" in f
     assert "startTime" in f
     assert "endTime" in f

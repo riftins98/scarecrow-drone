@@ -40,6 +40,11 @@ class TargetTracker:
         with self._lock:
             self._observation = observation
 
+    def clear(self) -> None:
+        """Forget the latest observation."""
+        with self._lock:
+            self._observation = None
+
     def latest(self, max_age_s: float | None = None, now: float | None = None) -> TargetObservation | None:
         """Return the latest observation, optionally requiring freshness."""
         with self._lock:

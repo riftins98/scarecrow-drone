@@ -21,6 +21,13 @@ import sys
 import time
 from dataclasses import asdict
 
+# Keep webapp/live terminal output line-by-line even when this script is run
+# outside DetectionService's `python -u` launcher path.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True)
+
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
 
@@ -32,8 +39,23 @@ from scarecrow.controllers.distance_stabilizer import (  # noqa: E402
     DistanceTargets,
 )
 from scarecrow.controllers.corner_approach import CornerApproachController  # noqa: E402
+from scarecrow.controllers.pursuit.entry_executor import (  # noqa: E402
+    advance_left_wall_by_local_distance,
+    rotate_to_yaw_until_target_observed,
+    wait_for_fresh_target_observation,
+)
+from scarecrow.controllers.pursuit import (  # noqa: E402
+    PursuitEntryAction,
+    PursuitEntryPlannerConfig,
+    TargetPursuitConfig,
+    TargetPursuitResult,
+)
+from scarecrow.controllers.pursuit.entry_planner import (  # noqa: E402
+    bbox_width_px,
+    camera_bearing_deg,
+    plan_from_observation,
+)
 from scarecrow.controllers.rotation import rotate_90  # noqa: E402
-from scarecrow.controllers.target_pursuit import TargetPursuitConfig, TargetPursuitResult  # noqa: E402
 from scarecrow.controllers.wall_follow import VelocityCommand, WallFollowController  # noqa: E402
 from scarecrow.detection.tracking import TargetTracker  # noqa: E402
 from scarecrow.detection.yolo import YoloDetector  # noqa: E402
@@ -57,7 +79,8 @@ from scarecrow.sensors.rangefinder import GazeboRangefinder  # noqa: E402
 SYSTEM_ADDRESS = "udp://:14540"
 DEFAULT_TARGET_DIST = 1.5
 DEFAULT_WALL_DISTANCE = 2.0
-DEFAULT_CEILING_CLEARANCE = 2.0
+DEFAULT_START_SIDE = "left"
+TARGET_CEILING_CLEARANCE_M = 1.5
 DEFAULT_HOVER_SECONDS = 5.0
 DEFAULT_LEG_TIMEOUT = 300.0
 DEFAULT_MAX_LEGS = 4
@@ -65,12 +88,19 @@ DEFAULT_PURSUIT_TIMEOUT = 75.0
 DEFAULT_TARGET_MODEL_PREFIXES = ("pigeon",)
 DEFAULT_TARGET_URI_KEYWORDS = ("pigeon",)
 DEFAULT_IMAGE_WIDTH = 1280
-YOLO_CONFIDENCE = 0.75
-YOLO_PURSUIT_CONFIDENCE = 0.6
-YOLO_MODEL_PATH = os.path.join(REPO_ROOT, "models", "yolo", "best_v4.pt")
-PURSUIT_IMAGE_INTERVAL_S = 3.0
-PURSUIT_MAX_SAVED_IMAGES = 20
+YOLO_CONFIDENCE = 0.70
+YOLO_PURSUIT_CONFIDENCE = 0.45
+YOLO_MODEL_PATH = os.path.join(REPO_ROOT, "models", "yolo", "yolov8s.pt")
 MAX_PURSUIT_ATTEMPTS = 2
+PURSUIT_ENTRY_ADVANCE_SCALE = 0.65
+PURSUIT_ENTRY_PLANNER_CONFIG = PursuitEntryPlannerConfig(
+    advance_scale=PURSUIT_ENTRY_ADVANCE_SCALE,
+)
+PLANNER_ADVANCE_TIMEOUT_S = 60.0
+PLANNER_REACQUIRE_TIMEOUT_S = 4.0
+PLANNER_ENTRY_YAW_SPEED_DEG_S = 6.0
+PLANNER_ENTRY_YAW_MIN_SPEED_DEG_S = 2.0
+PLANNER_ENTRY_YAW_CENTER_BEARING_DEG = 30.0
 ALTITUDE_WARNING_ERROR_M = 0.20
 ALTITUDE_HOLD_TOLERANCE_M = 0.12
 ALTITUDE_HOLD_KP = 0.45
@@ -154,7 +184,7 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 def _fmt_m(value: float | None, precision: int = 1) -> str:
     if value is None or not math.isfinite(value):
-        return "inf"
+        return "?"
     return f"{value:.{precision}f}m"
 
 
@@ -1053,6 +1083,7 @@ async def run() -> None:
         output_dir=output_dir,
         confidence=YOLO_CONFIDENCE,
         on_detection_data=tracker.update_from_yolo,
+        target_classes=("bird", "pigeon"),
     )
     detector.configure_saving(save_detections=False, save_no_detections=False)
     yolo_thread = detector.preload_async()
@@ -1327,7 +1358,9 @@ async def run() -> None:
             nonlocal pursuit_count, target_removal_event
             target_removal_event = None
             pursuit_count += 1
-            pursuit_label = f"pursuit_{pursuit_count:02d}_leg_{leg}"
+            pursuit_label = (
+                f"leg{leg:02d}_Pursuit{pursuit_count:02d}_attermpt_{attempt:02d}"
+            )
             route_phase["phase"] = "pursuit"
             print(
                 f"\n--- Phase 4: pursue pigeon to {target_dist:.2f}m "
@@ -1335,17 +1368,26 @@ async def run() -> None:
             )
             detector.confidence = YOLO_PURSUIT_CONFIDENCE
             detector.configure_saving(
-                save_detections=True,
+                save_detections=False,
                 save_no_detections=False,
-                detection_interval_s=PURSUIT_IMAGE_INTERVAL_S,
-                max_saved_detections=PURSUIT_MAX_SAVED_IMAGES,
-                detection_prefix=f"{pursuit_label}_sample",
+                max_saved_detections=None,
+                detection_prefix=pursuit_label,
                 reset_counter=True,
             )
             detector.capture_next_detection(f"{pursuit_label}_start")
             print(f"  Detection threshold: {YOLO_PURSUIT_CONFIDENCE:.0%} for pursuit/relocalization")
+            centered_image_requested = False
 
             def on_pursuit_status(result: TargetPursuitResult) -> None:
+                nonlocal centered_image_requested
+                if (
+                    not centered_image_requested
+                    and result.state.value == "APPROACHING"
+                ):
+                    centered_image_requested = True
+                    detector.capture_next_detection(f"{pursuit_label}_centered")
+                    print("  [pursuit] centered image queued before approach")
+
                 important_state = result.state.value in {
                     "SEARCHING",
                     "LOST",
@@ -1395,9 +1437,6 @@ async def run() -> None:
                         f"duration={float(data['duration_s']):.1f}s"
                     )
                 elif event == "sweep_reacquired":
-                    detector.capture_next_detection(
-                        f"{pursuit_label}_reacquired_{data.get('direction', 'unknown')}"
-                    )
                     print(f"  [search] target reacquired during {data.get('direction')} sweep")
                 elif event == "sweep_end":
                     print(
@@ -1426,9 +1465,9 @@ async def run() -> None:
                     max_yaw_speed_deg_s=32.0,
                     vertical_kp=0.50,
                     max_vertical_speed_m_s=0.32,
-                    pursuit_timeout_s=DEFAULT_PURSUIT_TIMEOUT,
-                    center_enter_ratio=0.12,
-                    center_exit_ratio=0.18,
+                    pursuit_timeout_s=args.pursuit_timeout,
+                    center_enter_ratio=0.50,
+                    center_exit_ratio=0.60,
                     vertical_center_enter_ratio=0.10,
                     vertical_center_exit_ratio=0.16,
                     detection_miss_timeout_s=2.5,
@@ -1466,7 +1505,7 @@ async def run() -> None:
                 f"{pursuit_result.front_distance_m:.2f}m. "
                 f"Hovering {DEFAULT_HOVER_SECONDS:.1f}s."
             )
-            detector.capture_next_detection(f"{pursuit_label}_target_reached")
+            detector.capture_next_detection(f"{pursuit_label}_reached")
             target_pos = await drone.get_position()
             target_yaw = await drone.get_yaw()
             if frame_transform is not None:
@@ -1596,21 +1635,38 @@ async def run() -> None:
                 save_no_detections=False,
                 reset_counter=True,
             )
-            detector.capture_next_detection(f"leg_{leg}_pursuit_trigger")
+            detector.capture_next_detection(
+                f"leg{leg:02d}_Pursuit{pursuit_count + 1:02d}_attermpt_01_trigger"
+            )
             print(f"  Detection threshold: {YOLO_CONFIDENCE:.0%} for wall-follow trigger")
+            tracker.clear()
             set_detection_enabled(True, "wall-follow leg")
             wall_stop_reason = "target_detected"
             wall_status_tick = 0
+            last_suppressed_detection_log_s = 0.0
 
             def stop_condition() -> bool:
-                nonlocal wall_stop_reason, suppress_target_until_lost
-                latest_target = tracker.latest(max_age_s=1.5)
+                nonlocal wall_stop_reason, suppress_target_until_lost, last_suppressed_detection_log_s
+                now = time.time()
+                latest_target = tracker.latest(max_age_s=1.5, now=now)
                 if suppress_target_until_lost:
-                    if latest_target is None and time.time() - suppress_target_started_at >= 2.0:
+                    if latest_target is None and now - suppress_target_started_at >= 2.0:
                         suppress_target_until_lost = False
                         print("  Detection suppression cleared: failed target no longer visible")
+                    elif latest_target is not None and now - last_suppressed_detection_log_s >= 1.0:
+                        last_suppressed_detection_log_s = now
+                        print(
+                            "  [planner] not entering pursuit: "
+                            "reason=target_suppressed_until_lost "
+                            f"confidence={latest_target.confidence:.0%}"
+                        )
                 elif latest_target is not None:
                     wall_stop_reason = "target_detected"
+                    print(
+                        "  [target candidate] acquired "
+                        f"confidence={latest_target.confidence:.0%}; "
+                        "stopping XY for pre-pursuit planner"
+                    )
                     return True
                 safety_reason = ceiling_safe_or_stop()
                 if safety_reason is not None:
@@ -1669,6 +1725,203 @@ async def run() -> None:
                     await asyncio.gather(*map_tasks, return_exceptions=True)
                     map_tasks.clear()
 
+                set_detection_enabled(False, "target acquired; planning pursuit entry")
+                planner_failed = False
+                route_phase["phase"] = "pursuit_entry_planner"
+                planner_observation = tracker.latest(max_age_s=2.5)
+                if planner_observation is None:
+                    planner_failed = True
+                    suppress_target_until_lost = True
+                    suppress_target_started_at = time.time()
+                    print(
+                        "  [planner] not entering pursuit: "
+                        "reason=no_fresh_target_observation max_age=2.5s"
+                    )
+                else:
+                    decision = plan_from_observation(
+                        planner_observation,
+                        PURSUIT_ENTRY_PLANNER_CONFIG,
+                    )
+                    print(
+                        "  [planner] image geometry: "
+                        f"bbox_w={decision.bbox_width_px:.0f}px "
+                        f"bearing={decision.bearing_deg:.1f}deg "
+                        f"signed={decision.camera_bearing_deg:+.1f}deg "
+                        f"range_est={_fmt_m(decision.range_estimate_m)} "
+                        f"side_est={_fmt_m(decision.side_estimate_m)} "
+                        f"forward_est={_fmt_m(decision.forward_estimate_m)} "
+                        f"target_bearing={decision.target_bearing_deg:.1f}deg "
+                        "advance="
+                        f"{_fmt_m(decision.advance_m if math.isfinite(decision.advance_m) else decision.required_advance_m)} "
+                        f"required_advance={_fmt_m(decision.required_advance_m)} "
+                        f"advance_scale={PURSUIT_ENTRY_ADVANCE_SCALE:.2f} "
+                        f"decision={decision.action.value}:{decision.reason}"
+                    )
+
+                    if decision.action == PursuitEntryAction.REJECT:
+                        planner_failed = True
+                        suppress_target_until_lost = True
+                        suppress_target_started_at = time.time()
+                        print(
+                            "  [planner] not entering pursuit: "
+                            f"reason=planner_reject:{decision.reason} "
+                            f"bbox_w={decision.bbox_width_px:.0f}px "
+                            f"bearing={decision.camera_bearing_deg:+.1f}deg "
+                            f"range_est={_fmt_m(decision.range_estimate_m)} "
+                            f"side_est={_fmt_m(decision.side_estimate_m)} "
+                            f"required_advance={_fmt_m(decision.required_advance_m)}"
+                        )
+                    elif decision.action == PursuitEntryAction.ADVANCE:
+                        advance_m = decision.advance_m
+                        detector.confidence = YOLO_CONFIDENCE
+                        tracker.clear()
+                        print("  [planner] restoring wall-follow heading")
+                        heading_result = await rotate_to_yaw(drone, leg_start_yaw)
+                        if not heading_result["ok"]:
+                            print("  WARNING: planner heading restore timed out")
+
+                        route_phase["phase"] = "pursuit_entry_advance"
+                        print(
+                            "  [planner] advancing along wall "
+                            f"{advance_m:.1f}m before original pursuit"
+                        )
+                        advance_reason, advanced_m = await advance_left_wall_by_local_distance(
+                            drone,
+                            lidar,
+                            advance_m,
+                            args.wall_distance,
+                            args.target_alt,
+                            heading_yaw_deg=leg_start_yaw,
+                            timeout_s=PLANNER_ADVANCE_TIMEOUT_S,
+                            forward_speed=WALL_FOLLOW_SPEED,
+                            wall_follow_kp=WALL_FOLLOW_KP,
+                            wall_follow_kd=WALL_FOLLOW_KD,
+                            wall_follow_max_lateral=WALL_FOLLOW_MAX_LATERAL,
+                            wall_follow_yaw_kp=WALL_FOLLOW_YAW_KP,
+                            wall_follow_max_yaw=WALL_FOLLOW_MAX_YAW,
+                            altitude_down_speed_fn=_altitude_hold_down_speed,
+                        )
+                        print(
+                            "  [planner] advance ended: "
+                            f"{advance_reason} "
+                            f"(advanced={advanced_m:.2f}m)"
+                        )
+                        tracker.clear()
+                        if advance_reason == "front_wall":
+                            planner_failed = True
+                            print(
+                                "  [planner] not entering pursuit: "
+                                f"reason=entry_advance_front_wall "
+                                f"advanced={advanced_m:.2f}m required={advance_m:.2f}m"
+                            )
+                        elif advance_reason != "distance_reached":
+                            planner_failed = True
+                            print(
+                                "  [planner] not entering pursuit: "
+                                f"reason=entry_advance_{advance_reason} "
+                                f"advanced={advanced_m:.2f}m required={advance_m:.2f}m"
+                            )
+                    else:
+                        print("  [planner] target already has sufficient entry bearing")
+
+                if planner_failed:
+                    route_phase["phase"] = "wall_follow"
+                    continue
+
+                detector.confidence = YOLO_PURSUIT_CONFIDENCE
+                detector.configure_saving(
+                    save_detections=False,
+                    save_no_detections=False,
+                    max_saved_detections=None,
+                    reset_counter=True,
+                )
+                tracker.clear()
+                set_detection_enabled(True, "planner entry-yaw detection")
+                await asyncio.sleep(0.30)
+
+                reacquired_observation = None
+                entry_yaw_delta_deg = decision.entry_yaw_delta_deg
+                if math.isfinite(entry_yaw_delta_deg):
+                    planned_entry_yaw_deg = _normalize_angle(
+                        leg_start_yaw + entry_yaw_delta_deg
+                    )
+                    route_phase["phase"] = "pursuit_entry_yaw"
+                    print(
+                        "  [planner] rotating slowly to planned pursuit view "
+                        f"yaw={planned_entry_yaw_deg:.1f}deg "
+                        f"(delta={entry_yaw_delta_deg:+.1f}deg, "
+                        f"speed={PLANNER_ENTRY_YAW_SPEED_DEG_S:.1f}deg/s)"
+                    )
+                    try:
+                        heading_result = await rotate_to_yaw_until_target_observed(
+                            drone,
+                            tracker,
+                            planned_entry_yaw_deg,
+                            timeout_s=ROTATE_TIMEOUT_S,
+                            tolerance_deg=ROTATE_TOLERANCE,
+                            max_yaw_speed_deg_s=PLANNER_ENTRY_YAW_SPEED_DEG_S,
+                            min_yaw_speed_deg_s=PLANNER_ENTRY_YAW_MIN_SPEED_DEG_S,
+                            centered_bearing_deg=PLANNER_ENTRY_YAW_CENTER_BEARING_DEG,
+                        )
+                    except Exception as exc:
+                        await drone.set_velocity(VelocityCommand())
+                        set_detection_enabled(False, "planner entry-yaw error")
+                        suppress_target_until_lost = True
+                        suppress_target_started_at = time.time()
+                        route_phase["phase"] = "wall_follow"
+                        print(
+                            "  [planner] entry-yaw detection failed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                        continue
+                    reacquired_observation = heading_result.get("observation")
+                    if reacquired_observation is not None:
+                        print(
+                            "  [planner] target usable during entry yaw "
+                            f"yaw={heading_result['yaw_deg']:.1f}deg "
+                            f"target={planned_entry_yaw_deg:.1f}deg "
+                            f"bearing={heading_result.get('target_bearing_deg', math.nan):+.1f}deg"
+                        )
+                    elif not heading_result["ok"]:
+                        print("  WARNING: planner entry yaw rotation timed out")
+                    else:
+                        print(
+                            "  [planner] planned yaw reached without target; "
+                            "waiting for post-yaw frames"
+                        )
+                else:
+                    print("  WARNING: planner entry yaw unavailable; starting pursuit at current heading")
+
+                if reacquired_observation is None:
+                    print(
+                        "  [planner] waiting for post-yaw target detection "
+                        f"({PLANNER_REACQUIRE_TIMEOUT_S:.1f}s)"
+                    )
+                    reacquired_observation = await wait_for_fresh_target_observation(
+                        tracker,
+                        timeout_s=PLANNER_REACQUIRE_TIMEOUT_S,
+                        centered_bearing_deg=PLANNER_ENTRY_YAW_CENTER_BEARING_DEG,
+                    )
+                if reacquired_observation is None:
+                    set_detection_enabled(False, "planner post-yaw target not usable")
+                    suppress_target_until_lost = True
+                    suppress_target_started_at = time.time()
+                    route_phase["phase"] = "wall_follow"
+                    print(
+                        "  [planner] not entering pursuit: "
+                        "reason=post_yaw_target_not_usable "
+                        f"timeout={PLANNER_REACQUIRE_TIMEOUT_S:.1f}s "
+                        f"max_bearing={PLANNER_ENTRY_YAW_CENTER_BEARING_DEG:.1f}deg"
+                    )
+                    continue
+
+                post_yaw_bearing_deg = camera_bearing_deg(reacquired_observation)
+                print(
+                    "  [planner] post-yaw target usable: "
+                    f"conf={reacquired_observation.confidence:.0%} "
+                    f"bearing={post_yaw_bearing_deg:+.1f}deg "
+                    f"bbox_w={bbox_width_px(reacquired_observation):.0f}px"
+                )
                 pursuit_entry_point = await record_pose_event(
                     drone,
                     map_events,
@@ -1894,7 +2147,7 @@ async def run() -> None:
                     wall_distance=wall_distance,
                 )
                 map_path = _save_map_payload(payload, output_dir)
-                annotated_path = MapUnit.annotate_map(map_path)
+                annotated_path = MapUnit.annotate_map(map_path, center_origin=True)
                 map_saved = True
                 print(f"\nMap saved: {map_path}")
                 print(f"Annotated map: {annotated_path}")

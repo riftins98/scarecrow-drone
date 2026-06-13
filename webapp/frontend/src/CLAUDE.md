@@ -30,18 +30,18 @@ Operational components:
 - `RespawnPanel.tsx` — Connected-only "Re-spawn" card shown while the drone is not flying. Reuses `SpawnPicker`, calls `/api/sim/spawn`, and updates where RESET returns without relaunching the sim.
 - `garageMap.ts` — Shared, non-component module: dynamic `SpawnMap` viewBox + `worldToSvg`/`svgToWorld` mapping (meters↔SVG, oriented to match the Gazebo GUI: +x up, +y left), `inObstacle` (mirrors backend obstacle validation), and `airplanePath`/`obstaclePolygon` drawing helpers. Used by both `SpawnPicker` and `Minimap` so the two maps stay consistent.
 - `spawnMapLookup.ts` — Small compatibility helper that resolves the active world's `SpawnMap` from modern `worlds[].spawn` data, indexed `spawnMaps`, or legacy top-level spawn fields.
-- `SystemLog.tsx` — Terminal-style scrolling log feed. Spawns INFO/OK/WARN/EKF/NAV/DET lines from canned pools at intervals (idle 2.4s, connected 1.4s, flying 0.7s). Pure visual atmosphere.
+- `SystemLog.tsx` — Terminal-style read-only stdout feed. Uses SSE (`/api/sim/log/stream` before connected, `/api/flight/log/stream` after connected) for near-real-time launcher/flight-script lines, with the old cursor polling endpoints as fallback.
 - `FlightHistory.tsx` — Mission log. Renders each flight as a wide "mission card" with a colored left stripe (olive/red/teal by status), M-### mission id, status pill, three stats (DUR/FRAMES/HITS), and a detection-density bar.
-- `FlightModal.tsx` — Flight detail modal. Three tabs: Summary, Detections (image grid), Recording (video).
+- `FlightModal.tsx` — Flight detail modal. Tabs: Summary, Detections, and Mission Map when the flight has a saved map. Summary shows compact mission fields (status/date/duration, pigeons detected/deterred, pursuit flows + image count, frames). Detections groups pursuit images by parsed filename phases (detected/start/centered/reached).
 
 ## pages/
 - `Dashboard.tsx` — Top-level page. Owns `simStatus`, `flightStatus`, `flights`, `selectedFlight`, and pre-connect spawn preview state. Polls `/api/sim/status` every 3s and `/api/flight/status` every 2s when connected. Layout: HudHeader → Ticker → TelemetryRail → (Sidebar | main). Control tab renders the connect/mission panel plus either the pre-connect spawn picker or live Minimap; when connected and not flying it also shows the separate RespawnPanel.
 
 ## services/
-- `api.ts` — All backend API calls. `connectSim(params)` (params may carry `spawn:{x,y}`), `disconnectSim()`, `getSimStatus()`, `getSimOptions()`, `setSimCamera(camera)`, `setSpawn(x,y)` (re-spawn → `/api/sim/spawn`), `resetDrone()` (panic reset → `/api/sim/reset`), `startFlight(params)`, `stopFlight()`, `getFlightStatus()`, `getFlights()`, `getFlight(id)`, `getFlightImages(id)`, `getFlightRecording(id)`, plus URL helpers for detection images and recordings. Uses `REACT_APP_API_BASE` env var (defaults to `http://127.0.0.1:8000`).
+- `api.ts` — All backend API calls. `connectSim(params)` (params may carry `spawn:{x,y}`), `disconnectSim()`, `getSimStatus()`, `getSimOptions()`, `setSimCamera(camera)`, `setSpawn(x,y)` (re-spawn → `/api/sim/spawn`), `resetDrone()` (panic reset → `/api/sim/reset`), `startFlight(params)`, `stopFlight()`, `getFlightStatus()`, `getFlights()`, `getFlight(id)`, `getFlightImages(id)`, log polling/stream URL helpers for SystemLog, plus URL helpers for detection images and mission maps. Uses `REACT_APP_API_BASE` env var (defaults to `http://127.0.0.1:8000`).
 
 ## types/
-- `flight.ts` — Shared types: `Flight`, `SimStatus`, `FlightStatus`, `LaunchStep` (with `substatus` for live progress), spawn map DTOs (`SpawnMap`, `SpawnBounds`, `SpawnObstacle`, `SpawnPoint`), `SimOptions`, `WorldInfo`, `ScriptInfo`, `ScriptArg`, `ScriptArgValues`, `ConnectSimParams`, `StartFlightParams`.
+- `flight.ts` — Shared types: `Flight` (including mission summary fields `pigeonsDeterred` and `pursuitFlowCount`), `SimStatus`, `FlightStatus`, `LaunchStep` (with `substatus` for live progress), spawn map DTOs (`SpawnMap`, `SpawnBounds`, `SpawnObstacle`, `SpawnPoint`), `SimOptions`, `WorldInfo`, `ScriptInfo`, `ScriptArg`, `ScriptArgValues`, `ConnectSimParams`, `StartFlightParams`.
 
 ## Conventions
 - All clocks (`HudHeader`, `SystemLog`, anywhere else) use **local time** via `Date.getHours()` etc. Never `toISOString()` — that returns UTC and drifts from the user's watch.

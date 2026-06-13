@@ -39,8 +39,8 @@ cd scarecrow-drone
 cd px4 && bash Tools/setup/ubuntu.sh && cd ..
 
 # Install Python dependencies
-python3.11 -m venv .venv-mavsdk
-source .venv-mavsdk/bin/activate
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 
@@ -58,8 +58,8 @@ cd scarecrow-drone
 brew install gz-sim8 opencv qt@5 ffmpeg
 
 # Install Python dependencies
-python3.11 -m venv .venv-mavsdk
-source .venv-mavsdk/bin/activate
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 ```
@@ -183,6 +183,6 @@ rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
 New wall-follow script with robust front-wall detection (world-agnostic):
 
 ```bash
-source .venv-mavsdk/bin/activate
+source .venv/bin/activate
 python3 scripts/flight/wall_follow_v2.py --side left --wall-distance 2.0 --forward-speed 0.35
 ```

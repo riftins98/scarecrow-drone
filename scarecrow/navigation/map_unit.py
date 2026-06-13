@@ -204,7 +204,12 @@ class MapUnit:
         }
 
     @staticmethod
-    def _render_annotated_figure(data: dict, *, debug: bool = False):
+    def _render_annotated_figure(
+        data: dict,
+        *,
+        debug: bool = False,
+        center_origin: bool = False,
+    ):
         """Build a matplotlib figure for a saved map payload."""
         import matplotlib.pyplot as plt
 
@@ -217,16 +222,64 @@ class MapUnit:
         takeoff = data.get("takeoff_point", None)
         events = data.get("events", [])
 
+        def point_center() -> tuple[float, float]:
+            center_points = boundaries or route_samples or route or points
+            if not center_points:
+                return 0.0, 0.0
+            xs = [float(p["x"]) for p in center_points if "x" in p]
+            ys = [float(p["y"]) for p in center_points if "y" in p]
+            if not xs or not ys:
+                return 0.0, 0.0
+            return (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+
+        center_x, center_y = point_center() if center_origin else (0.0, 0.0)
+
+        def plot_x(point: dict) -> float:
+            return float(point["x"]) - center_x
+
+        def plot_y(point: dict) -> float:
+            return float(point["y"]) - center_y
+
         # --- set up figure ---
-        fig, ax = plt.subplots(figsize=(10, 10))
+        fig = plt.figure(figsize=(8.4, 874 / 150), dpi=150)
+        grid = fig.add_gridspec(
+            2,
+            2,
+            height_ratios=[0.1, 0.9],
+            width_ratios=[0.77, 0.23],
+            left=0.055,
+            right=0.985,
+            top=0.965,
+            bottom=0.085,
+            wspace=0.055,
+            hspace=0.03,
+        )
+        title_ax = fig.add_subplot(grid[0, :])
+        ax = fig.add_subplot(grid[1, 0])
+        side_grid = grid[1, 1].subgridspec(
+            2,
+            1,
+            height_ratios=[0.6, 0.4],
+            hspace=0.065,
+        )
+        legend_ax = fig.add_subplot(side_grid[0, 0])
+        events_ax = fig.add_subplot(side_grid[1, 0])
         ax.set_aspect("equal")
         ax.set_facecolor("#1a1a2e")
         fig.patch.set_facecolor("#0f0f1a")
+        title_ax.set_axis_off()
+        for panel_ax in (legend_ax, events_ax):
+            panel_ax.set_facecolor("#161626")
+            panel_ax.set_xticks([])
+            panel_ax.set_yticks([])
+            for spine in panel_ax.spines.values():
+                spine.set_color("#4fc3f7")
+                spine.set_alpha(0.55)
 
         # --- wall boundary polygon ---
         if boundaries:
-            bx = [b["x"] for b in boundaries] + [boundaries[0]["x"]]
-            by = [b["y"] for b in boundaries] + [boundaries[0]["y"]]
+            bx = [plot_x(b) for b in boundaries] + [plot_x(boundaries[0])]
+            by = [plot_y(b) for b in boundaries] + [plot_y(boundaries[0])]
             ax.plot(
                 bx, by, color="#ffffff", linewidth=2.2, linestyle="-",
                 zorder=2, label="Wall boundary",
@@ -239,8 +292,8 @@ class MapUnit:
 
         # --- developer-only recorded flight path ---
         if debug and points:
-            px = [p["x"] for p in points]
-            py = [p["y"] for p in points]
+            px = [plot_x(p) for p in points]
+            py = [plot_y(p) for p in points]
             ax.plot(
                 px, py, color="#ffd166", linewidth=1.8, alpha=0.9,
                 zorder=5, label="Drone flight path",
@@ -251,8 +304,8 @@ class MapUnit:
         # --- developer-only route/turn points, kept open because the final leg
         # may not end exactly on the first recorded point.
         if debug and route:
-            rx = [p["x"] for p in route]
-            ry = [p["y"] for p in route]
+            rx = [plot_x(p) for p in route]
+            ry = [plot_y(p) for p in route]
             ax.plot(
                 rx, ry, color="#ffd166", linewidth=1.0, linestyle="--",
                 alpha=0.75, zorder=5, label="Turn-point route",
@@ -267,6 +320,8 @@ class MapUnit:
             phase_styles = {
                 "wall_follow": ("#ffd166", "Wall-follow route"),
                 "pursuit": ("#ff4d6d", "Pursuit route"),
+                "pursuit_entry_advance": ("#cdb4db", "Pursuit setup advance"),
+                "pursuit_entry_yaw": ("#b8a7d9", "Pursuit setup yaw"),
                 "corner_turn": ("#f8961e", "Corner turn route"),
                 "return_entry": ("#9b5de5", "Return to pursuit entry"),
                 "restore_heading": ("#f15bb5", "Restore heading"),
@@ -283,12 +338,12 @@ class MapUnit:
                     return
                 color, label = phase_styles.get(
                     phase or "unknown",
-                    ("#cdb4db", f"{phase or 'Unknown'} route"),
+                    ("#cdb4db", f"{str(phase or 'unknown').replace('_', ' ').title()} route"),
                 )
                 legend_label = label if label not in seen_phase_labels else None
                 seen_phase_labels.add(label)
-                sx = [p["x"] for p in samples]
-                sy = [p["y"] for p in samples]
+                sx = [plot_x(p) for p in samples]
+                sy = [plot_y(p) for p in samples]
                 ax.plot(sx, sy, color=color, linewidth=2.4, alpha=0.95,
                         zorder=6, label=legend_label)
                 if debug:
@@ -307,8 +362,8 @@ class MapUnit:
 
         # --- developer-only wall hit points (cyan dots) ---
         if debug and wall_points:
-            wx = [p["x"] for p in wall_points]
-            wy = [p["y"] for p in wall_points]
+            wx = [plot_x(p) for p in wall_points]
+            wy = [plot_y(p) for p in wall_points]
             ax.scatter(wx, wy, s=2, c="#4fc3f7", alpha=0.28, zorder=2,
                        label=f"Raw lidar wall hits ({len(wall_points)})")
 
@@ -316,7 +371,7 @@ class MapUnit:
         has_circuit_start = any(event.get("type") == "circuit_start" for event in events)
         if takeoff and not has_circuit_start:
             ax.scatter(
-                [takeoff["x"]], [takeoff["y"]],
+                [plot_x(takeoff)], [plot_y(takeoff)],
                 s=60, c="#ff4444", edgecolors="#ffffff", linewidths=0.8,
                 zorder=4, label="Start",
             )
@@ -330,6 +385,7 @@ class MapUnit:
                 "landing_target": ("#7bd88f", "Landing", "P"),
             }
             seen_event_labels = set()
+            visible_events: list[tuple[int, dict, str]] = []
             for event in events:
                 event_type = event.get("type")
                 if event_type not in event_styles:
@@ -345,45 +401,166 @@ class MapUnit:
                     event_type,
                     ("#f4d35e", "Mission event", "o"),
                 )
+                event_number = len(visible_events) + 1
+                visible_events.append((event_number, event, default_label))
                 label = default_label if default_label not in seen_event_labels else None
                 seen_event_labels.add(default_label)
                 ax.scatter(
-                    [event["x"]], [event["y"]],
+                    [plot_x(event)], [plot_y(event)],
                     s=70, c=color, marker=marker, edgecolors="#ffffff",
                     linewidths=0.8, zorder=7, label=label,
                 )
                 text = default_label if not debug else event.get("label")
                 labeled_event_types = (
                     {"circuit_start", "pursuit_entry", "target_reached", "landing_target"}
-                    if debug else {"pursuit_entry", "target_reached"}
+                    if debug else set()
                 )
                 if text and event_type in labeled_event_types:
                     ax.annotate(
                         str(text),
-                        xy=(event["x"], event["y"]),
+                        xy=(plot_x(event), plot_y(event)),
                         xytext=(5, 5),
                         textcoords="offset points",
                         color="white",
                         fontsize=7,
                         zorder=8,
                     )
+                elif not debug:
+                    ax.annotate(
+                        str(event_number),
+                        xy=(plot_x(event), plot_y(event)),
+                        xytext=(6, 6),
+                        textcoords="offset points",
+                        color="white",
+                        fontsize=6,
+                        fontweight="bold",
+                        bbox={
+                            "boxstyle": "circle,pad=0.25",
+                            "facecolor": "#0f0f1a",
+                            "edgecolor": color,
+                            "linewidth": 0.8,
+                            "alpha": 0.9,
+                        },
+                        zorder=8,
+                    )
+        else:
+            visible_events = []
 
         # --- styling ---
         title = "Mission Map"
         if data.get("area_size"):
             title = f"Mission Map - {float(data['area_size']):.1f} m²"
-        ax.set_title(title, color="white", fontsize=14, fontweight="bold", pad=12)
+        title_ax.text(
+            0.5,
+            0.45,
+            title,
+            color="white",
+            fontsize=14,
+            fontweight="bold",
+            ha="center",
+            va="center",
+        )
         ax.set_xlabel("X  (north_m)", color="white", fontsize=10)
         ax.set_ylabel("Y  (east_m)", color="white", fontsize=10)
         ax.tick_params(colors="white", labelsize=8)
         for spine in ax.spines.values():
             spine.set_color("#333333")
         ax.grid(True, color="#2a2a3e", linewidth=0.5, alpha=0.6)
+        if center_origin:
+            ax.axhline(0, color="#64748b", linewidth=0.7, alpha=0.45, zorder=1)
+            ax.axvline(0, color="#64748b", linewidth=0.7, alpha=0.45, zorder=1)
+            ax.set_xlabel("X  (m from center)", color="white", fontsize=10)
+            ax.set_ylabel("Y  (m from center)", color="white", fontsize=10)
 
-        ax.legend(
-            loc="upper right", fontsize=9, framealpha=0.7,
-            facecolor="#1a1a2e", edgecolor="#4fc3f7", labelcolor="white",
+        handles, labels = ax.get_legend_handles_labels()
+        legend_ax.text(
+            0.05,
+            0.95,
+            "Legend",
+            color="white",
+            fontsize=9,
+            fontweight="bold",
+            ha="left",
+            va="top",
+            transform=legend_ax.transAxes,
         )
+        if handles:
+            legend_ax.legend(
+                handles,
+                labels,
+                loc="upper left",
+                bbox_to_anchor=(0.02, 0.9),
+                fontsize=7.2,
+                frameon=False,
+                labelcolor="white",
+                handlelength=1.8,
+                handletextpad=0.55,
+                labelspacing=0.48,
+                borderaxespad=0,
+            )
+
+        events_ax.text(
+            0.05,
+            0.95,
+            "Events",
+            color="white",
+            fontsize=9,
+            fontweight="bold",
+            ha="left",
+            va="top",
+            transform=events_ax.transAxes,
+        )
+        if visible_events:
+            max_events = 5
+            y = 0.82
+            step = 0.155
+            for event_number, event, event_label in visible_events[:max_events]:
+                events_ax.text(
+                    0.06,
+                    y,
+                    f"{event_number}. {event_label}",
+                    color="white",
+                    fontsize=7.1,
+                    ha="left",
+                    va="top",
+                    transform=events_ax.transAxes,
+                )
+                events_ax.text(
+                    0.06,
+                    y - 0.072,
+                    f"X {plot_x(event):.1f}  Y {plot_y(event):.1f}",
+                    color="#b9c7d8",
+                    fontsize=6.3,
+                    ha="left",
+                    va="top",
+                    transform=events_ax.transAxes,
+                )
+                y -= step
+            if len(visible_events) > max_events:
+                events_ax.text(
+                    0.06,
+                    0.06,
+                    f"+ {len(visible_events) - max_events} more",
+                    color="#b9c7d8",
+                    fontsize=6.8,
+                    ha="left",
+                    va="bottom",
+                    transform=events_ax.transAxes,
+                )
+        else:
+            events_ax.text(
+                0.06,
+                0.8,
+                "No mission events",
+                color="#b9c7d8",
+                fontsize=7,
+                ha="left",
+                va="top",
+                transform=events_ax.transAxes,
+            )
+
+        fig.set_size_inches(8.4, 874 / 150, forward=True)
+        fig.set_dpi(150)
         return fig
 
     @staticmethod
@@ -391,6 +568,7 @@ class MapUnit:
         map_json_path: Union[str, Path],
         *,
         debug: bool = False,
+        center_origin: bool = False,
     ) -> bytes:
         """Load map.json and return annotated PNG bytes without writing a file."""
         import io
@@ -400,10 +578,14 @@ class MapUnit:
         map_json_path = Path(map_json_path)
         with open(map_json_path, "r") as fh:
             data = json.load(fh)
-        fig = MapUnit._render_annotated_figure(data, debug=debug)
+        fig = MapUnit._render_annotated_figure(
+            data,
+            debug=debug,
+            center_origin=center_origin,
+        )
         buf = io.BytesIO()
         fig.savefig(
-            buf, format="png", dpi=150, bbox_inches="tight",
+            buf, format="png", dpi=150,
             facecolor=fig.get_facecolor(),
         )
         plt.close(fig)
@@ -416,12 +598,14 @@ class MapUnit:
         *,
         show: bool = False,
         debug: bool = False,
+        center_origin: bool = False,
     ) -> Path:
         """Render a production-friendly top-down view of a saved map JSON.
 
         The default image hides developer-only samples such as raw wall hits,
         lidar distance points, turn points, and heading-restore events. Pass
-        debug=True to include those map construction details.
+        debug=True to include those map construction details. Pass
+        center_origin=True to display coordinates relative to the map center.
         """
         import matplotlib.pyplot as plt
 
@@ -434,9 +618,13 @@ class MapUnit:
 
         with open(map_json_path, "r") as fh:
             data = json.load(fh)
-        fig = MapUnit._render_annotated_figure(data, debug=debug)
+        fig = MapUnit._render_annotated_figure(
+            data,
+            debug=debug,
+            center_origin=center_origin,
+        )
         fig.savefig(
-            output_path, dpi=150, bbox_inches="tight",
+            output_path, dpi=150,
             facecolor=fig.get_facecolor(),
         )
         if show:

@@ -3,6 +3,11 @@
 from .corner_approach import CornerApproachController, CornerApproachResult
 from .distance_stabilizer import DistanceStabilizerController, DistanceTargets
 from .rotation import rotate_90
+from .pursuit import (
+	PursuitEntryAction,
+	PursuitEntryPlan,
+	PursuitEntryPlannerConfig,
+)
 from .target_pursuit import (
 	TargetObservation,
 	TargetPursuitConfig,
@@ -18,6 +23,9 @@ __all__ = [
 	"DistanceStabilizerController",
 	"DistanceTargets",
 	"rotate_90",
+	"PursuitEntryAction",
+	"PursuitEntryPlan",
+	"PursuitEntryPlannerConfig",
 	"TargetObservation",
 	"TargetPursuitConfig",
 	"TargetPursuitController",

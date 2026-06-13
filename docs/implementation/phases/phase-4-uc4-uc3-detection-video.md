@@ -222,7 +222,7 @@ commander set_gps_global_origin 0 0 0
 
 ### Test detection (already working, verify no regression)
 ```bash
-source .venv-mavsdk/bin/activate
+source .venv/bin/activate
 python3 scripts/flight/demo_flight.py
 
 # Expected: drone takes off, hovers, YOLO runs, detects pigeon billboard,

@@ -84,23 +84,24 @@ export const getSimLog = (since: number = 0): Promise<LogPollResponse & { world:
   fetchJson(`/api/sim/log?since=${since}`);
 
 export const simLogViewUrl = () => `${API_BASE}/api/sim/log/view`;
+export const simLogStreamUrl = (since: number = 0) =>
+  `${API_BASE}/api/sim/log/stream?since=${since}`;
 
 // Flight-script stdout — SystemLog after the sim is connected.
 export const getFlightLog = (since: number = 0): Promise<LogPollResponse & { flight_id: string | null }> =>
   fetchJson(`/api/flight/log?since=${since}`);
 
 export const flightLogViewUrl = () => `${API_BASE}/api/flight/log/view`;
+export const flightLogStreamUrl = (since: number = 0) =>
+  `${API_BASE}/api/flight/log/stream?since=${since}`;
 
 // Flight history
 export const getFlights = () => fetchJson('/api/flights');
 export const getFlight = (id: string) => fetchJson(`/api/flights/${id}`);
 export const getFlightImages = (id: string) => fetchJson(`/api/flights/${id}/images`);
-export const getFlightRecording = (id: string) => fetchJson(`/api/flights/${id}/recording`);
 
 // File URLs
 export const detectionImageUrl = (flightId: string, filename: string) =>
   `${API_BASE}/detection_images/${flightId}/${filename}`;
-export const recordingUrl = (flightId: string, filename: string) =>
-  `${API_BASE}/recordings/${flightId}/${filename}`;
 export const missionMapUrl = (flightId: string, filename: string) =>
   `${API_BASE}/mission_maps/${flightId}/${filename}`;

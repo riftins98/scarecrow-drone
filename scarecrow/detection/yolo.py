@@ -10,7 +10,8 @@ import os
 import re
 import threading
 import time
-from typing import Callable
+from collections import deque
+from typing import Callable, Collection, Deque
 
 import cv2
 import numpy as np
@@ -32,6 +33,8 @@ class YoloDetector:
                       image is saved — use for DB integration, UI updates, etc.
         on_detection_data: Optional callback(detections) called with raw
                       detection dictionaries for navigation controllers.
+        target_classes: Optional class-name allowlist. When provided, detections
+                      for all other model classes are ignored.
     """
 
     def __init__(
@@ -42,6 +45,7 @@ class YoloDetector:
         min_interval: float = 1.0,
         on_detection: Callable[[str], None] | None = None,
         on_detection_data: Callable[[list[dict]], None] | None = None,
+        target_classes: Collection[str] | None = None,
     ):
         self._model_path = model_path
         self.output_dir = output_dir
@@ -51,6 +55,11 @@ class YoloDetector:
         self._min_interval = min_interval
         self._on_detection = on_detection
         self._on_detection_data = on_detection_data
+        self._target_classes = (
+            {name.strip().lower() for name in target_classes if name.strip()}
+            if target_classes is not None
+            else None
+        )
         self._save_detections = True
         self._save_no_detections = True
         self._detection_save_interval_s = 0.0
@@ -58,7 +67,7 @@ class YoloDetector:
         self._detection_save_prefix = "detection"
         self._saved_detection_count = 0
         self._last_detection_save_time = 0.0
-        self._save_next_detection_reason: str | None = None
+        self._save_next_detection_reasons: Deque[str] = deque()
         self._save_next_frame_reason: str | None = None
 
         self.running = False
@@ -143,12 +152,12 @@ class YoloDetector:
         if reset_counter:
             self._saved_detection_count = 0
             self._last_detection_save_time = 0.0
-            self._save_next_detection_reason = None
+            self._save_next_detection_reasons.clear()
             self._save_next_frame_reason = None
 
     def capture_next_detection(self, reason: str = "manual") -> None:
         """Force-save the next frame that has an accepted detection."""
-        self._save_next_detection_reason = reason
+        self._save_next_detection_reasons.append(reason)
 
     def capture_next_frame(self, reason: str = "manual") -> None:
         """Force-save the next processed frame, with or without detections."""
@@ -161,10 +170,12 @@ class YoloDetector:
         return cleaned or None
 
     def _should_save_detection(self, now: float) -> tuple[bool, str | None]:
-        forced_reason = self._save_next_frame_reason or self._save_next_detection_reason
-        if forced_reason:
+        if self._save_next_frame_reason:
+            forced_reason = self._save_next_frame_reason
             self._save_next_frame_reason = None
-            self._save_next_detection_reason = None
+            return True, forced_reason
+        if self._save_next_detection_reasons:
+            forced_reason = self._save_next_detection_reasons.popleft()
             return True, forced_reason
         if not self._save_detections:
             return False, None
@@ -236,16 +247,30 @@ class YoloDetector:
         image_height, image_width = frame.shape[:2]
         detections = []
         best_candidate_conf = 0.0
+        best_candidate_class = None
+        best_target_candidate_conf = 0.0
+        best_target_candidate_class = None
         for result in results:
             if result.boxes is None:
                 continue
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf = float(box.conf[0])
-                best_candidate_conf = max(best_candidate_conf, conf)
+                cls_name = self._model.names[int(box.cls[0])]
+                if conf > best_candidate_conf:
+                    best_candidate_conf = conf
+                    best_candidate_class = cls_name
+                class_allowed = (
+                    self._target_classes is None
+                    or cls_name.lower() in self._target_classes
+                )
+                if class_allowed and conf > best_target_candidate_conf:
+                    best_target_candidate_conf = conf
+                    best_target_candidate_class = cls_name
                 if conf < self._confidence:
                     continue
-                cls_name = self._model.names[int(box.cls[0])]
+                if not class_allowed:
+                    continue
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
                 detections.append({
                     'class': cls_name,
@@ -283,7 +308,37 @@ class YoloDetector:
                 self._save_frame_image(frame, reason=reason)
             elif self._save_no_detections:
                 self._save_frame_image(frame)
+            reason = "model returned no boxes"
+            if best_candidate_conf > 0.0:
+                reason = "best candidate below threshold"
+                if (
+                    self._target_classes is not None
+                    and best_target_candidate_conf <= 0.0
+                    and best_candidate_conf >= self._confidence
+                ):
+                    allowed = ", ".join(sorted(self._target_classes))
+                    reason = (
+                        f"best candidate class {best_candidate_class!r} "
+                        f"not in target_classes=[{allowed}]"
+                    )
+                elif (
+                    best_target_candidate_conf > 0.0
+                    and best_target_candidate_conf < self._confidence
+                ):
+                    reason = (
+                        f"best target candidate {best_target_candidate_class!r} "
+                        f"{best_target_candidate_conf:.0%} below threshold"
+                    )
+                    if (
+                        best_candidate_class != best_target_candidate_class
+                        and best_candidate_conf >= self._confidence
+                    ):
+                        reason += (
+                            f"; best overall {best_candidate_class!r} "
+                            f"{best_candidate_conf:.0%} filtered"
+                        )
             print(
                 f"  [detection] Frame {self.frames_processed}: no detections "
-                f"(best candidate {best_candidate_conf:.0%}, threshold {self._confidence:.0%})"
+                f"(best candidate {best_candidate_conf:.0%}, "
+                f"threshold {self._confidence:.0%}; reason={reason})"
             )

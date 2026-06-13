@@ -14,4 +14,4 @@ Gazebo SDF simulation models for drone, sensors, and test targets. `launch.sh` k
 - `pigeon_billboard/` — Visual billboard target with pigeon image. Used in drone_garage world for YOLO detection testing. Placed 5m in front of spawn.
 - `pigeon_3d/` — 3D pigeon target model used by the alternate garage world for more realistic detection testing.
 - `tf_luna_up/` — Upward-facing TF-Luna-style single-ray rangefinder for ceiling clearance in roofed indoor worlds. Topic: `tf_luna_up_link/sensor/ceiling_rangefinder/scan`.
-- `yolo/` — YOLOv8 trained model weights: `best_v4.pt` (pigeon detection, trained on custom dataset)
+- `yolo/` — YOLO model weights used by flight scripts: `best_v4.pt` (custom pigeon detector) and `yolov8s.pt` (general YOLOv8 small model used by the current hangar pursuit script with class filtering).

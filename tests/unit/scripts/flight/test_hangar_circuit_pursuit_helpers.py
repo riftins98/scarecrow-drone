@@ -177,14 +177,13 @@ def test_nearest_start_side_prefers_closer_side(mock_lidar_scan):
 
 def test_target_alt_from_ceiling_distance_leaves_configured_clearance():
     """Verify automatic target altitude preserves configured ceiling clearance."""
-    assert hangar._target_alt_from_ceiling_distance(8.0) == 6.0
-    assert hangar._target_alt_from_ceiling_distance(8.0, target_clearance_m=1.0) == 7.0
+    assert hangar._target_alt_from_ceiling_distance(8.0) == 6.5
 
 
 def test_target_alt_from_ceiling_distance_rejects_low_ceiling():
     """Verify automatic target altitude rejects insufficient ceiling distance."""
     with pytest.raises(ValueError):
-        hangar._target_alt_from_ceiling_distance(2.0)
+        hangar._target_alt_from_ceiling_distance(1.5)
 
 
 def test_altitude_hold_commands_descent_when_too_high():

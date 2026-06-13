@@ -37,8 +37,8 @@ git clone --recurse-submodules https://github.com/riftins98/scarecrow-drone.git
 cd scarecrow-drone
 
 # Python 3.11 virtualenv (required — not 3.12+)
-python3.11 -m venv .venv-mavsdk
-source .venv-mavsdk/bin/activate
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 ```
@@ -105,7 +105,7 @@ Open a **second terminal**. Leave the simulator running in the first.
 
 ```bash
 cd scarecrow-drone          # your repo path
-source .venv-mavsdk/bin/activate
+source .venv/bin/activate
 python3 scripts/flight/<script>.py [options]
 ```
 

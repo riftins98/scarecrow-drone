@@ -11,7 +11,7 @@ Requires: Gazebo running with the indoor_room world and the drone spawned.
 Run after launch.sh and PX4 is ready.
 
 Usage:
-  source .venv-mavsdk/bin/activate
+  source .venv/bin/activate
   python3 scripts/sensor_demo.py
 """
 

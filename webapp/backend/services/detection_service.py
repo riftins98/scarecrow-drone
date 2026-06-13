@@ -4,6 +4,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from typing import Optional, Callable
@@ -177,6 +178,7 @@ class DetectionService:
         # Lock keeps the offset/buffer pair consistent between the monitor
         # thread (which appends) and request handlers (which read).
         self._output_lock = threading.Lock()
+        self._output_condition = threading.Condition(self._output_lock)
         # Max lines retained in memory. Frontends poll ~1Hz; flight scripts
         # at full chatter emit a few lines per second, so ~30min of history
         # fits comfortably below 2000.
@@ -230,9 +232,10 @@ class DetectionService:
         # Reset the output cursor for a fresh flight. Without this the
         # frontend would still hold the previous flight's cursor and miss
         # the first chunk of the new run.
-        with self._output_lock:
+        with self._output_condition:
             self._output_lines = []
             self._output_offset = 0
+            self._output_condition.notify_all()
 
         # Output dir per flight
         output_dir = os.path.join(REPO_ROOT, "webapp", "output", flight_id)
@@ -240,8 +243,11 @@ class DetectionService:
 
         env = os.environ.copy()
         env["GZ_PARTITION"] = "px4"
+        # Cross-platform immediate stdout for Python flight scripts. This is
+        # the Windows/macOS/Linux-safe equivalent of relying on stdbuf.
+        env["PYTHONUNBUFFERED"] = "1"
 
-        cmd = ["python3", flight_script]
+        cmd = [sys.executable, "-u", flight_script]
         cmd.extend(self._format_cli_args(script_args or {}))
         # Always pass --flight-id; scripts that don't accept it will error,
         # but the standard ones do. The dict-based args interface already
@@ -274,6 +280,8 @@ class DetectionService:
         )
 
         self.running = True
+        with self._output_condition:
+            self._output_condition.notify_all()
         t = threading.Thread(target=self._monitor, daemon=True)
         t.start()
         return True
@@ -321,7 +329,7 @@ class DetectionService:
                 line = line.strip()
                 if not line:
                     continue
-                with self._output_lock:
+                with self._output_condition:
                     self._output_lines.append(line)
                     overflow = len(self._output_lines) - self._output_max
                     if overflow > 0:
@@ -329,6 +337,7 @@ class DetectionService:
                         # offset so absolute indices remain stable.
                         self._output_lines = self._output_lines[overflow:]
                         self._output_offset += overflow
+                    self._output_condition.notify_all()
 
                 # v2 stdout protocol
                 if "DETECTION_IMAGE:" in line:
@@ -383,6 +392,8 @@ class DetectionService:
             self._last_error = str(e)
         finally:
             self.running = False
+            with self._output_condition:
+                self._output_condition.notify_all()
 
     def _parse_log_extras(self, line: str) -> None:
         """Extract live readouts from a human stdout line into latest_telemetry.
@@ -546,9 +557,10 @@ class DetectionService:
         self.detection_images = []
         self.video_path = None
         self.map_path = None
-        with self._output_lock:
+        with self._output_condition:
             self._output_lines = []
             self._output_offset = 0
+            self._output_condition.notify_all()
 
         return had_proc
 
@@ -584,20 +596,36 @@ class DetectionService:
             }
         """
         with self._output_lock:
-            base = self._output_offset
-            total = base + len(self._output_lines)
-            requested = max(since, 0)
-            # If the caller is asking for lines we've already dropped, snap
-            # forward to the oldest one we still have and report the gap.
-            dropped = max(0, base - requested)
-            start = max(requested, base)
-            slice_from = start - base
-            lines = list(self._output_lines[slice_from:])
-            return {
-                "lines": lines,
-                "start": start,
-                "cursor": total,
-                "dropped": dropped,
-                "running": self.running,
-                "flight_id": self.flight_id,
-            }
+            return self._log_since_locked(since)
+
+    def _log_since_locked(self, since: int = 0) -> dict:
+        base = self._output_offset
+        total = base + len(self._output_lines)
+        requested = max(since, 0)
+        # If the caller is asking for lines we've already dropped, snap
+        # forward to the oldest one we still have and report the gap.
+        dropped = max(0, base - requested)
+        start = max(requested, base)
+        slice_from = start - base
+        lines = list(self._output_lines[slice_from:])
+        return {
+            "lines": lines,
+            "start": start,
+            "cursor": total,
+            "dropped": dropped,
+            "running": self.running,
+            "flight_id": self.flight_id,
+        }
+
+    def wait_for_log(self, since: int = 0, timeout: float = 15.0) -> dict:
+        """Block until new flight-script log data is available or timeout expires."""
+        deadline = time.monotonic() + timeout
+        with self._output_condition:
+            snapshot = self._log_since_locked(since)
+            while not snapshot["lines"] and snapshot["dropped"] == 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._output_condition.wait(remaining)
+                snapshot = self._log_since_locked(since)
+            return snapshot
