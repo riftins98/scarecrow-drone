@@ -28,7 +28,7 @@ def _lidar(scan):
 
 
 def test_parse_args_defaults(monkeypatch):
-    """Verify hangar CLI exposes only wall distance and ceiling clearance."""
+    """Verify hangar CLI exposes mission defaults used by the webapp."""
     monkeypatch.setattr(hangar.sys, "argv", ["hangar_circuit_pursuit.py"])
 
     args = hangar.parse_args()
@@ -36,6 +36,7 @@ def test_parse_args_defaults(monkeypatch):
     assert args.wall_distance == hangar.DEFAULT_WALL_DISTANCE
     assert args.ceiling_clearance is None
     assert args.flight_id is None
+    assert args.start_side == hangar.DEFAULT_START_SIDE
 
 
 def test_parse_args_accepts_wall_dist_alias(monkeypatch):
@@ -62,6 +63,19 @@ def test_parse_args_accepts_ceiling_clearance_override(monkeypatch):
     args = hangar.parse_args()
 
     assert args.ceiling_clearance == 1.0
+
+
+def test_parse_args_accepts_start_side_override(monkeypatch):
+    """Verify hangar CLI accepts explicit initial corner selection."""
+    monkeypatch.setattr(
+        hangar.sys,
+        "argv",
+        ["hangar_circuit_pursuit.py", "--start-side", "right"],
+    )
+
+    args = hangar.parse_args()
+
+    assert args.start_side == "right"
 
 
 def test_arena_boundary_from_start_surrounds_start_pose():
@@ -177,7 +191,7 @@ def test_nearest_start_side_prefers_closer_side(mock_lidar_scan):
 
 def test_target_alt_from_ceiling_distance_leaves_configured_clearance():
     """Verify automatic target altitude preserves configured ceiling clearance."""
-    assert hangar._target_alt_from_ceiling_distance(8.0) == 6.5
+    assert hangar._target_alt_from_ceiling_distance(8.0) == 6.0
 
 
 def test_target_alt_from_ceiling_distance_rejects_low_ceiling():

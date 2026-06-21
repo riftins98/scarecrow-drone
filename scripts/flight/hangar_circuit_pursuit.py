@@ -175,6 +175,39 @@ def parse_args() -> argparse.Namespace:
             f"Takeoff altitude always uses ceiling minus {DEFAULT_CEILING_CLEARANCE:.1f}m."
         ),
     )
+    parser.add_argument(
+        "--target-alt",
+        type=float,
+        default=None,
+        help=(
+            "Explicit takeoff/hold altitude in meters AGL. When set, this "
+            "overrides auto altitude from the upward ceiling rangefinder."
+        ),
+    )
+    parser.set_defaults(start_side=DEFAULT_START_SIDE)
+    start_side_group = parser.add_mutually_exclusive_group()
+    start_side_group.add_argument(
+        "--start-side",
+        choices=("left", "right"),
+        help=(
+            "Initial rear-corner side to stabilize against before scanning "
+            f"(default: {DEFAULT_START_SIDE})."
+        ),
+    )
+    start_side_group.add_argument(
+        "--l",
+        dest="start_side",
+        action="store_const",
+        const="left",
+        help="Use the left initial rear corner.",
+    )
+    start_side_group.add_argument(
+        "--r",
+        dest="start_side",
+        action="store_const",
+        const="right",
+        help="Use the right initial rear corner.",
+    )
     return parser.parse_args()
 
 
@@ -841,7 +874,7 @@ async def _rotate_relative_simple(
     lidar: GazeboLidar,
     degrees: float,
 ) -> bool:
-    """Rotate 90 degrees using the package compass + lidar-SVD logic."""
+    """Rotate 90 degrees using the original package compass + lidar-SVD logic."""
     if not math.isclose(abs(degrees), 90.0, abs_tol=1e-6):
         raise ValueError("package rotation wrapper only supports +/-90 degrees")
     direction = "right" if degrees > 0.0 else "left"
@@ -853,22 +886,23 @@ async def _approach_circuit_start_corner(
     lidar: GazeboLidar,
     wall_distance: float,
     target_alt_m: float,
+    start_side: str = DEFAULT_START_SIDE,
     timeout_s: float = START_STABILIZE_TIMEOUT_S,
 ) -> str | None:
     """Normalize launch pose to the start corner expected by left-wall scan.
 
     The circuit scan assumes the drone starts with a wall behind it and the
-    followed wall on its left. If the initial pose is closer to the right-side
-    rear corner, stabilize there first and let the caller rotate left.
+    followed wall on its left. If the user selects the right-side rear corner,
+    stabilize there first and let the caller rotate left.
     """
     first_scan = lidar.get_scan()
     if first_scan is None:
         print("  [hangar-circuit-start] ERROR: no lidar scan for start stabilization")
         return None
 
-    side = _nearest_start_side(first_scan)
+    side = start_side if start_side in ("left", "right") else DEFAULT_START_SIDE
     print(
-        f"  [hangar-circuit-start] nearest rear corner is {side}; "
+        f"  [hangar-circuit-start] selected rear corner is {side}; "
         f"targeting rear={wall_distance:.1f}m {side}={wall_distance:.1f}m"
     )
 
@@ -1064,10 +1098,13 @@ async def run() -> None:
     print("=" * 64)
     print(f"Flight ID:         {flight_id}")
     print(f"Output:            {output_dir}")
-    print(
-        "Takeoff altitude:  auto "
-        f"(ceiling - {DEFAULT_CEILING_CLEARANCE:.1f}m)"
-    )
+    if args.target_alt is None:
+        print(
+            "Takeoff altitude:  auto "
+            f"(ceiling - {DEFAULT_CEILING_CLEARANCE:.1f}m)"
+        )
+    else:
+        print(f"Takeoff altitude:  {args.target_alt:.2f}m AGL (manual)")
     print(f"Wall distance:     {wall_distance:.2f}m")
     print(f"Target distance:   {target_dist:.2f}m")
     print(f"Max legs:          {max_legs}")
@@ -1167,18 +1204,32 @@ async def run() -> None:
         if ceiling_distance is None:
             print("ERROR: no upward rangefinder distance for auto altitude -- aborting")
             return
-        try:
-            target_alt = _target_alt_from_ceiling_distance(ceiling_distance)
-        except ValueError as exc:
-            print(f"ERROR: cannot compute takeoff altitude: {exc}")
-            return
+        if args.target_alt is None:
+            try:
+                target_alt = _target_alt_from_ceiling_distance(ceiling_distance)
+            except ValueError as exc:
+                print(f"ERROR: cannot compute takeoff altitude: {exc}")
+                return
+        else:
+            if args.target_alt <= 0.0:
+                print("ERROR: --target-alt must be greater than 0")
+                return
+            target_alt = args.target_alt
         altitude_ref["target_alt_m"] = target_alt
-        print(
-            "  Auto takeoff altitude: "
-            f"ceiling={ceiling_distance:.2f}m - "
-            f"clearance={DEFAULT_CEILING_CLEARANCE:.2f}m -> "
-            f"{target_alt:.2f}m AGL"
-        )
+        if args.target_alt is None:
+            print(
+                "  Auto takeoff altitude: "
+                f"ceiling={ceiling_distance:.2f}m - "
+                f"clearance={DEFAULT_CEILING_CLEARANCE:.2f}m -> "
+                f"{target_alt:.2f}m AGL"
+            )
+        else:
+            ceiling_margin = ceiling_distance - target_alt
+            print(
+                "  Manual takeoff altitude: "
+                f"{target_alt:.2f}m AGL "
+                f"(upward ceiling margin {ceiling_margin:.2f}m)"
+            )
 
         for _ in range(30):
             await asyncio.sleep(0.1)
@@ -1219,14 +1270,26 @@ async def run() -> None:
             lidar,
             wall_distance,
             target_alt,
+            args.start_side,
         )
         if start_side is None:
             print("ERROR: start stabilization failed. Landing safely.")
             return
         if start_side == "right":
-            print("  [hangar-circuit-start] right-side corner selected; rotating left to start scan")
-            if not await _rotate_relative_simple(drone, lidar, -90.0):
+            current_yaw = await drone.get_yaw()
+            normalized_start_yaw = _normalize_angle(current_yaw - 90.0)
+            print(
+                "  [hangar-circuit-start] right-side corner selected; "
+                "rotating left to normalize left-wall scan "
+                f"yaw={normalized_start_yaw:.1f}deg"
+            )
+            heading_result = await rotate_to_yaw(drone, normalized_start_yaw)
+            if not heading_result["ok"]:
                 print("ERROR: start heading normalization failed. Landing safely.")
+                return
+            print("  [hangar-circuit-start] stabilizing normalized rear-left corner")
+            if not await _stabilize_corner(drone, lidar, wall_distance, target_alt):
+                print("ERROR: normalized start stabilization failed. Landing safely.")
                 return
         mapper.start_mapping()
         route_task = asyncio.create_task(
@@ -1465,7 +1528,7 @@ async def run() -> None:
                     max_yaw_speed_deg_s=32.0,
                     vertical_kp=0.50,
                     max_vertical_speed_m_s=0.32,
-                    pursuit_timeout_s=args.pursuit_timeout,
+                    pursuit_timeout_s=DEFAULT_PURSUIT_TIMEOUT,
                     center_enter_ratio=0.50,
                     center_exit_ratio=0.60,
                     vertical_center_enter_ratio=0.10,
@@ -1790,7 +1853,7 @@ async def run() -> None:
                             lidar,
                             advance_m,
                             args.wall_distance,
-                            args.target_alt,
+                            target_alt,
                             heading_yaw_deg=leg_start_yaw,
                             timeout_s=PLANNER_ADVANCE_TIMEOUT_S,
                             forward_speed=WALL_FOLLOW_SPEED,
