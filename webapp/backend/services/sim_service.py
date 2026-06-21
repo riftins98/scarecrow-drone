@@ -169,7 +169,7 @@ class SimService:
         if headless:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch_with_stream.sh")
             cam = camera if camera in self._ALLOWED_CAMERAS else self._DEFAULT_CAMERA
-            launch_args = [world, "--headless", f"--{cam}"]
+            launch_args = [world, "--headless", "--no-open", f"--{cam}"]
             self._camera = cam
         else:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch.sh")

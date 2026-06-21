@@ -1177,6 +1177,43 @@ body {
 .arg-field input[type="checkbox"] {
   accent-color: #5a8;
 }
+.arg-start-side {
+  align-items: center;
+}
+.start-side-options {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 24px;
+}
+.start-side-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #ccc;
+  font-family: monospace;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.start-side-option input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid #d8d8d8;
+  border-radius: 2px;
+  background: #f2f2f2;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.start-side-option input[type="checkbox"]:checked {
+  border-color: #9aaa68;
+  background: #8b9a5b;
+}
+.start-side-option input[type="checkbox"]:focus-visible {
+  outline: 1px solid #b0c090;
+  outline-offset: 2px;
+}
 
 /* --- Launch checklist substatus (per-step live progress) --- */
 .checklist-text {
@@ -2878,34 +2915,17 @@ body {
   background: linear-gradient(180deg, rgba(13,18,8,0.85) 0%, rgba(0,0,0,0.92) 100%);
   color: #d4e090;
 }
-
-/* Live camera-switch dropdown in the panel header */
-.camstream-select {
+.camstream-current-camera {
   background: linear-gradient(180deg, #1a1f15 0%, #0d1208 100%);
   color: #d4e090;
   border: 1px solid #2a3a1a;
   border-radius: 1px;
-  padding: 2px 6px;
+  padding: 3px 10px;
   font-family: 'Consolas', monospace;
   font-size: 0.7rem;
   letter-spacing: 1.5px;
-  cursor: pointer;
-  transition: all 180ms ease;
+  white-space: nowrap;
 }
-.camstream-select:hover:not(:disabled) {
-  border-color: #4a5a3a;
-  box-shadow: 0 0 6px rgba(139,154,91,0.3);
-}
-.camstream-select:focus {
-  outline: none;
-  border-color: #4a5a3a;
-}
-.camstream-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Inline error if the switch POST fails */
 .camstream-error-banner {
   position: absolute;
   bottom: 0;

@@ -46,6 +46,14 @@ const PURSUIT_MISSION_ARGS: ScriptArg[] = [
     default: null,
     help: 'Optional minimum ceiling clearance for in-flight safety checks (meters).',
   },
+  {
+    name: 'start_side',
+    flag: '--start-side',
+    type: 'choice',
+    default: 'left',
+    help: 'Initial rear corner used before the left-wall scan begins.',
+    choices: ['left', 'right'],
+  },
 ];
 
 function formatArgLabel(flagOrName: string): string {
@@ -446,6 +454,28 @@ interface ArgFieldProps {
 
 function ArgField({ arg, value, onChange }: ArgFieldProps) {
   const label = formatArgLabel(arg.flag || arg.name);
+
+  if (arg.name === 'start_side') {
+    const selected = value === 'right' ? 'right' : 'left';
+    return (
+      <div className="arg-field arg-start-side">
+        <span className="arg-label">Initial Corner</span>
+        <div className="start-side-options" role="radiogroup" aria-label="Initial corner">
+          {(['left', 'right'] as const).map((side) => (
+            <label key={side} className="start-side-option">
+              <input
+                type="checkbox"
+                checked={selected === side}
+                onChange={() => onChange(side)}
+              />
+              <span>{side === 'left' ? 'Left' : 'Right'}</span>
+            </label>
+          ))}
+        </div>
+        {arg.help && <span className="arg-help">{arg.help}</span>}
+      </div>
+    );
+  }
 
   if (arg.type === 'bool') {
     return (
