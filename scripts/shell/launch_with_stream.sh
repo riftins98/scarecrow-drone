@@ -3,7 +3,7 @@
 # Usage:
 #   ./scripts/shell/launch_with_stream.sh [world_name] [--headless] [--no-build] [--port 8080] [--no-open] [--background]
 #   Camera flags (required): --fixed --center --drone_cam --drone_view
-# Default world: drone_garage_pigeon_3d
+# Default world: first *.sdf in worlds/ (override with SCARECROW_DEFAULT_WORLD).
 set -e
 trap 'echo "[launch_with_stream] ERROR at line $LINENO — exit code $?"' ERR
 cleanup() {
@@ -31,11 +31,11 @@ pkill -f "gz sim" 2>/dev/null || true
 pkill -f "stream_camera" 2>/dev/null || true
 rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
 
-WORLD="drone_garage_pigeon_3d"
+WORLD="$(python3 "$REPO_ROOT/scripts/shell/world_meta.py" default-world)"
 HEADLESS_FLAG=""
 NO_BUILD_FLAG=""
 STREAM_PORT="8080"
-DEFAULT_POSE="5,-4.5,0,0,0,0"
+DEFAULT_POSE=""
 OPEN_BROWSER=1
 INTERACTIVE_PXH=1
 STREAM_FPS_EXPLICIT="${STREAM_FPS:-}"
@@ -102,16 +102,10 @@ done
 
 # Accept both "world_name" and "world_name.sdf" inputs.
 WORLD="${WORLD%.sdf}"
-if [[ "$WORLD" == "hangar_1_wall_pursuit" || "$WORLD" == "drone_hangar_light" ]]; then
-    DEFAULT_POSE="-9,4.5,0,0,0,0"
-elif [[ "$WORLD" == "drone_hangar_small" ]]; then
-    DEFAULT_POSE="-6,3,0,0,0,0"
-elif [[ "$WORLD" == "hangar_lite" ]]; then
-    DEFAULT_POSE="4,-3,0,0,0,0"
-fi
+DEFAULT_POSE="$(python3 "$REPO_ROOT/scripts/shell/world_meta.py" spawn-pose "$WORLD")"
 
 # Default spawn pose (can be overridden by exporting PX4_GZ_MODEL_POSE)
-if [ -z "${PX4_GZ_MODEL_POSE}" ]; then
+if [ -z "${PX4_GZ_MODEL_POSE}" ] && [ -n "$DEFAULT_POSE" ]; then
     export PX4_GZ_MODEL_POSE="$DEFAULT_POSE"
 fi
 

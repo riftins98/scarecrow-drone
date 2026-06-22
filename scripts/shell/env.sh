@@ -33,6 +33,9 @@ else
 fi
 export PX4_DIR="$SCARECROW_DIR/px4"
 
+# Default Gazebo world when none is specified (CLI + webapp backend).
+export SCARECROW_DEFAULT_WORLD="${SCARECROW_DEFAULT_WORLD:-hangar_lite}"
+
 # On macOS, prefer the repo virtualenv for PX4's Python/CMake probes. Without
 # this, non-interactive launches can pick Homebrew's newest python.
 if [[ "$(uname)" == "Darwin" ]] && [ -x "$SCARECROW_DIR/.venv/bin/python" ]; then
@@ -97,6 +100,9 @@ echo "[env] SCARECROW_DIR=$SCARECROW_DIR"
 echo "[env] GZ_IP=$GZ_IP"
 if [ "${SCARECROW_NOLOCKSTEP:-0}" = "1" ]; then
     echo "[env] SCARECROW_NOLOCKSTEP=1 (sim will run at ~100% RTF)"
+fi
+if [ -n "${SCARECROW_DEFAULT_WORLD:-}" ]; then
+    echo "[env] SCARECROW_DEFAULT_WORLD=${SCARECROW_DEFAULT_WORLD}"
 fi
 if [ -n "${SCARECROW_TAKEOFF_TIMEOUT:-}" ]; then
     echo "[env] SCARECROW_TAKEOFF_TIMEOUT=${SCARECROW_TAKEOFF_TIMEOUT}s"

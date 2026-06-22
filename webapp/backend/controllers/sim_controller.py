@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from dependencies import sim_service, detection_service, flight_service
 from services.sim_service import DEFAULT_WORLD
+from services.world_geometry import resolve_default_world
 from services.script_metadata import (
     list_flight_scripts,
     list_worlds,
@@ -43,12 +44,13 @@ async def connect_sim(req: Optional[ConnectRequest] = None):
     """Launch PX4 + Gazebo (non-blocking, poll /api/sim/status for progress).
 
     Optional body:
-        {"world": "drone_garage_pigeon_3d", "headless": false, "camera": "fixed",
-         "spawn": {"x": 5, "y": -4.5}}
-    Defaults match the legacy behavior (drone_garage_pigeon_3d, GUI, default spawn).
+        {"world": "hangar_lite", "headless": false, "camera": "fixed",
+         "spawn": {"x": 4, "y": -3}}
+    Defaults to the first available world in ``worlds/`` (override with
+    ``SCARECROW_DEFAULT_WORLD``).
     """
     try:
-        world = (req.world if req else None) or "drone_garage_pigeon_3d"
+        world = (req.world if req else None) or resolve_default_world()
         headless = bool(req.headless) if req else False
         camera = req.camera if req else None
         spawn = (req.spawn.model_dump() if req and req.spawn else None)
@@ -395,6 +397,7 @@ async def sim_options():
     default_spawn = spawn_maps.get(DEFAULT_WORLD)
     return {
         "worlds": worlds,
+        "defaultWorld": resolve_default_world(),
         "scripts": [script_info_to_dict(s) for s in list_flight_scripts(SCRIPTS_DIR, fast=fast_metadata)],
         # Per-world spawn maps derived from each SDF. Top-level legacy fields
         # are kept for older frontend builds; new UI reads worlds[].spawn.

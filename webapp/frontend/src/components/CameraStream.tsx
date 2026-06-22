@@ -15,8 +15,7 @@ interface Props {
   /** Camera flag stem currently streamed (e.g. "fixed", "drone_view"). Used
    *  for the header label. Null in GUI mode. */
   camera: string | null;
-  /** Cameras the active world offers; powers the live-switch dropdown.
-   *  Empty array hides the dropdown entirely. */
+  /** Cameras the active world offers; used only to display the active label. */
   availableCameras: CameraInfo[];
 }
 
@@ -35,11 +34,10 @@ export default function CameraStream({
 }: Props) {
   // Bumping nonce remounts the iframe, forcing a fresh page load.
   const [nonce, setNonce] = useState(0);
-  // True while a switch_camera POST is in flight; flips back when the
-  // confirmed `camera` prop matches the requested one (or after a timeout).
+  // Keep live-switch plumbing available for future UI, even though the current
+  // header intentionally displays only the selected launch camera.
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
-  // Camera we asked the backend to switch to; null when no swap is in flight.
   const pendingCamRef = useRef<string | null>(null);
 
   // When the sim transitions from "not connected" to "connected" make sure
@@ -51,10 +49,6 @@ export default function CameraStream({
     }
   }, [connected, streamUrl]);
 
-  // Clear the "switching" overlay once the backend confirms the new camera.
-  // The status poller in Dashboard refreshes /api/sim/status every 3s, so
-  // worst case the user sees the SWITCHING overlay for that long; we also
-  // bump the iframe nonce here so it re-handshakes against the new stream.
   useEffect(() => {
     if (!switching) return;
     if (pendingCamRef.current && camera === pendingCamRef.current) {
@@ -77,22 +71,11 @@ export default function CameraStream({
         pendingCamRef.current = null;
         return;
       }
-      // No-op (already on the requested camera): clear immediately.
       if (res.noop) {
         setSwitching(false);
         pendingCamRef.current = null;
         return;
       }
-      // The POST returned success, meaning the backend already pkilled
-      // the old streamer. But aiohttp inside the new process takes ~2s
-      // to bind to 8080 and start serving. We must NOT remount the iframe
-      // before then — if the browser hits the dead port, Chrome caches
-      // the connection-refused for the origin and keeps showing the
-      // error page even after the streamer is up.
-      //
-      // Probe the streamer's HTTP root from JS until it responds, then
-      // remount the iframe with a fresh cache-buster so Chrome treats
-      // it as a brand new request (bypassing any negative cache).
       await waitForStreamer(streamUrl);
       pendingCamRef.current = null;
       setSwitching(false);
@@ -103,34 +86,29 @@ export default function CameraStream({
       pendingCamRef.current = null;
     }
   };
+  void handleSwitch;
 
   const state: 'no-url' | 'standby' | 'live' =
     !streamUrl ? 'no-url'
     : launching || !connected ? 'standby'
     : 'live';
+  const cameraLabel =
+    availableCameras.find((c: CameraInfo) => c.name === camera)?.label
+    ?? (camera ? camera.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()) : null);
 
   return (
     <div className="camstream">
-      <div className="camstream-header">
-        <span className="camstream-title">Camera</span>
-        <span className={`camstream-pill camstream-pill-${state}`}>
-          {switching ? 'SWITCHING'
-            : state === 'live' ? 'LIVE'
+        <div className="camstream-header">
+          <span className="camstream-title">Camera</span>
+          <span className={`camstream-pill camstream-pill-${state}`}>
+          {state === 'live' ? 'LIVE'
             : state === 'standby' ? 'STANDBY'
             : 'NO SIGNAL'}
-        </span>
-        {state === 'live' && availableCameras.length > 1 && (
-          <select
-            className="camstream-select"
-            value={camera ?? ''}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleSwitch(e.target.value)}
-            disabled={switching}
-            aria-label="Switch camera"
-          >
-            {availableCameras.map((c: CameraInfo) => (
-              <option key={c.name} value={c.name}>{c.label}</option>
-            ))}
-          </select>
+          </span>
+        {state === 'live' && cameraLabel && (
+          <span className="camstream-current-camera" aria-label="Current camera">
+            {cameraLabel}
+          </span>
         )}
         {streamUrl && (
           <a
@@ -172,10 +150,10 @@ export default function CameraStream({
           <div className="camstream-overlay camstream-overlay-switching">
             <div className="camstream-spinner" aria-hidden="true" />
             <div className="camstream-overlay-text">
-              SWITCHING TO {pendingCamRef.current?.toUpperCase() ?? '…'}
+              SWITCHING TO {pendingCamRef.current?.toUpperCase() ?? '...'}
             </div>
             <div className="camstream-overlay-sub">
-              respawning stream worker — ~2s
+              respawning stream worker - ~2s
             </div>
           </div>
         )}
@@ -208,24 +186,14 @@ export default function CameraStream({
   );
 }
 
-/**
- * Poll the streamer's HTTP root until it responds (or we hit a timeout).
- * Uses no-cors fetch so we don't need CORS headers on the stream server —
- * we only care about "did the TCP connection succeed", not the response body.
- * Each poll uses a cache-buster query param so Chrome's negative cache
- * doesn't make every attempt a fake-failure.
- */
 async function waitForStreamer(streamUrl: string, maxMs = 10000): Promise<void> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     const probe = `${streamUrl}/?_=${Date.now()}`;
     try {
-      // no-cors gives us an opaque response; ok-ness can't be read, but
-      // the fetch *resolving* at all means TCP + HTTP handshake worked.
       await fetch(probe, { mode: 'no-cors', cache: 'no-store' });
       return;
     } catch {
-      // Connection refused / network error — wait a bit and retry.
       await new Promise(r => setTimeout(r, 300));
     }
   }

@@ -3,7 +3,6 @@ import {
   SimStatus,
   FlightStatus,
   SimOptions,
-  ScriptInfo,
   ScriptArg,
   ScriptArgValues,
   ConnectSimParams,
@@ -14,6 +13,7 @@ import {
 } from '../types/flight';
 import * as api from '../services/api';
 import { spawnMapForWorld } from './spawnMapLookup';
+import { defaultWorldFromOptions, worldLabelFor } from './worldLabels';
 
 interface Props {
   simStatus: SimStatus | null;
@@ -28,8 +28,50 @@ interface Props {
   onPreviewWorldChange?: (world: string) => void;
 }
 
-const DEFAULT_WORLD = 'drone_garage_pigeon_3d';
-const DEFAULT_SCRIPT = 'demo_flight_v2.py';
+/** Hardcoded mission entrypoint — not exposed as a user-facing script picker. */
+const PURSUIT_FLIGHT_SCRIPT = 'hangar_circuit_pursuit.py';
+
+const PURSUIT_MISSION_ARGS: ScriptArg[] = [
+  {
+    name: 'wall_distance',
+    flag: '--wall-distance',
+    type: 'float',
+    default: 2.0,
+    help: 'Standoff distance from the wall during hangar circuit legs (meters).',
+  },
+  {
+    name: 'ceiling_clearance',
+    flag: '--ceiling-clearance',
+    type: 'float',
+    default: null,
+    help: 'Optional minimum ceiling clearance for in-flight safety checks (meters).',
+  },
+  {
+    name: 'start_side',
+    flag: '--start-side',
+    type: 'choice',
+    default: 'left',
+    help: 'Initial rear corner used before the left-wall scan begins.',
+    choices: ['left', 'right'],
+  },
+];
+
+function formatArgLabel(flagOrName: string): string {
+  const raw = flagOrName.replace(/^--+/, '');
+  return raw
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function defaultPursuitArgValues(): ScriptArgValues {
+  const initial: ScriptArgValues = {};
+  for (const arg of PURSUIT_MISSION_ARGS) {
+    initial[arg.name] = arg.default ?? (arg.type === 'bool' ? false : '');
+  }
+  return initial;
+}
 
 export default function SimControl({
   simStatus, flightStatus, onConnect, onDisconnect,
@@ -48,14 +90,13 @@ export default function SimControl({
   const [streamCameras, setStreamCameras] = useState<CameraInfo[]>([]);
 
   // Pre-connect form state
-  const [selectedWorld, setSelectedWorld] = useState<string>(DEFAULT_WORLD);
+  const [selectedWorld, setSelectedWorld] = useState<string>('');
   const [headless, setHeadless] = useState<boolean>(false);
   // Camera the user picked from the dropdown (only meaningful in headless mode).
   // Empty string -> "let backend default it" (currently "fixed").
   const [selectedCamera, setSelectedCamera] = useState<string>('');
-  // Post-connect form state
-  const [selectedScript, setSelectedScript] = useState<string>(DEFAULT_SCRIPT);
-  const [scriptArgValues, setScriptArgValues] = useState<ScriptArgValues>({});
+  // Post-connect pursuit parameters (hardcoded mission — no script picker).
+  const [scriptArgValues, setScriptArgValues] = useState<ScriptArgValues>(defaultPursuitArgValues);
 
   // Panic reset state.
   const [resetting, setResetting] = useState<boolean>(false);
@@ -86,13 +127,13 @@ export default function SimControl({
       .then(([data, camerasRes]) => {
         setOptions(data);
         setStreamCameras(camerasRes.cameras);
-        // If our default world isn't actually available, fall back to the first.
-        if (data.worlds.length > 0 && !data.worlds.find((w: { name: string }) => w.name === DEFAULT_WORLD)) {
-          setSelectedWorld(data.worlds[0].name);
-        }
-        if (data.scripts.length > 0 && !data.scripts.find((s: { name: string }) => s.name === DEFAULT_SCRIPT)) {
-          setSelectedScript(data.scripts[0].name);
-        }
+        const preferred = defaultWorldFromOptions(data);
+        setSelectedWorld((current) => {
+          if (current && data.worlds.some((w: WorldInfo) => w.name === current)) {
+            return current;
+          }
+          return preferred;
+        });
       })
       .catch((e: unknown) => setOptionsError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -113,24 +154,6 @@ export default function SimControl({
     // selectedCamera intentionally omitted from deps: we only reseed when the
     // camera list first arrives or shrinks, not on every user click.
   }, [availableCameras]);
-
-  // When the selected script changes, reset arg values to that script's defaults
-  // (so the form fields reflect the new arg set, not stale values from another script).
-  useEffect(() => {
-    if (!options) return;
-    const script = options.scripts.find((s: ScriptInfo) => s.name === selectedScript);
-    if (!script) {
-      setScriptArgValues({});
-      return;
-    }
-    const initial: ScriptArgValues = {};
-    for (const a of script.args) {
-      // Skip flight-id: backend always supplies it
-      if (a.name === 'flight_id' || a.name === 'flight-id') continue;
-      initial[a.name] = a.default ?? (a.type === 'bool' ? false : '');
-    }
-    setScriptArgValues(initial);
-  }, [selectedScript, options]);
 
   useEffect(() => {
     onPreviewWorldChange?.(selectedWorld);
@@ -179,7 +202,7 @@ export default function SimControl({
       if (v === '' || v === null || v === undefined) continue;
       cleanedArgs[k] = v;
     }
-    onStartFlight({ script: selectedScript, args: cleanedArgs });
+    onStartFlight({ script: PURSUIT_FLIGHT_SCRIPT, args: cleanedArgs });
   };
 
   const updateArg = (name: string, value: ScriptArgValues[string]) => {
@@ -235,7 +258,7 @@ export default function SimControl({
                     disabled={!options}
                   >
                     {options ? options.worlds.map((w: WorldInfo) => (
-                      <option key={w.name} value={w.name}>{w.name}</option>
+                      <option key={w.name} value={w.name}>{w.label}</option>
                     )) : <option>Loading...</option>}
                   </select>
                 </label>
@@ -305,79 +328,53 @@ export default function SimControl({
   }
 
   // ----- POST-CONNECT view -----
-  const currentScript: ScriptInfo | undefined =
-    options?.scripts.find((s: ScriptInfo) => s.name === selectedScript);
-
   return (
     <div className="drone-control">
-      <h2>Simulation Control</h2>
+      <h2>Pigeon Pursuit</h2>
       <div className="status-panel status-panel-stacked">
         <div className="status-indicator connected">
           <span className="status-dot"></span>
           Simulation Online
         </div>
         {simStatus?.world && (
-          <div className="status-line">World: {simStatus.world}</div>
+          <div className="status-line">World: {worldLabelFor(options, simStatus.world)}</div>
         )}
         {simStatus?.headless && (
           <div className="status-line">Headless</div>
         )}
       </div>
 
-      {/* Script selector and arg form (hidden while flying) */}
+      {/* Pursuit parameters (hidden while mission is active) */}
       {!flying && (
-        <div className="script-config">
-          <label className="form-row">
-            <span className="form-label">Flight script</span>
-            <select
-              value={selectedScript}
-              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedScript(e.target.value)}
-              disabled={!options}
-            >
-              {options ? options.scripts.map((s: ScriptInfo) => (
-                <option key={s.name} value={s.name}>
-                  {s.name}{s.parse_error ? ' (no parameters)' : ''}
-                </option>
-              )) : <option>Loading...</option>}
-            </select>
-          </label>
+        <div className="script-config pursuit-config">
+          <p className="script-description">
+            Autonomous hangar circuit with live pigeon detection. On pigeon
+            detection, pursues to deterrence range until deterrence, then
+            resumes scanning.
+          </p>
 
-          {currentScript?.description && (
-            <p className="script-description">{currentScript.description}</p>
-          )}
-
-          {currentScript?.parse_error && (
-            <p className="script-warning">
-              Note: could not parse this script's arguments — it will run with defaults.
-            </p>
-          )}
-
-          {currentScript && currentScript.args.length > 0 && (
-            <div className="script-args">
-              <div className="form-label">Parameters</div>
-              {currentScript.args
-                .filter((a: ScriptArg) => a.name !== 'flight_id')
-                .map((arg: ScriptArg) => (
-                  <ArgField
-                    key={arg.name}
-                    arg={arg}
-                    value={scriptArgValues[arg.name] as ScriptArgValues[string]}
-                    onChange={(v: ScriptArgValues[string]) => updateArg(arg.name, v)}
-                  />
-                ))}
-            </div>
-          )}
+          <div className="script-args">
+            <div className="form-label">Mission parameters</div>
+            {PURSUIT_MISSION_ARGS.map((arg: ScriptArg) => (
+              <ArgField
+                key={arg.name}
+                arg={arg}
+                value={scriptArgValues[arg.name] as ScriptArgValues[string]}
+                onChange={(v: ScriptArgValues[string]) => updateArg(arg.name, v)}
+              />
+            ))}
+          </div>
         </div>
       )}
 
       <div className="control-buttons">
         {!flying ? (
           <button className="btn btn-start" onClick={handleStart}>
-            Start Detection
+            Start Patrol
           </button>
         ) : (
           <button className="btn btn-stop" onClick={onStopFlight}>
-            Stop Detection
+            Stop Patrol
           </button>
         )}
         <button className="btn btn-disconnect" onClick={onDisconnect} disabled={flying}>
@@ -400,12 +397,12 @@ export default function SimControl({
       {flying && (
         <div className="flight-status">
           <div className="flight-timer">
-            <span className="timer-label">Detection Time</span>
+            <span className="timer-label">Pursuit time</span>
             <span className="timer-value">{elapsed}</span>
           </div>
           <div className="flight-indicator">
             <span className="pulse"></span>
-            Detection in progress
+            Pursuit mission active
           </div>
           {flightStatus && (
             <div className="flight-details" style={{ marginTop: 15, justifyContent: 'center' }}>
@@ -456,7 +453,29 @@ interface ArgFieldProps {
 }
 
 function ArgField({ arg, value, onChange }: ArgFieldProps) {
-  const label = arg.flag.replace(/^-+/, '');
+  const label = formatArgLabel(arg.flag || arg.name);
+
+  if (arg.name === 'start_side') {
+    const selected = value === 'right' ? 'right' : 'left';
+    return (
+      <div className="arg-field arg-start-side">
+        <span className="arg-label">Initial Corner</span>
+        <div className="start-side-options" role="radiogroup" aria-label="Initial corner">
+          {(['left', 'right'] as const).map((side) => (
+            <label key={side} className="start-side-option">
+              <input
+                type="checkbox"
+                checked={selected === side}
+                onChange={() => onChange(side)}
+              />
+              <span>{side === 'left' ? 'Left' : 'Right'}</span>
+            </label>
+          ))}
+        </div>
+        {arg.help && <span className="arg-help">{arg.help}</span>}
+      </div>
+    );
+  }
 
   if (arg.type === 'bool') {
     return (

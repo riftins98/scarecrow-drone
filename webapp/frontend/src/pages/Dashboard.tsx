@@ -12,13 +12,12 @@ import SystemLog from '../components/SystemLog';
 import Ticker from '../components/Ticker';
 import SpawnPicker from '../components/SpawnPicker';
 import { spawnMapForWorld } from '../components/spawnMapLookup';
+import { defaultWorldFromOptions, worldLabelFor } from '../components/worldLabels';
 import {
   Flight, SimStatus, FlightStatus, ConnectSimParams, StartFlightParams,
   SimOptions, CameraInfo, WorldInfo, SpawnPoint,
 } from '../types/flight';
 import * as api from '../services/api';
-
-const DEFAULT_WORLD = 'drone_garage_pigeon_3d';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'control' | 'history'>('control');
@@ -34,16 +33,20 @@ export default function Dashboard() {
   // CameraStream knows the available cameras for the active world.
   const [simOptions, setSimOptions] = useState<SimOptions | null>(null);
   const [streamCameras, setStreamCameras] = useState<CameraInfo[]>([]);
-  const [previewWorld, setPreviewWorld] = useState<string>(DEFAULT_WORLD);
+  const [previewWorld, setPreviewWorld] = useState<string>('');
   const [previewSpawn, setPreviewSpawn] = useState<SpawnPoint | null>(null);
   useEffect(() => {
     Promise.all([api.getSimOptions(), api.getSimCameras()])
       .then(([data, camerasRes]) => {
         setSimOptions(data);
         setStreamCameras(camerasRes.cameras);
-        if (data.worlds.length > 0 && !data.worlds.find((w: WorldInfo) => w.name === DEFAULT_WORLD)) {
-          setPreviewWorld(data.worlds[0].name);
-        }
+        const preferred = defaultWorldFromOptions(data);
+        setPreviewWorld((current) => {
+          if (current && data.worlds.some((w: WorldInfo) => w.name === current)) {
+            return current;
+          }
+          return preferred;
+        });
       })
       .catch(() => { });
   }, []);
@@ -218,6 +221,7 @@ export default function Dashboard() {
       <HudHeader
         simStatus={simStatus}
         flightStatus={flightStatus}
+        simOptions={simOptions}
       />
 
       <Ticker connected={connected} flying={flying} />
@@ -266,7 +270,7 @@ export default function Dashboard() {
                   {showSpawnPlacement && previewSpawnMap ? (
                     <div className="minimap spawn-side-picker">
                       <div className="minimap-header">
-                        <span className="minimap-title">Spawn : {previewWorld}</span>
+                        <span className="minimap-title">Spawn : {worldLabelFor(simOptions, previewWorld)}</span>
                         <span className="minimap-live">OFFLINE</span>
                       </div>
                       <SpawnPicker

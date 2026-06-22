@@ -88,8 +88,11 @@ mkdir -p "$PX4_GZ_MODELS_DIR"
 link_model_dir() {
     local src="$1"
     local dest="$2"
-    if [ -L "$dest" ]; then
-        rm -f "$dest" 2>/dev/null || true
+    # PX4 ships some models as real directories; ln -s fails unless we remove
+    # the destination first (otherwise holybro_x500 keeps a stale model.sdf
+    # without tf_luna_up and the ceiling rangefinder never publishes).
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+        rm -rf "$dest" 2>/dev/null || true
     fi
     ln -s "$src" "$dest" 2>/dev/null || true
 }

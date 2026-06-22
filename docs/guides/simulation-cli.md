@@ -120,13 +120,13 @@ Each flight script verifies a different capability. Run them in order while lear
 | `wall_follow_v2.py` | Single-leg GPS-denied wall follow | `drone_garage`, `hangar_lite` |
 | `room_circuit_v2.py` | Four-leg wall-follow circuit | `drone_garage` |
 | `demo_flight_pursuit.py` | Hover detection → pursue target → hold at range | `drone_garage_pigeon_3d` |
-| `hangar_circuit_pursiot.py` | Full deterrence mission: 4-leg hangar circuit, live YOLO, pursuit, target removal, mission map | `hangar_lite` |
+| `hangar_circuit_pursuit.py` | Full deterrence mission: 4-leg hangar circuit, live YOLO, pursuit, target removal, mission map | `hangar_lite` |
 
 ---
 
 ## 5. Where results are saved
 
-`hangar_circuit_pursiot.py` writes to:
+`hangar_circuit_pursuit.py` writes to:
 
 ```
 webapp/output/<flight_id>/
@@ -135,7 +135,7 @@ webapp/output/<flight_id>/
   map_annotated.png    # customer-facing annotated map
 ```
 
-The flight ID is printed at startup (`hangar_circuit_pursiot_<timestamp>` when run standalone).
+The flight ID is printed at startup (`hangar_circuit_pursuit_<timestamp>` when run standalone).
 
 `demo_flight_v2.py` also saves a full-flight MP4:
 

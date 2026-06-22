@@ -8,6 +8,8 @@ import threading
 from typing import Optional
 
 from services.world_geometry import (
+    default_spawn_pose,
+    resolve_default_world,
     spawn_map_for_world,
     validate_spawn as validate_world_spawn,
 )
@@ -15,14 +17,11 @@ from services.stream_cameras import stream_camera_names
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-DEFAULT_WORLD = "drone_garage_pigeon_3d"
+DEFAULT_WORLD = resolve_default_world()
 
-# Default drone spawn pose, "x,y,z,roll,pitch,yaw" — 5m in front of the pigeon
-# billboard, facing the north wall (+x, heading 0). Used when the user hasn't
-# picked a custom spawn. The active pose lives per-session on the instance
-# (``_spawn_pose``) so launch, the spawn picker, and the panic-reset teleport
-# all share one source of truth.
-DEFAULT_SPAWN_POSE = "5,-4.5,0,0,0,0"
+# Default drone spawn pose from SDF-derived spawn geometry for the default world.
+_pose = default_spawn_pose(DEFAULT_WORLD) if DEFAULT_WORLD else None
+DEFAULT_SPAWN_POSE = _pose or "0,0,0,0,0,0"
 
 # Gazebo model-name prefix for the drone (the running model gets a numeric
 # suffix like holybro_x500_0; we discover the full name at reset time).
@@ -170,7 +169,7 @@ class SimService:
         if headless:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch_with_stream.sh")
             cam = camera if camera in self._ALLOWED_CAMERAS else self._DEFAULT_CAMERA
-            launch_args = [world, "--headless", f"--{cam}"]
+            launch_args = [world, "--headless", "--no-open", f"--{cam}"]
             self._camera = cam
         else:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch.sh")

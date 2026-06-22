@@ -5,6 +5,7 @@ import {
   viewBox, worldToSvg, rectSvg, obstaclePolygon, airplanePath,
 } from './garageMap';
 import { spawnMapForWorld } from './spawnMapLookup';
+import { worldLabelFor } from './worldLabels';
 
 interface Props {
   simStatus: SimStatus | null;
@@ -93,7 +94,7 @@ export default function Minimap({ simStatus, flightStatus, options, previewWorld
   return (
     <div className={`minimap ${connected ? 'on' : 'off'}`}>
       <div className="minimap-header">
-        <span className="minimap-title">Map : {map.world}</span>
+        <span className="minimap-title">Map : {worldLabelFor(options, map.world)}</span>
         <span className={`minimap-live ${connected ? 'live' : ''}`}>
           {flying ? 'TRACKING' : connected ? 'LIVE' : 'OFFLINE'}
         </span>
