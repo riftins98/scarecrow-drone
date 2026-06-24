@@ -231,8 +231,12 @@ class SimService:
 
     def _wait_for_ready(self):
         """Wait for PX4 to be ready, reading output and tracking stages."""
+        proc = self.process
+        if proc is None or proc.stdout is None:
+            self.launching = False
+            return
         try:
-            for line in self.process.stdout:
+            for line in proc.stdout:
                 line = line.strip()
                 with self._log_condition:
                     self._log_lines.append(line)
@@ -318,7 +322,7 @@ class SimService:
                     self.launching = False
                     continue
 
-                if self.process.poll() is not None:
+                if proc.poll() is not None:
                     self.launching = False
                     return
         except Exception as e:
@@ -563,7 +567,12 @@ class SimService:
         self._step_substatus = {}
         self._stream_url = None
         self._camera = None
+        self._headless = False
         self._drone_model = None  # re-discover for the next session
+        with self._log_condition:
+            self._log_lines = []
+            self._log_offset = 0
+            self._log_condition.notify_all()
         if self.process:
             try:
                 self.process.kill()

@@ -295,7 +295,7 @@ export default function Dashboard() {
                       previewWorld={previewWorld}
                     />
                   )}
-                  {simStatus?.headless && (
+                  {simStatus?.headless && (launching || connected) && (
                     <CameraStream
                       streamUrl={simStatus.streamUrl}
                       launching={launching}
