@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 
 from mavsdk import System
 from mavsdk.offboard import VelocityBodyYawspeed
@@ -151,3 +152,114 @@ async def rotate_90(
     )
     print("  SVD alignment timeout")
     return False
+
+
+# ---------------------------------------------------------------------------
+# Absolute yaw hold
+# ---------------------------------------------------------------------------
+# rotate_90() above turns by a *relative* amount and refines against wall
+# geometry. This one drives to an *absolute* PX4 yaw and is what a mission uses
+# to put a heading back exactly where it was -- after a pursuit, or after the
+# entry planner rotated away from the wall-follow heading.
+#
+# It works on the Drone wrapper rather than a raw System because callers are
+# already in offboard mode holding a Drone, and it deliberately does not
+# consult lidar: the point is to restore a remembered heading, which may not
+# correspond to any wall the drone can currently see.
+
+ROTATE_TO_YAW_SPEED_DEG_S = 12.0
+ROTATE_TO_YAW_TOLERANCE_DEG = 5.0
+ROTATE_TO_YAW_TIMEOUT_S = 25.0
+
+# PX4 ignores very small yaw rates, so a drone a few degrees off would creep
+# forever. Below this the command is bumped to the floor value instead.
+_MIN_EFFECTIVE_YAW_RATE_DEG_S = 3.0
+
+# Consecutive in-tolerance samples required. One is not enough: yaw estimate
+# noise alone can put a single sample inside the band mid-rotation.
+_STABLE_HITS_REQUIRED = 3
+
+
+async def rotate_to_yaw(
+    drone,
+    target_yaw_deg: float,
+    *,
+    timeout_s: float = ROTATE_TO_YAW_TIMEOUT_S,
+    tolerance_deg: float = ROTATE_TO_YAW_TOLERANCE_DEG,
+    max_speed_deg_s: float = ROTATE_TO_YAW_SPEED_DEG_S,
+) -> dict:
+    """Rotate in place until PX4 yaw matches ``target_yaw_deg``.
+
+    Returns a result dict (``ok``, ``reason``, final and target yaw, error,
+    elapsed) rather than a bool -- missions record the yaw error in the mission
+    map, and "restored to within 4 degrees" is worth keeping.
+    """
+    from .wall_follow import VelocityCommand
+
+    started = time.time()
+    stable_hits = 0
+    final_yaw = math.nan
+    final_error = math.inf
+
+    while time.time() - started < timeout_s:
+        current_yaw = await drone.get_yaw()
+        error = normalize_angle(target_yaw_deg - current_yaw)
+        final_yaw = current_yaw
+        final_error = error
+
+        if abs(error) <= tolerance_deg:
+            stable_hits += 1
+            await drone.set_velocity(VelocityCommand())
+            await asyncio.sleep(0.15)
+            if stable_hits >= _STABLE_HITS_REQUIRED:
+                print(
+                    f"  [heading] restored yaw={current_yaw:.1f} "
+                    f"target={target_yaw_deg:.1f} err={error:+.1f}deg"
+                )
+                return {
+                    "ok": True,
+                    "reason": "reached",
+                    "yaw_deg": current_yaw,
+                    "target_yaw_deg": target_yaw_deg,
+                    "yaw_error_deg": error,
+                    "elapsed_s": time.time() - started,
+                }
+            continue
+
+        stable_hits = 0
+        yaw_cmd = max(-max_speed_deg_s, min(max_speed_deg_s, error * 0.8))
+        if abs(yaw_cmd) < _MIN_EFFECTIVE_YAW_RATE_DEG_S:
+            yaw_cmd = (
+                _MIN_EFFECTIVE_YAW_RATE_DEG_S
+                if yaw_cmd >= 0
+                else -_MIN_EFFECTIVE_YAW_RATE_DEG_S
+            )
+        await drone.set_velocity(VelocityCommand(yawspeed_deg_s=yaw_cmd))
+        await asyncio.sleep(0.08)
+
+    await drone.set_velocity(VelocityCommand())
+    print(
+        f"  [heading] timeout yaw={final_yaw:.1f} "
+        f"target={target_yaw_deg:.1f} err={final_error:+.1f}deg"
+    )
+    return {
+        "ok": False,
+        "reason": "timeout",
+        "yaw_deg": final_yaw,
+        "target_yaw_deg": target_yaw_deg,
+        "yaw_error_deg": final_error,
+        "elapsed_s": time.time() - started,
+    }
+
+
+async def rotate_relative_90(drone, lidar, degrees: float) -> bool:
+    """Turn exactly +/-90 degrees using compass + lidar SVD alignment.
+
+    Thin adapter so missions holding a Drone wrapper can reach rotate_90(),
+    which takes a raw MAVSDK System. Rejects any other angle rather than
+    silently rounding: rotate_90's wall-alignment step assumes a quarter turn.
+    """
+    if not math.isclose(abs(degrees), 90.0, abs_tol=1e-6):
+        raise ValueError("package rotation wrapper only supports +/-90 degrees")
+    direction = "right" if degrees > 0.0 else "left"
+    return await rotate_90(drone.system, lidar, direction=direction)

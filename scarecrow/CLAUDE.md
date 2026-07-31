@@ -7,7 +7,9 @@ Python package for drone flight controllers, sensor interfaces, detection, and n
 - `sensors/` — Sensor abstractions for lidar and camera, both sim and hardware drivers, plus Gazebo entity helpers (see `sensors/CLAUDE.md`)
 - `detection/` — YOLOv8 pigeon detection (see `detection/CLAUDE.md`)
 - `flight/` — Async MAVSDK helpers + Flight orchestrator (see `flight/CLAUDE.md`)
-- `navigation/` — NavigationUnit and MapUnit domain classes (see `navigation/CLAUDE.md`)
+- `navigation/` — NavigationUnit, MapUnit, arena geometry and mission recording (see `navigation/CLAUDE.md`)
+- `missions/` — Complete flights; flight scripts are thin entry points over these (see `missions/CLAUDE.md`)
+- `util/` — Dependency-free primitives: clamp, normalize_angle, log-line formatting
 
 ## Files
 - `__init__.py` — Package init
