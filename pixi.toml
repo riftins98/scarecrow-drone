@@ -32,15 +32,12 @@
 name = "scarecrow-drone"
 version = "0.1.0"
 channels = ["conda-forge"]
-# Add "linux-64" / "win-64" here if the pixi path is ever extended beyond macOS.
-platforms = ["osx-arm64"]
-
-# pixi defaults to targeting macOS 13.0, but mavsdk 3.15.3 only publishes a
-# macosx_14_0_arm64 wheel -- without this the solve fails with "no wheels with a
-# matching platform tag". Raising the floor to 14.0 makes that wheel eligible.
-# Anyone on macOS 13 or older cannot use this environment.
-[system-requirements]
-macos = "14.0"
+# Add another entry here if the pixi path is ever extended beyond macOS.
+#
+# macos = "14.0" because mavsdk 3.15.3 only publishes a macosx_14_0_arm64 wheel;
+# pixi otherwise targets 13.0 and the solve fails with "no wheels with a matching
+# platform tag". Anyone on macOS 13 or older cannot use this environment.
+platforms = [{ platform = "osx-arm64", macos = "14.0" }]
 
 [dependencies]
 # --- Gazebo Harmonic ---------------------------------------------------------
@@ -177,11 +174,13 @@ build = { cmd = """
 """, description = "Build PX4 SITL against the pixi Gazebo" }
 
 # Assert the build did not silently link Homebrew's Gazebo.
-verify-isolation = { cmd = """
-    otool -L px4/build/px4_sitl_default/bin/px4 | grep -q /opt/homebrew \
-      && { echo 'FAIL: binary links Homebrew libraries'; exit 1; } \
-      || echo 'OK: no Homebrew references in px4 binary'
-""", description = "Verify PX4 linked pixi's Gazebo, not Homebrew's" }
+#
+# The logic lives in a script, not inline here: pixi runs tasks through
+# deno_task_shell, which does not support `if` and fails with "Unsupported
+# reserved word". It does support `cd` and `&&`, which is why the build task
+# above works inline. An earlier inline version silently exited 1 on a clean
+# binary -- a verification that always fails is worse than none.
+verify-isolation = { cmd = "bash scripts/shell/verify_pixi_isolation.sh", description = "Verify PX4 linked pixi's Gazebo, not Homebrew's" }
 
 # --no-build is required, not an optimisation: launch.sh would otherwise run
 # `make px4_sitl` without the flags in the build task above and fail on the
