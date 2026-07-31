@@ -1,0 +1,125 @@
+# Scarecrow drone — reproducible native environment.
+#
+# WHY THIS EXISTS
+# On 2026-06-20 a single `brew upgrade` moved protobuf to 35 (breaking the PX4
+# -Werror build) and removed assimp entirely (Gazebo could not start at all).
+# Nothing in the repo changed; the host toolchain moved underneath it. Homebrew
+# has no lockfile, so `brew install` always gives you whatever is newest today.
+#
+# pixi.lock pins every package -- including all transitive dependencies -- to an
+# exact version and build hash. `pixi install` reads the lock and never
+# re-resolves, so a developer six months from now gets the identical bytes that
+# were tested here. Versions move only when someone runs `pixi update`, which
+# shows up as a reviewable diff in git.
+#
+# COMMIT BOTH pixi.toml AND pixi.lock. The lock is what provides the guarantee.
+#
+# WHEN TO USE THIS vs DOCKER
+#   pixi   -> native development, macOS included. Full GPU (Metal on Mac), so
+#             real-time performance. This is the path for anyone continuing the
+#             project on a Mac.
+#   docker -> delivery to the customer's Windows/NVIDIA machines. See
+#             docker/Dockerfile. Docker on macOS cannot access a GPU and runs
+#             the sim ~16x too slowly to fly missions (measured RTF 0.055 vs
+#             ~0.5 native), which is exactly why this file exists.
+#
+# USAGE
+#   pixi install                 # materialise the locked environment
+#   pixi run launch              # start the sim (GUI)
+#   pixi run launch-headless     # start sim + camera stream on :8080
+
+[workspace]
+name = "scarecrow-drone"
+version = "0.1.0"
+channels = ["conda-forge"]
+# Add "linux-64" / "win-64" here if the pixi path is ever extended beyond macOS.
+platforms = ["osx-arm64"]
+
+# pixi defaults to targeting macOS 13.0, but mavsdk 3.15.3 only publishes a
+# macosx_14_0_arm64 wheel -- without this the solve fails with "no wheels with a
+# matching platform tag". Raising the floor to 14.0 makes that wheel eligible.
+# Anyone on macOS 13 or older cannot use this environment.
+[system-requirements]
+macos = "14.0"
+
+[dependencies]
+# --- Gazebo Harmonic ---------------------------------------------------------
+# Exact pins, not ranges. The lock already freezes these, but pinning here makes
+# the intent explicit and stops a careless `pixi update` from silently jumping a
+# minor version.
+#
+# NOTE: conda-forge has 8.10.0 while Homebrew ships 8.14.0. Same Harmonic
+# series. gz-transport13 13.5.0 and gz-msgs10 10.3.2 match exactly what the PX4
+# build resolved against Homebrew, which is the compatibility that matters.
+gz-sim8 = "==8.10.0"
+gz-transport13 = "==13.5.0"
+gz-msgs10 = "==10.3.2"
+
+# --- PX4 build toolchain -----------------------------------------------------
+cmake = "==4.4.1"
+ninja = "==1.13.2"
+protobuf = "==7.35.1"
+eigen = "==5.0.1"
+cppzmq = "==4.11.0"          # PX4 gz_bridge + optical_flow link CPPZMQ::CPPZMQ
+assimp = "==6.0.5"           # Gazebo mesh loader. Its absence broke everything on Jun 20.
+
+# OpenCV C++ libraries + CMake config, required by the optical_flow gz plugin
+# (gz_plugins/optical_flow/optical_flow.cmake:35 does find_package(OpenCV)).
+# This is libopencv, NOT the opencv metapackage: the pip
+# opencv-python-headless below supplies the Python bindings, and installing
+# both sets of bindings would conflict.
+#
+# MUST be 4.x, not 5.x. PX4's bundled OpticalFlow library is written against the
+# OpenCV 4 API and fails to compile on 5.0.0:
+#   fatal error: 'opencv2/core/types_c.h' file not found   (C API removed in 5)
+#   error: no member named 'undistortPoints' in namespace 'cv'
+# conda-forge defaults to 5.x now, so this upper bound is load-bearing.
+libopencv = ">=4.10,<5"
+pkg-config = "*"
+git = "*"
+
+python = "3.11.*"
+
+# numpy is declared here (conda) rather than under [pypi-dependencies] because
+# gz-sim8-python pulls numpy in via the conda solve. Declaring it on both sides
+# makes the environment unsatisfiable ("you require numpy==2.4.4 and
+# numpy==2.4.6"). Conda owns it; the pin matches requirements.txt.
+numpy = "==2.4.4"
+
+# --- Python packages ---------------------------------------------------------
+# Kept as pypi rather than conda so the versions match requirements.txt exactly,
+# which is what the flight code was written and tested against. Mixing conda's
+# opencv 5.x with pip's opencv-python-headless 4.x would conflict, so opencv
+# comes from pip only.
+[pypi-dependencies]
+mavsdk = "==3.15.3"
+opencv-python-headless = "==4.13.0.92"
+pillow = "==12.2.0"
+matplotlib = "==3.10.8"
+aiohttp = "==3.13.5"
+aiortc = "==1.14.0"
+av = "==16.1.0"
+
+# YOLO pigeon detection. Large (~2GB); it is the product, not an optional extra.
+torch = "==2.11.0"
+torchvision = "==0.26.0"
+ultralytics = "==8.4.36"
+
+# PX4's own build-time Python requirements (kconfiglib, empy, jinja2, ...).
+# Unpinned upstream in px4/Tools/setup/requirements.txt, which is its own drift
+# risk; pixi.lock freezes whatever these resolve to.
+kconfiglib = "*"
+empy = "==3.3.4"
+jinja2 = "*"
+pyros-genmsg = "*"
+packaging = "*"
+toml = "*"
+jsonschema = "*"
+pyyaml = "*"
+future = "*"
+lxml = "*"
+pymavlink = "*"
+
+[tasks]
+launch = { cmd = "./scripts/shell/launch.sh", description = "Launch sim with GUI (world as $1)" }
+launch-headless = { cmd = "./scripts/shell/launch_with_stream.sh", description = "Launch sim + camera stream on :8080" }
