@@ -38,7 +38,12 @@ export SCARECROW_DEFAULT_WORLD="${SCARECROW_DEFAULT_WORLD:-hangar_lite}"
 
 # On macOS, prefer the repo virtualenv for PX4's Python/CMake probes. Without
 # this, non-interactive launches can pick Homebrew's newest python.
-if [[ "$(uname)" == "Darwin" ]] && [ -x "$SCARECROW_DIR/.venv/bin/python" ]; then
+#
+# Skipped under pixi (CONDA_PREFIX set): pixi already puts its own python first
+# on PATH, and prepending a stale .venv ahead of it would hand PX4 an
+# interpreter with none of the locked dependencies.
+if [[ "$(uname)" == "Darwin" ]] && [ -z "${CONDA_PREFIX:-}" ] \
+   && [ -x "$SCARECROW_DIR/.venv/bin/python" ]; then
     export PATH="$SCARECROW_DIR/.venv/bin:$PATH"
 fi
 

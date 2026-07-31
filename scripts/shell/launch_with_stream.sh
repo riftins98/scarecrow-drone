@@ -158,9 +158,14 @@ if [ "$DRONE_VIEW_ENABLED" -eq 1 ]; then
 fi
 echo "============================================"
 
-# Pick python (prefer venv if present)
+# Pick python. Order matters: a pixi environment must win over a leftover
+# .venv, because only pixi has the locked aiortc/av/gz-python the streamer
+# needs. CONDA_PREFIX is set by `pixi run` (and by conda), and is empty
+# otherwise, so the venv path is still used on the WSL/Windows track.
 PYTHON_BIN="python3"
-if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+if [ -n "${CONDA_PREFIX:-}" ] && [ -x "$CONDA_PREFIX/bin/python" ]; then
+    PYTHON_BIN="$CONDA_PREFIX/bin/python"
+elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
     PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
 fi
 

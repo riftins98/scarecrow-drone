@@ -1,8 +1,10 @@
 """Manages Gazebo simulation lifecycle."""
 import math
 import re
+import socket
 import subprocess
 import os
+import sys
 import time
 import threading
 from typing import Optional
@@ -38,6 +40,48 @@ SPAWN_OBSTACLES = _DEFAULT_SPAWN_MAP.get("obstacles", [])
 def validate_spawn(x: float, y: float, world: str = DEFAULT_WORLD):
     """Check an (x, y) spawn against a world's SDF-derived spawn map."""
     return validate_world_spawn(world, x, y)
+
+
+def _port_in_use(port: int) -> bool:
+    """True if something is still listening on ``port`` (any platform).
+
+    This replaced a `ss -tln` subprocess, which is iproute2 and therefore
+    Linux-only: on macOS it raised FileNotFoundError out of switch_camera and
+    turned every camera swap into a 500.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
+PX4_BINARY = os.path.join(REPO_ROOT, "px4", "build", "px4_sitl_default", "bin", "px4")
+
+
+def _skip_px4_build() -> bool:
+    """Whether to pass --no-build to the launcher.
+
+    Rebuild only when there is no binary to run. This is not just an
+    optimisation -- on the pixi (macOS) path it is required for correctness.
+    launch.sh's own `make px4_sitl` invokes CMake with none of the flags in
+    pixi.toml's `build` task, so it re-resolves against whatever Gazebo it
+    finds and dies on protobuf 35's deprecated RepeatedField::Resize (PX4
+    builds with -Werror). The result was that pressing "Connect" in the webapp
+    destroyed a working build.
+
+    Building PX4 is a developer action with its own command (`pixi run build`,
+    or `make px4_sitl_default` in Docker), not something a monitoring UI should
+    trigger. The one case where the webapp still builds is a fresh clone that
+    has never been built -- otherwise "Connect" would fail with nothing to run.
+
+    Set SCARECROW_FORCE_BUILD=1 to always let the launcher build.
+    """
+    if os.environ.get("SCARECROW_FORCE_BUILD") == "1":
+        return False
+    return os.path.isfile(PX4_BINARY)
 
 LAUNCH_STEPS = [
     ("cleanup", "Cleaning up old sessions"),
@@ -175,6 +219,9 @@ class SimService:
             launch_script = os.path.join(REPO_ROOT, "scripts", "shell", "launch.sh")
             launch_args = [world]
             self._camera = None
+
+        if _skip_px4_build():
+            launch_args.append("--no-build")
 
         if not os.path.exists(launch_script):
             raise FileNotFoundError(f"launch script not found at {launch_script}")
@@ -505,17 +552,15 @@ class SimService:
         # signal; the OS can take a moment to release the listening
         # socket (TIME_WAIT, lingering FDs). 2s upper bound is plenty.
         for _ in range(20):
-            check = subprocess.run(
-                ["ss", "-tln", "sport", "= :8080"],
-                capture_output=True, text=True,
-            )
-            if ":8080" not in check.stdout:
+            if not _port_in_use(8080):
                 break
             time.sleep(0.1)
 
-        # Pick the same python the launcher would have picked.
-        venv_python = os.path.join(REPO_ROOT, ".venv", "bin", "python")
-        python_bin = venv_python if os.path.isfile(venv_python) else "python3"
+        # Run the streamer with the interpreter that is running this backend.
+        # It is the only one guaranteed to have the deps (aiortc, av, gz-python)
+        # -- under pixi there is no .venv at all, and a bare "python3" would
+        # resolve to whatever is first on PATH.
+        python_bin = sys.executable
 
         streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera_webrtc.py")
         env = os.environ.copy()

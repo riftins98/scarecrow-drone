@@ -246,6 +246,14 @@ class DetectionService:
         # Cross-platform immediate stdout for Python flight scripts. This is
         # the Windows/macOS/Linux-safe equivalent of relying on stdbuf.
         env["PYTHONUNBUFFERED"] = "1"
+        # Flight scripts do `from scarecrow...`, but running
+        # scripts/flight/x.py puts scripts/flight on sys.path, not the repo
+        # root. The venv track happened to work via `pip install -e .`; under
+        # pixi there is no such install and every flight died on
+        # ModuleNotFoundError. Set it here rather than relying on how the
+        # backend was started. Prepend so a caller's PYTHONPATH survives.
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = f"{REPO_ROOT}{os.pathsep}{existing}" if existing else REPO_ROOT
 
         cmd = [sys.executable, "-u", flight_script]
         cmd.extend(self._format_cli_args(script_args or {}))

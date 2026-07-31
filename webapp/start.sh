@@ -12,13 +12,27 @@ echo "============================================"
 # Align default world with simulation scripts (override before sourcing if needed).
 export SCARECROW_DEFAULT_WORLD="${SCARECROW_DEFAULT_WORLD:-hangar_lite}"
 
-# Install backend deps if needed
+# Resolve the Python environment.
+#
+# Two supported environments, and this script must not assume either:
+#   pixi (macOS)      -- `pixi run webapp` sets CONDA_PREFIX; there is no .venv
+#                        and there never will be, so the old unconditional
+#                        `source .venv/bin/activate` hard-failed here.
+#   venv (WSL/Windows)-- the original path, still used by Start Scarecrow.bat.
 echo "[webapp] Checking backend dependencies..."
 cd "$REPO_ROOT"
-source .venv/bin/activate 2>/dev/null || {
-    echo "ERROR: .venv not found. Run: python3 -m venv .venv && pip install -r requirements.txt"
+if [ -n "${CONDA_PREFIX:-}" ]; then
+    echo "[webapp] Using pixi environment: $CONDA_PREFIX"
+elif [ -f .venv/bin/activate ]; then
+    source .venv/bin/activate
+    echo "[webapp] Using virtualenv: $REPO_ROOT/.venv"
+else
+    echo "ERROR: no Python environment found."
+    echo "  macOS:       pixi run webapp"
+    echo "  WSL/Windows: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
     exit 1
-}
+fi
+
 if ! python3 -c "import fastapi, uvicorn" >/dev/null 2>&1; then
     if command -v uv >/dev/null 2>&1; then
         echo "[webapp] Installing backend deps with uv..."

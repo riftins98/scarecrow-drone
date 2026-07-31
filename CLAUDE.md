@@ -16,6 +16,20 @@ See `docs/implementation/README.md` for the phased plan to complete the ADD. Eac
 - **SQLite** for flight history
 
 ## Development Workflows
+
+**macOS — use pixi.** Never `brew install` the sim dependencies; a `brew upgrade`
+on 2026-06-20 silently broke the whole build (see the header of `pixi.toml`).
+
+```bash
+pixi install          # materialise the locked environment
+pixi run build        # build PX4 SITL (once; ~90s)
+pixi run webapp       # backend :8000 + frontend :3000 — Connect launches the sim
+```
+Other tasks: `pixi run sim` (headless sim + stream on :8080), `pixi run fly`,
+`pixi run sensors`, `pixi run test`, `pixi run verify-isolation`.
+First sim launch after a build takes ~165s; every launch after that ~22s.
+
+**WSL/Windows — venv + Docker.** See `docker/` for the delivery image.
 - Launch sim: `source scripts/shell/env.sh && ./scripts/shell/launch.sh [world_name]`
 - Run flights: `source .venv/bin/activate && python3 scripts/flight/<script>.py`
 - Web app: `cd webapp && ./start.sh` (frontend :3000, backend :8000)
