@@ -42,3 +42,8 @@ docs/superpowers/
 # polluted the PX4 submodule with 261 stale symlinks.
 * [0-9].*
 *\ [0-9]
+# Built React bundle. Produced by `pixi run build-frontend` (macOS) or the
+# `webbuild` Dockerfile stage (delivery) -- never committed. It used to be
+# tracked, which became a hazard once the backend started serving it: :8000
+# would quietly hand out a months-old UI with nothing to indicate it was stale.
+webapp/frontend/build/

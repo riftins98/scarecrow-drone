@@ -29,7 +29,32 @@ Other tasks: `pixi run sim` (headless sim + stream on :8080), `pixi run fly`,
 `pixi run sensors`, `pixi run test`, `pixi run verify-isolation`.
 First sim launch after a build takes ~165s; every launch after that ~22s.
 
-**WSL/Windows — venv + Docker.** See `docker/` for the delivery image.
+**Windows/Linux — Docker.** The whole product in one container:
+
+```bash
+docker compose up          # -> http://localhost:8000/
+```
+That URL is the entire interface: pick world/camera/spawn, press Connect to
+launch PX4 + Gazebo, then fly. No shell in the container, no second port to
+open. On NVIDIA hardware use `docker compose --profile gpu up`, which makes
+software rendering fatal instead of a silent slow fallback.
+
+GPU profiles cover every vendor: `--profile gpu` (NVIDIA), `--profile gpu-wsl`
+(any GPU on Windows via WSL2 — AMD, Intel or NVIDIA), `--profile gpu-dri`
+(AMD/Intel on native Linux).
+
+- Build with `bash docker/build.sh` (sources the pinned versions and prunes
+  orphaned images); plain `docker compose build` produces `FROM ubuntu@`.
+- `docker run --rm scarecrow-sim:dev /opt/scarecrow/docker/self-test.sh` proves
+  nothing is missing from the image — no GPU needed.
+- Before handing over, run `bash docker/verify-delivery.sh` **on the target
+  machine**. It auto-detects the GPU path and checks rendering, the stream and
+  a real flight. `--no-gpu` skips only the GPU checks.
+
+See `docker/CLAUDE.md` for the GPU traps (driver capabilities, EGL vs glxinfo,
+and WSL's software fallback).
+
+**WSL/Windows native — venv.** The pre-Docker path, still supported.
 - Launch sim: `source scripts/shell/env.sh && ./scripts/shell/launch.sh [world_name]`
 - Run flights: `source .venv/bin/activate && python3 scripts/flight/<script>.py`
 - Web app: `cd webapp && ./start.sh` (frontend :3000, backend :8000)
@@ -48,6 +73,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - `design-system/` — Visual design system for the webapp (see `design-system/CLAUDE.md`). Read `design-system/scarecrow/MASTER.md` before any UI work.
 - `airframes/` — PX4 airframe configurations
 - `config/` — Gazebo server configuration
+- `docker/` — Delivery image for Windows/Linux: webapp + sim in one container (see `docker/CLAUDE.md`)
 - `docs/` — Implementation plan and specs (see `docs/implementation/README.md`)
 - `px4/` — PX4-Autopilot git submodule (do not edit directly)
 

@@ -12,6 +12,39 @@
 ARG UBUNTU_DIGEST
 
 # =====================================================================
+# Stage 0: frontend build
+# =====================================================================
+# Built here rather than shipping webapp/frontend/build from the repo, so the
+# image never depends on someone having remembered to run `npm run build`.
+#
+# Runs in parallel with the PX4 compile (BuildKit) and only re-runs when the
+# frontend sources change -- it does not sit in front of the expensive stages.
+#
+# Node 22, not 24: react-scripts 5 does not build on 24. Same major as the
+# pixi environment, so the macOS and Docker tracks build the same bundle.
+FROM node:22-bookworm-slim AS webbuild
+
+WORKDIR /build
+
+# package.json + lockfile first: `npm ci` is the slow layer and must not be
+# invalidated by an edit to a component.
+COPY webapp/frontend/package.json webapp/frontend/package-lock.json ./
+RUN npm ci
+
+COPY webapp/frontend/ ./
+
+# Empty API base = same origin. The backend serves this bundle, so the API is
+# wherever the page was loaded from. Anything hardcoded here would break as
+# soon as the user opens the app from another machine (or from Windows against
+# a container in WSL2), which is exactly the delivery scenario.
+ENV REACT_APP_API_BASE=""
+
+# CI=true makes react-scripts treat warnings as errors. Off deliberately: a
+# lint warning must not fail the customer's delivery build.
+ENV CI=false
+RUN npm run build
+
+# =====================================================================
 # Stage 1: system dependencies
 # =====================================================================
 FROM ubuntu@${UBUNTU_DIGEST} AS deps
@@ -168,6 +201,10 @@ COPY requirements.txt /opt/scarecrow/requirements.txt
 # needs it anyway.
 COPY webapp/backend /opt/scarecrow/webapp/backend
 
+# The built UI. app.py mounts this when it exists, so the backend serves the
+# whole product on one port -- no Node and no dev server in the runtime image.
+COPY --from=webbuild /build/build /opt/scarecrow/webapp/frontend/build
+
 # Runtime Python dependencies, pinned to the exact versions in requirements.txt.
 #
 # This is the FULL set, not just the stream, because the webapp's
@@ -195,7 +232,11 @@ RUN /opt/scarecrow/.venv/bin/pip install --no-cache-dir \
         matplotlib==3.10.8 \
         torch==2.11.0 \
         torchvision==0.26.0 \
-        ultralytics==8.4.36
+        ultralytics==8.4.36 \
+        fastapi==0.135.3 \
+        uvicorn==0.44.0 \
+        aiofiles==25.1.0 \
+        'pydantic>=2.0'
 
 # mavsdk ships a bundled mavsdk_server binary, but not for every architecture.
 # Fail at BUILD time if it is missing rather than leaving the first flight to
@@ -218,7 +259,26 @@ ENV PATH="/opt/scarecrow/.venv/bin:${PATH}" \
     CAMERA=fixed \
     STREAM_PORT=8080 \
     REQUIRE_GPU=0 \
-    STREAM_MODE=mjpeg
+    STREAM_MODE=mjpeg \
+    SCARECROW_MODE=webapp \
+    WEBAPP_PORT=8000
+
+# --- NVIDIA container runtime ------------------------------------------------
+# NVIDIA_DRIVER_CAPABILITIES is the single most important line here for the
+# Windows/Linux GPU delivery.
+#
+# nvidia-container-toolkit defaults to "compute,utility". That gives a working
+# nvidia-smi and working CUDA -- so every obvious check passes -- but it does
+# NOT mount the driver's OpenGL/EGL libraries or install
+# /usr/share/glvnd/egl_vendor.d/10_nvidia.json. Gazebo then finds only Mesa,
+# silently renders every camera and gpu_lidar on the CPU, and the only symptom
+# is that the sim is mysteriously slow. "graphics" is what fixes that; "display"
+# covers the GLX case if anyone ever attaches a display.
+#
+# Set in the image rather than only in docker-compose.yml so a plain
+# `docker run --gpus all scarecrow-sim` behaves correctly too.
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,display
 
 # STREAM_MODE=mjpeg is REQUIRED in a container, not a preference.
 #
@@ -235,6 +295,7 @@ ENV PATH="/opt/scarecrow/.venv/bin:${PATH}" \
 # Fine at the default 10 FPS. Restoring WebRTC in a container would need a TURN
 # server or a fixed published UDP range with forced ICE candidates.
 WORKDIR /opt/scarecrow
-EXPOSE 8080
+# 8000 = webapp (UI + REST API), 8080 = camera stream.
+EXPOSE 8000 8080
 
 ENTRYPOINT ["/opt/scarecrow/docker/entrypoint.sh"]

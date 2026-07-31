@@ -62,6 +62,43 @@ class TestSkipPx4Build:
         assert "--no-build" not in popen.call_args[0][0]
 
 
+class TestGuiAvailable:
+    """The delivery container has no display, so a GUI launch cannot work.
+
+    GUI was the pre-selected option in the UI, so without this the customer's
+    very first click would start a launch that could only fail.
+    """
+
+    def test_linux_without_display_has_no_gui(self):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(sim_mod.sys, "platform", "linux"):
+            assert sim_mod.gui_available() is False
+
+    def test_linux_with_x_display_has_gui(self):
+        with patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True), \
+                patch.object(sim_mod.sys, "platform", "linux"):
+            assert sim_mod.gui_available() is True
+
+    def test_linux_with_wayland_has_gui(self):
+        with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}, clear=True), \
+                patch.object(sim_mod.sys, "platform", "linux"):
+            assert sim_mod.gui_available() is True
+
+    def test_macos_has_gui_without_display(self):
+        """Gazebo on macOS is a native Cocoa window; DISPLAY is legitimately unset."""
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(sim_mod.sys, "platform", "darwin"):
+            assert sim_mod.gui_available() is True
+
+    def test_env_override_wins(self):
+        with patch.dict(os.environ, {"SCARECROW_GUI_AVAILABLE": "0"}, clear=True), \
+                patch.object(sim_mod.sys, "platform", "darwin"):
+            assert sim_mod.gui_available() is False
+        with patch.dict(os.environ, {"SCARECROW_GUI_AVAILABLE": "1", "DISPLAY": ""}, clear=True), \
+                patch.object(sim_mod.sys, "platform", "linux"):
+            assert sim_mod.gui_available() is True
+
+
 class TestPortInUse:
     """Portable replacement for `ss -tln` (absent on macOS and Windows)."""
 
@@ -77,8 +114,23 @@ class TestPortInUse:
             sock.close()
 
     def test_reports_free_port(self):
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-        probe.close()
-        assert sim_mod._port_in_use(port) is False
+        """It must be able to report False -- not just always say True.
+
+        Deliberately not "bind port 0, close it, assert the port is free":
+        that races. The kernel can hand the just-released ephemeral port to
+        anything else on the machine before the assertion runs, and it did --
+        this test failed once against completely correct code while Docker was
+        churning through ports. Instead, look for any port it reports as free
+        and assert one exists.
+        """
+        for _ in range(50):
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+            probe.close()
+            if sim_mod._port_in_use(port) is False:
+                return
+        raise AssertionError(
+            "_port_in_use never reported a free port across 50 attempts -- "
+            "it is probably returning True unconditionally"
+        )

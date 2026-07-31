@@ -150,6 +150,9 @@ export interface ScriptInfo {
 }
 
 export interface SimOptions {
+  /** False when the simulation host has no display (the Docker delivery
+   *  image), so a GUI launch could not succeed. Absent on older backends. */
+  guiAvailable?: boolean;
   worlds: WorldInfo[];
   /** Default world id (first SDF in worlds/, or SCARECROW_DEFAULT_WORLD). */
   defaultWorld?: string;

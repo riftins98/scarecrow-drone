@@ -1,6 +1,25 @@
 import { CameraInfo, ConnectSimParams, StartFlightParams } from '../types/flight';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://127.0.0.1:8000';
+/** Where the REST API lives.
+ *
+ *  Three cases, in order:
+ *   - REACT_APP_API_BASE set (including to "") wins. The Docker build sets it
+ *     to "" so requests are same-origin: the backend serves this bundle, so
+ *     the API is wherever the page came from. Hardcoding a host there would
+ *     break the moment the user opens the app from another machine, or from
+ *     Windows against a container in WSL2.
+ *   - Served from the backend itself (not the :3000 dev server) -> same-origin.
+ *   - Otherwise the CRA dev server, where the backend is a separate process.
+ *
+ *  Note `??`, not `||`: "" is a meaningful value here and `||` would discard it.
+ */
+const DEV_SERVER_PORTS = ['3000'];
+
+const API_BASE =
+  process.env.REACT_APP_API_BASE ??
+  (DEV_SERVER_PORTS.includes(window.location.port)
+    ? 'http://127.0.0.1:8000'
+    : '');
 
 /** Thrown for any non-2xx response; carries the HTTP status so callers can
  *  branch on it (e.g. polling code that should back off on 404). */
@@ -105,3 +124,25 @@ export const detectionImageUrl = (flightId: string, filename: string) =>
   `${API_BASE}/detection_images/${flightId}/${filename}`;
 export const missionMapUrl = (flightId: string, filename: string) =>
   `${API_BASE}/mission_maps/${flightId}/${filename}`;
+
+/** Rewrite a backend-reported stream URL so it resolves from the browser.
+ *
+ *  The backend scrapes this out of the launcher banner, where it is always
+ *  `http://localhost:<port>` because that is correct *on the sim host*. From
+ *  any other machine -- a Windows browser pointed at a container in WSL2, or
+ *  a phone on the LAN -- "localhost" is the browser's own machine and the feed
+ *  is simply dead. The port is the part worth keeping; the host should be
+ *  wherever the page itself came from.
+ */
+export function resolveStreamUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+      parsed.hostname = window.location.hostname;
+    }
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return url;
+  }
+}

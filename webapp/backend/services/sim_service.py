@@ -58,6 +58,27 @@ def _port_in_use(port: int) -> bool:
     return False
 
 
+def gui_available() -> bool:
+    """Whether a Gazebo GUI window can actually open here.
+
+    In the delivery container there is no X or Wayland display, so choosing
+    "GUI (open Gazebo window)" produces a launch that cannot succeed -- and it
+    was the *pre-selected* option, so it was the first thing a customer would
+    click. The UI asks this and offers headless only when the answer is no.
+
+    Only Linux is probed for a display: on macOS the Gazebo GUI is a native
+    Cocoa/Metal window and DISPLAY is legitimately unset there.
+
+    SCARECROW_GUI_AVAILABLE=0/1 overrides the probe.
+    """
+    override = os.environ.get("SCARECROW_GUI_AVAILABLE")
+    if override is not None:
+        return override not in ("0", "false", "False", "")
+    if sys.platform.startswith("linux"):
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return True
+
+
 PX4_BINARY = os.path.join(REPO_ROOT, "px4", "build", "px4_sitl_default", "bin", "px4")
 
 

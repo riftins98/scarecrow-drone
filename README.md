@@ -81,7 +81,7 @@ The primary interface is a one-click launcher that opens a browser-based control
 
 **macOS:**
 ```bash
-bash "webapp/Start Scarecrow Mac.sh"
+pixi run webapp
 ```
 
 **Windows (WSL2):**

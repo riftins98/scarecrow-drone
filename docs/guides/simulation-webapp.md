@@ -32,7 +32,8 @@ Complete project setup once before your first demo. Full instructions are in the
 
 **Platform notes**
 
-> **macOS** — Double-click or run `webapp/Start Scarecrow Mac.sh`. Opens `http://localhost:3000`.
+> **macOS** — `pixi run webapp` (dev, `http://localhost:3000`) or `pixi run webapp-prod`
+> (built UI on `http://localhost:8000`, the same shape the Docker image ships).
 
 > **Windows (WSL2)** — Double-click `webapp/Start Scarecrow.bat`. Backend runs in WSL (port 8000); frontend runs on Windows (port 3000). Use your Windows browser at `http://localhost:3000`.
 

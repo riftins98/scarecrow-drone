@@ -6,11 +6,31 @@
 # cannot drift from the native developer path.
 set -euo pipefail
 
+# Command passthrough. Without this, `docker run <image> ls /somewhere` ignored
+# the command and launched the whole simulation instead -- so every attempt to
+# inspect the image had to start a renderer check and a Gazebo preflight first.
+# Any explicit command now runs instead of the product:
+#     docker run --rm scarecrow-sim:dev bash
+#     docker compose run --rm sim python3 -c 'import torch'
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+fi
+
 WORLD="${WORLD:-hangar_small}"
 CAMERA="${CAMERA:-fixed}"
 STREAM_PORT="${STREAM_PORT:-8080}"
+MODE="${SCARECROW_MODE:-webapp}"
+WEBAPP_PORT="${WEBAPP_PORT:-8000}"
 
-echo "[entrypoint] world=$WORLD camera=$CAMERA port=$STREAM_PORT"
+echo "[entrypoint] mode=$MODE world=$WORLD camera=$CAMERA port=$STREAM_PORT"
+
+case "$MODE" in
+    webapp|sim) ;;
+    *)
+        echo "[entrypoint] FATAL: SCARECROW_MODE must be 'webapp' or 'sim' (got '$MODE')" >&2
+        exit 1
+        ;;
+esac
 
 WORLD_SDF="/opt/scarecrow/worlds/${WORLD}.sdf"
 if [ ! -f "$WORLD_SDF" ]; then
@@ -56,6 +76,36 @@ echo "[entrypoint] GZ_IP=$GZ_IP GZ_PARTITION=$GZ_PARTITION"
 
 cd /opt/scarecrow
 
+# --------------------------------------------------------------------
+# webapp mode (default): serve the UI and let the user drive.
+# --------------------------------------------------------------------
+# The sim is the product, but the UI is how the product is used -- so the
+# container starts the backend and nothing else. Pressing Connect in the
+# browser is what launches PX4 + Gazebo, through the same SimService code path
+# the macOS/pixi track uses. Nobody needs a shell in the container.
+#
+# The user therefore keeps the world, camera and spawn pickers, instead of
+# having them frozen by whatever env vars the container happened to start with.
+#
+# The backend will NOT rebuild PX4 (sim_service._skip_px4_build sees the binary
+# baked into the image), so Connect goes straight to launching.
+if [ "$MODE" = "webapp" ]; then
+    # WORLD is the container's configured world, but the backend picks the UI's
+    # pre-selected world from SCARECROW_DEFAULT_WORLD (env.sh defaults it to
+    # hangar_lite). Without this the compose file said hangar_small and the UI
+    # opened on hangar_lite.
+    export SCARECROW_DEFAULT_WORLD="$WORLD"
+    echo "[entrypoint] Backend + UI on http://localhost:${WEBAPP_PORT}/"
+    echo "[entrypoint] Camera stream will appear on http://localhost:${STREAM_PORT}/ once connected."
+    cd /opt/scarecrow/webapp/backend
+    exec python3 -m uvicorn app:app --host 0.0.0.0 --port "$WEBAPP_PORT"
+fi
+
+# --------------------------------------------------------------------
+# sim mode: headless sim + camera stream, no UI.
+# --------------------------------------------------------------------
+# For CI, smoke tests, and debugging a launch without the webapp in the way.
+#
 # --no-build is what makes startup fast: PX4 is already compiled into the image.
 exec ./scripts/shell/launch_with_stream.sh "$WORLD" \
     --headless \

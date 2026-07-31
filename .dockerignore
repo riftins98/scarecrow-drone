@@ -9,7 +9,12 @@
 px4/
 
 webapp/frontend/node_modules/
+# The UI is built inside the image (stage `webbuild`), so a local build/ is
+# dead weight in the context and could only cause confusion about which bundle
+# actually shipped.
+webapp/frontend/build/
 output/
+webapp/output/
 .venv/
 venv/
 .git/

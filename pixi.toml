@@ -269,7 +269,19 @@ launch-headless = { cmd = "./scripts/shell/launch_with_stream.sh", description =
 # WORLD/spawn note: the backend derives the spawn from the world SDF, so the
 # webapp puts the drone 2.0m off the walls rather than the 2.3m that
 # `pixi run sim` pins. Move it in the UI's spawn picker if that matters.
-webapp = { cmd = "bash webapp/start.sh", env = { MPLBACKEND = "Agg", SCARECROW_DEFAULT_WORLD = "hangar_small" }, description = "Backend :8000 + frontend :3000 (Connect in the UI launches the sim)" }
+webapp = { cmd = "bash webapp/start.sh", env = { MPLBACKEND = "Agg", SCARECROW_DEFAULT_WORLD = "hangar_small" }, description = "DEV: backend :8000 + CRA dev server :3000 (hot reload). Use :3000." }
+
+# Production-shaped run: build the UI, then serve it from the backend on :8000.
+#
+# This is the SAME shape the Docker image ships -- one port, one origin, the
+# built bundle, no dev server -- so what a macOS developer sees at :8000 is
+# what the customer sees at :8000. `pixi run webapp` is for hot reload while
+# working on the UI; this is for checking the thing that actually ships.
+webapp-prod = { cmd = "python -m uvicorn app:app --host 0.0.0.0 --port 8000", cwd = "webapp/backend", depends-on = ["build-frontend"], env = { MPLBACKEND = "Agg", SCARECROW_DEFAULT_WORLD = "hangar_small" }, description = "Built UI + API on :8000 -- same shape as the Docker image" }
+
+# CI=false so a lint warning cannot fail the build (react-scripts treats
+# warnings as errors when CI is set, which CI runners and some shells do).
+build-frontend = { cmd = "npm ci --no-audit --no-fund && npm run build", cwd = "webapp/frontend", env = { CI = "false" }, description = "Build the React bundle into webapp/frontend/build" }
 
 # Backend only -- for running the frontend from another terminal or hitting the
 # REST API / OpenAPI docs at http://localhost:8000/docs directly.
