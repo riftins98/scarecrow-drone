@@ -121,5 +121,98 @@ lxml = "*"
 pymavlink = "*"
 
 [tasks]
-launch = { cmd = "./scripts/shell/launch.sh", description = "Launch sim with GUI (world as $1)" }
-launch-headless = { cmd = "./scripts/shell/launch_with_stream.sh", description = "Launch sim + camera stream on :8080" }
+# Build PX4 SITL against THIS environment's Gazebo.
+#
+# Every flag below is load-bearing and was found by a build failure. Do not
+# drop one because it looks redundant.
+#
+#   CMAKE_PREFIX_PATH=$CONDA_PREFIX
+#       Point CMake at the pixi environment.
+#
+#   CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+#       CRITICAL. Homebrew ships the SAME gz-transport13 13.5.0, so without
+#       this CMake may silently link Homebrew's copy and the build "succeeds"
+#       while proving nothing. Verify with:
+#           otool -L px4/build/px4_sitl_default/bin/px4 | grep homebrew
+#       which must return nothing.
+#
+#   CMAKE_SHARED_LINKER_FLAGS / CMAKE_EXE_LINKER_FLAGS = -L$CONDA_PREFIX/lib
+#       PX4's gstreamer/CMakeLists.txt consumes GSTREAMER_LIBRARIES but drops
+#       GSTREAMER_LIBRARY_DIRS, so it emits -lgstreamer-1.0 with no -L. This is
+#       invisible on Ubuntu, where GStreamer lives in /usr/lib, and fails in any
+#       other prefix with "ld: library 'gstreamer-1.0' not found".
+#
+#   CMAKE_CXX_FLAGS_RELWITHDEBINFO ... -Wno-deprecated-declarations
+#       conda-forge's Gazebo requires libprotobuf >=6.31 (a downgrade is
+#       unsolvable), and protobuf 35 deprecates RepeatedField::Resize, which
+#       PX4's gz_bridge still calls. PX4 builds with -Werror, so without this
+#       the build dies on GZMixingInterfaceESC.cpp. Docker does not need this
+#       flag because Ubuntu 24.04 ships protobuf 3.21.12, where Resize is not
+#       deprecated. The real fix belongs upstream in PX4.
+#
+#   CMAKE_BUILD_RPATH / CMAKE_INSTALL_RPATH = $CONDA_PREFIX/lib
+#       Without these the binary links but cannot start:
+#       "dyld: Library not loaded: @rpath/libgz-transport13.13.dylib".
+#
+# Builds into build/px4_sitl_default -- the SAME directory launch.sh expects --
+# so `pixi run launch` uses this build directly. The launch tasks below pass
+# --no-build for exactly that reason: launch.sh's own `make px4_sitl` would
+# rebuild WITHOUT the flags above and fail on the protobuf deprecation.
+#
+# Consequence: a pixi build and a Homebrew build overwrite each other. That is
+# accepted deliberately -- on macOS, pixi is the supported path, and one
+# predictable workflow for every user beats two coexisting ones.
+build = { cmd = """
+    cd px4 && cmake -B build/px4_sitl_default -S . -G Ninja \
+      -DCONFIG=px4_sitl_default \
+      -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+      -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew" \
+      -DPYTHON_EXECUTABLE="$CONDA_PREFIX/bin/python" \
+      -DCMAKE_SHARED_LINKER_FLAGS="-L$CONDA_PREFIX/lib" \
+      -DCMAKE_EXE_LINKER_FLAGS="-L$CONDA_PREFIX/lib" \
+      -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -g -DNDEBUG -Wno-deprecated-declarations" \
+      -DCMAKE_BUILD_RPATH="$CONDA_PREFIX/lib" \
+      -DCMAKE_INSTALL_RPATH="$CONDA_PREFIX/lib" \
+    && ninja -C build/px4_sitl_default
+""", description = "Build PX4 SITL against the pixi Gazebo" }
+
+# Assert the build did not silently link Homebrew's Gazebo.
+verify-isolation = { cmd = """
+    otool -L px4/build/px4_sitl_default/bin/px4 | grep -q /opt/homebrew \
+      && { echo 'FAIL: binary links Homebrew libraries'; exit 1; } \
+      || echo 'OK: no Homebrew references in px4 binary'
+""", description = "Verify PX4 linked pixi's Gazebo, not Homebrew's" }
+
+# --no-build is required, not an optimisation: launch.sh would otherwise run
+# `make px4_sitl` without the flags in the build task above and fail on the
+# protobuf deprecation. Run `pixi run build` first (once, or after changing PX4).
+launch = { cmd = "./scripts/shell/launch.sh", args = [{ arg = "world", default = "hangar_small" }], description = "Launch sim with GUI. Run `pixi run build` first." }
+
+# Headless sim + MJPEG/WebRTC camera stream on http://localhost:8080/
+# Flags are baked in so the common case is one word:  pixi run sim
+#
+# PX4_GZ_MODEL_POSE pins the start position. Without it, launch_with_stream.sh
+# derives the pose from the SDF (world_meta.py spawn-pose), which puts the drone
+# 2.0m off the walls -- for hangar_small that is -6.0,-3.0.
+#
+# -5.7,-2.7 is 2.3m clear of the south wall (x=-8.0) and 2.3m clear of the west
+# wall (y=-5.0). hangar_small's interior is x[-8, 8], y[-5, 5]; walls sit at
+# +/-8.1 and +/-5.1 and are 0.2m thick.
+#
+# NOTE: this pose is world-specific. Running another world through this task
+# (WORLD=hangar_lite pixi run sim) would apply the SAME pose, which may be
+# outside that world's floor. For other worlds, unset it:
+#     WORLD=hangar_lite PX4_GZ_MODEL_POSE= pixi run sim
+# and the SDF-derived default is used again.
+sim = { cmd = """
+    ./scripts/shell/launch_with_stream.sh "$WORLD" --headless --fixed --no-open --no-build
+""", env = { WORLD = "hangar_small", PX4_GZ_MODEL_POSE = "-5.7,-2.7,0,0,0,0" }, description = "Headless sim + camera stream on :8080 (hangar_small, spawn 2.3m off walls)" }
+
+# Fly the pigeon-pursuit mission against a running sim. Start `pixi run sim`
+# in another terminal first.
+fly = { cmd = "python scripts/flight/hangar_circuit_pursuit.py", env = { MPLBACKEND = "Agg" }, description = "Run the hangar circuit pursuit mission (needs `pixi run sim` running)" }
+
+# Sensor diagnostics against a running sim -- no flight. Good first check.
+sensors = { cmd = "python scripts/flight/sensor_check.py", env = { MPLBACKEND = "Agg" }, description = "Check lidar/camera/flow/rangefinder (needs `pixi run sim` running)" }
+
+launch-headless = { cmd = "./scripts/shell/launch_with_stream.sh", description = "Raw stream launcher (pass your own flags). Prefer `pixi run sim`." }
