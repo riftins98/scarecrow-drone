@@ -17,6 +17,10 @@
 set -e
 trap 'echo "[launch] ERROR: script failed at line $LINENO — exit code $?"' ERR
 
+# Baseline for _dump_latest_gz_log: any Gazebo log older than this belongs to a
+# previous session and must not be presented as diagnostics for this run.
+_LAUNCH_START_EPOCH=$(date +%s)
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 _LOG_COMPONENT="launch.sim"
@@ -25,13 +29,16 @@ _log_init "sim"
 _log_host
 _log_env_snapshot
 
-WORLD="${1:-indoor_room}"
+WORLD="${1:-${SCARECROW_DEFAULT_WORLD:-hangar_small}}"
 HEADLESS_FLAG=""
 NO_BUILD=0
 if [[ "$2" == "--headless" ]] || [[ "$1" == "--headless" ]]; then
     HEADLESS_FLAG="HEADLESS=1"
     if [[ "$1" == "--headless" ]]; then
-        WORLD="indoor_room"
+        # No world was given (the first arg is the flag), so fall back to the
+        # same default as above. This used to hardcode indoor_room, whose SDF
+        # no longer exists.
+        WORLD="${SCARECROW_DEFAULT_WORLD:-hangar_small}"
     fi
 fi
 
@@ -323,6 +330,22 @@ _dump_latest_gz_log() {
     if [[ ! -f "$log_file" ]]; then
         echo "[launch] Gazebo log not found: $log_file"
         return
+    fi
+
+    # Only a log created during THIS run describes this failure. Anything older is
+    # from a previous session and is actively misleading — it may show a healthy run
+    # and bury the real error. Observed 2026-07-31: a failed launch printed a
+    # successful log from 2026-06-25.
+    if [[ -n "${_LAUNCH_START_EPOCH:-}" ]]; then
+        local log_epoch
+        log_epoch=$(date -r "$log_file" +%s 2>/dev/null || echo 0)
+        if (( log_epoch < _LAUNCH_START_EPOCH )); then
+            echo "[launch] No Gazebo log produced by this run — gz sim never started."
+            echo "[launch] (Newest log on disk is from a previous session: $latest_dir)"
+            echo "[launch] Reproduce the failure directly with:"
+            echo "[launch]   gz sim --headless-rendering -s -r -v1 \"\$SCARECROW_DIR/worlds/$WORLD.sdf\""
+            return
+        fi
     fi
 
     echo "[launch] Gazebo log (tail 200): $log_file"
