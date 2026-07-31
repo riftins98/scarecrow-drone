@@ -1,0 +1,240 @@
+# syntax=docker/dockerfile:1.7
+#
+# Scarecrow drone simulation image.
+#
+# Pinning rationale: on 2026-06-20 a `brew upgrade` on the developer Mac moved
+# protobuf to 35 (breaking the PX4 -Werror build) and removed assimp entirely
+# (Gazebo could not start). Nothing in the repo changed. Homebrew has no
+# lockfile; apt on a digest-pinned base image is deterministic by construction.
+#
+# Build args come from docker/versions.env — never hardcode them here.
+
+ARG UBUNTU_DIGEST
+
+# =====================================================================
+# Stage 1: system dependencies
+# =====================================================================
+FROM ubuntu@${UBUNTU_DIGEST} AS deps
+
+ARG GZ_VERSION
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg lsb-release sudo git \
+ && curl -sSL https://packages.osrfoundation.org/gazebo.gpg \
+        -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
+        > /etc/apt/sources.list.d/gazebo-stable.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+        gz-harmonic=${GZ_VERSION} \
+        libassimp-dev \
+        libopencv-dev \
+        cppzmq-dev \
+        libunwind-dev \
+        libeigen3-dev \
+        libxml2-utils \
+        protobuf-compiler \
+        pkg-config \
+        bc dmidecode \
+        mesa-utils \
+        libgl1-mesa-dri \
+        libegl1 \
+        python3 python3-venv python3-pip python3-dev \
+        build-essential cmake ninja-build \
+        ffmpeg \
+        procps iproute2 curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Every dependency here is EXPLICIT rather than transitive, on purpose:
+#
+#   libassimp-dev  -- Gazebo's mesh loader. Disappeared from the developer Mac
+#                     on 2026-06-20 as a side effect of an unrelated upgrade
+#                     and took Gazebo down with it (could not start at all).
+#   libopencv-dev  -- required by the optical_flow gz plugin
+#                     (gz_plugins/optical_flow/CMakeLists.txt:40 wants the core
+#                     and imgproc components). ubuntu.sh --no-sim-tools does NOT
+#                     install it, so the PX4 CMake configure fails without it.
+#                     Optical flow is core to GPS-denied navigation here.
+#   cppzmq-dev     -- C++ ZeroMQ binding. PX4's gz_bridge and the optical_flow
+#                     plugin link CPPZMQ::CPPZMQ. ubuntu.sh adds this ONLY on
+#                     Ubuntu 24.04 (see its gazebo_packages block), which is
+#                     exactly our base image, and --no-sim-tools skips it.
+#   libunwind-dev  -- }
+#   libeigen3-dev  -- } the remainder of ubuntu.sh's simulation dependency set,
+#   libxml2-utils  -- } which --no-sim-tools omits. Listed explicitly so the
+#   protobuf-compiler } image never depends on that flag's behaviour.
+#   pkg-config     -- }
+#   bc, dmidecode  -- }
+#   mesa-utils     -- provides glxinfo for the renderer assertion.
+#
+# DELIBERATELY OMITTED: the gstreamer1.0-* packages that ubuntu.sh installs.
+# They exist only for PX4's GstCameraSystem plugin, which this project does not
+# use -- camera streaming goes through scripts/stream_camera_webrtc.py reading
+# Gazebo topics directly. Skipping them keeps the image smaller. If a build
+# error ever names GstCameraSystem, add them back here rather than dropping
+# --no-sim-tools (which would pull an unpinned Gazebo).
+
+COPY docker/smoke-test.sh /usr/local/bin/smoke-test.sh
+RUN chmod +x /usr/local/bin/smoke-test.sh
+
+# =====================================================================
+# Stage 2: compile PX4 SITL
+# =====================================================================
+# Compiled ONCE here, at image build time, with -j$(nproc). The native macOS
+# path uses `make -j1` (launch.sh:160), which takes 30-60 minutes on every
+# fresh machine. The customer must never pay that cost.
+FROM deps AS pxbuild
+
+WORKDIR /opt/scarecrow
+
+# PX4 is CLONED here rather than COPYed from the build context.
+#
+# WHY: `COPY px4` forces BuildKit to hash and transfer ~49,000 files / 412MB
+# through macOS virtiofs on EVERY build -- even when the COPY layer itself is
+# cached, because the hash is needed to validate that cache. Measured
+# 2026-07-31: 23 minutes and still transferring, before a single line compiled.
+# Cloning happens inside the Linux VM at network speed instead, and drops the
+# build context from 412MB to ~10MB.
+#
+# Reproducibility is unchanged: PX4_REF is the exact SHA the repo's gitlink
+# already points at. Treat it as a pin -- bump it deliberately, never casually.
+ARG PX4_REPO=https://github.com/riftins98/PX4-Autopilot.git
+ARG PX4_REF=1104aeddca4260d62b1c91985d9fa4d06b47faef
+
+RUN git clone "${PX4_REPO}" /opt/scarecrow/px4 \
+ && cd /opt/scarecrow/px4 \
+ && git checkout "${PX4_REF}" \
+ && git submodule update --init --recursive \
+ && git -C /opt/scarecrow/px4 rev-parse HEAD
+
+COPY docker/requirements-px4.lock /tmp/requirements-px4.lock
+
+# PX4's own dependency installer. --no-sim-tools because gz-harmonic is already
+# installed from the pinned OSRF repo above and we do not want it pulling an
+# unpinned Gazebo.
+RUN /opt/scarecrow/px4/Tools/setup/ubuntu.sh --no-nuttx --no-sim-tools
+
+# Pinned Python toolchain for the build (kconfiglib, empy, jinja2, ...).
+RUN python3 -m venv /opt/scarecrow/.venv \
+ && /opt/scarecrow/.venv/bin/pip install --no-cache-dir --upgrade pip \
+ && /opt/scarecrow/.venv/bin/pip install --no-cache-dir -r /tmp/requirements-px4.lock
+
+ENV PYTHON_EXECUTABLE=/opt/scarecrow/.venv/bin/python
+ENV PATH="/opt/scarecrow/.venv/bin:${PATH}"
+
+RUN cd /opt/scarecrow/px4 && make px4_sitl -j"$(nproc)"
+
+# Also build the nolockstep target.
+#
+# WHY: PX4 SITL defaults to lockstep -- PX4 waits for Gazebo to finish each
+# render step. Inside a container without a GPU, Gazebo software-renders and
+# that wait dominates: measured RTF 0.055 on an Apple Silicon Mac versus ~0.5
+# natively with Metal. With CONFIG_BOARD_NOLOCKSTEP=y, PX4 runs on wall-clock
+# and stops waiting, which is exactly why launch.sh already enables it on WSL
+# ("~100% RTF").
+#
+# Both targets ship so the mode is a runtime choice (SCARECROW_NOLOCKSTEP=1),
+# not a rebuild: GPU machines can keep lockstep fidelity, GPU-less ones get
+# usable speed. ccache makes this second compile much cheaper than the first.
+RUN cd /opt/scarecrow/px4 && make px4_sitl_nolockstep -j"$(nproc)"
+
+RUN test -x /opt/scarecrow/px4/build/px4_sitl_default/bin/px4 \
+ || (echo "PX4 binary missing after build" >&2; exit 1)
+RUN test -x /opt/scarecrow/px4/build/px4_sitl_nolockstep/bin/px4 \
+ || (echo "PX4 nolockstep binary missing after build" >&2; exit 1)
+
+# =====================================================================
+# Stage 3: runtime
+# =====================================================================
+FROM pxbuild AS runtime
+
+# Repo-owned assets. These are small and change often, so they come last —
+# editing a flight script or world invalidates only these layers, never the
+# PX4 compile above.
+COPY scripts   /opt/scarecrow/scripts
+COPY scarecrow /opt/scarecrow/scarecrow
+COPY worlds    /opt/scarecrow/worlds
+COPY models    /opt/scarecrow/models
+COPY airframes /opt/scarecrow/airframes
+COPY config    /opt/scarecrow/config
+COPY requirements.txt /opt/scarecrow/requirements.txt
+
+# The sim launcher depends on webapp backend code, which is not obvious:
+# launch_with_stream.sh calls scripts/shell/world_meta.py, which loads
+# webapp/backend/services/world_geometry.py by absolute path to resolve the
+# default world and spawn pose. Without this COPY the launcher dies with
+# FileNotFoundError before Gazebo ever starts. Only 348K, and Step 2 (webapp)
+# needs it anyway.
+COPY webapp/backend /opt/scarecrow/webapp/backend
+
+# Runtime Python dependencies, pinned to the exact versions in requirements.txt.
+#
+# This is the FULL set, not just the stream, because the webapp's
+# DetectionService spawns scripts/flight/*.py as subprocesses -- so the image
+# needs every dependency those scripts touch:
+#   mavsdk        -- all drone control (scarecrow/flight/flight.py)
+#   matplotlib    -- sensor_check.py plots
+#   ultralytics   -- YOLO pigeon detection (hangar_circuit_pursuit.py,
+#                    scarecrow/detection/yolo.py). Pulls torch.
+#
+# These imports are lazy (inside functions), so a missing one fails mid-flight
+# rather than at startup -- which is exactly the kind of late failure this
+# image exists to prevent.
+#
+# NOT installed: rplidar-roboticia, which is for real hardware only and has no
+# use in simulation.
+RUN /opt/scarecrow/.venv/bin/pip install --no-cache-dir \
+        aiohttp==3.13.5 \
+        aiortc==1.14.0 \
+        av==16.1.0 \
+        numpy==2.4.4 \
+        opencv-python-headless==4.13.0.92 \
+        pillow==12.2.0 \
+        mavsdk==3.15.3 \
+        matplotlib==3.10.8 \
+        torch==2.11.0 \
+        torchvision==0.26.0 \
+        ultralytics==8.4.36
+
+# mavsdk ships a bundled mavsdk_server binary, but not for every architecture.
+# Fail at BUILD time if it is missing rather than leaving the first flight to
+# discover it, since every flight script depends on it.
+RUN MS="$(find /opt/scarecrow/.venv -name 'mavsdk_server*' -type f 2>/dev/null | head -1)"; \
+    if [ -z "$MS" ]; then \
+        echo "WARNING: no bundled mavsdk_server for $(dpkg --print-architecture)." >&2; \
+        echo "Flight scripts need MAVSDK_SERVER_ADDRESS/PORT pointing at an external server." >&2; \
+    else \
+        echo "mavsdk_server: $MS"; \
+    fi
+
+COPY docker /opt/scarecrow/docker
+RUN chmod +x /opt/scarecrow/docker/*.sh
+
+ENV PATH="/opt/scarecrow/.venv/bin:${PATH}" \
+    PYTHONPATH="/opt/scarecrow" \
+    PYTHONUNBUFFERED=1 \
+    WORLD=hangar_small \
+    CAMERA=fixed \
+    STREAM_PORT=8080 \
+    REQUIRE_GPU=0 \
+    STREAM_MODE=mjpeg
+
+# STREAM_MODE=mjpeg is REQUIRED in a container, not a preference.
+#
+# WebRTC negotiates its media path over dynamic UDP ports via ICE. aiortc
+# advertises the container's internal address (e.g. 172.17.0.2), which on
+# Docker Desktop lives inside the VM and is unreachable from the host browser.
+# Only the published TCP port crosses that boundary, so signalling succeeds
+# (the page loads) while media never connects. Observed 2026-07-31: nine peer
+# connections all stuck at pc_state=connecting, black video.
+#
+# MJPEG is plain HTTP multipart over the single published port, so it works
+# through any port mapping -- macOS, Windows/WSL2, and Linux alike.
+# Trade-off: whole JPEG frames instead of H.264, so heavier and less smooth.
+# Fine at the default 10 FPS. Restoring WebRTC in a container would need a TURN
+# server or a fixed published UDP range with forced ICE candidates.
+WORKDIR /opt/scarecrow
+EXPOSE 8080
+
+ENTRYPOINT ["/opt/scarecrow/docker/entrypoint.sh"]

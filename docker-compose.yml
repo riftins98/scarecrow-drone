@@ -1,0 +1,77 @@
+# Scarecrow drone simulation.
+#
+#   docker compose up
+#   -> http://localhost:8080/
+#
+# Change the world or camera without rebuilding:
+#   WORLD=hangar_detailed docker compose up
+#   CAMERA=drone_view docker compose up
+#
+# Available worlds: hangar, hangar_detailed, hangar_lite, hangar_small
+# Available cameras: fixed, drone_cam, drone_view
+
+services:
+  sim:
+    # For delivery this resolves to a prebuilt image and nothing compiles on the
+    # customer's machine. `docker compose build` is only for maintainers who are
+    # deliberately bumping a pin in docker/versions.env.
+    image: ${SCARECROW_IMAGE:-scarecrow-sim:dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        UBUNTU_DIGEST: ${UBUNTU_DIGEST}
+        GZ_VERSION: ${GZ_VERSION}
+
+    ports:
+      - "${STREAM_PORT:-8080}:8080"
+      # PX4 MAVLink API. Published so flight scripts can optionally be run from
+      # the host against the container's PX4, in addition to running inside it.
+      - "14540:14540/udp"
+      # MAVLink GCS (QGroundControl).
+      - "14550:14550/udp"
+
+    environment:
+      WORLD: ${WORLD:-hangar_small}
+      CAMERA: ${CAMERA:-fixed}
+      STREAM_PORT: "8080"
+
+      # MJPEG, not WebRTC. WebRTC's ICE media path cannot cross Docker port
+      # mapping (signalling connects, video stays black). See docker/Dockerfile.
+      STREAM_MODE: ${STREAM_MODE:-mjpeg}
+
+      # Set to 1 on hardware that must not fall back to software rendering
+      # (the ROG Strix delivery machines). All 5 sensors are GPU-rendered:
+      # 3 cameras + 2 gpu_lidar. A silent llvmpipe fallback still "works",
+      # just too slowly to fly a complex world.
+      REQUIRE_GPU: ${REQUIRE_GPU:-0}
+
+      # Set to 1 to skip the ~20s Gazebo preflight once the image is trusted.
+      SKIP_PREFLIGHT: ${SKIP_PREFLIGHT:-0}
+
+      # Default ON in containers. PX4 lockstep makes PX4 wait for each Gazebo
+      # render step; without a GPU that wait dominates (measured RTF 0.055 on
+      # Apple Silicon). Nolockstep runs PX4 on wall-clock instead.
+      # Set to 0 on GPU machines that can afford full lockstep fidelity.
+      SCARECROW_NOLOCKSTEP: ${SCARECROW_NOLOCKSTEP:-1}
+
+    # Gazebo + PX4 need a moment to shut down cleanly.
+    stop_grace_period: 15s
+
+# ---------------------------------------------------------------------
+# GPU profile — Windows/WSL2 with NVIDIA. Requires nvidia-container-toolkit
+# on the host. Enable with:  docker compose --profile gpu up
+# ---------------------------------------------------------------------
+  sim-gpu:
+    profiles: ["gpu"]
+    extends:
+      service: sim
+    environment:
+      REQUIRE_GPU: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
