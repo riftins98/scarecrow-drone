@@ -4,9 +4,12 @@ GPS-denied indoor navigation system for autonomous quadcopters. Combines lidar-b
 
 **Repository**: https://github.com/riftins98/scarecrow-drone
 
-## Implementation Plan
+## Verification
 
-See `docs/implementation/README.md` for the phased plan to complete the ADD. Each phase is a self-contained document in `docs/implementation/phases/`.
+`docs/ACCEPTANCE_CHECKLIST.md` is the manual flight checklist — what only a
+human watching a full mission can judge. Run it after any change to
+controllers, sensors, missions or worlds. `docker/verify-delivery.sh` is its
+automated counterpart and proves the *environment* works on target hardware.
 
 ## Key Technologies
 - **PX4 Autopilot** + **Gazebo** for simulation
@@ -74,7 +77,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - `airframes/` — PX4 airframe configurations
 - `config/` — Gazebo server configuration
 - `docker/` — Delivery image for Windows/Linux: webapp + sim in one container (see `docker/CLAUDE.md`)
-- `docs/` — Implementation plan and specs (see `docs/implementation/README.md`)
+- `docs/` — Acceptance checklist and the reviewer-facing user guides under `docs/guides/`
 - `px4/` — PX4-Autopilot git submodule (do not edit directly)
 
 ## Root Files
