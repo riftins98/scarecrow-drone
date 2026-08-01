@@ -43,6 +43,24 @@ CORNER_MAX_SPEED_M_S = 0.30
 CORNER_TOLERANCE_M = 0.15
 CORNER_STABLE_TIME_S = 1.0
 
+# Hold still after the turn before correcting position.
+#
+# This phase runs immediately after a 90-degree rotation, which is the worst
+# moment to trust the estimator: rotational flow contaminates optical flow's
+# translational estimate and the EKF needs time to re-converge. Measured across
+# a corner, the drone's reported body-frame velocity disagreed with what the
+# lidar actually saw by up to 0.30 m/s, decaying to zero by roughly t+7s.
+#
+# During that window PX4 flies to a velocity it only believes it is achieving,
+# so the lidar error grows, the controller corrects harder, and the whole thing
+# has to be unwound once the estimate recovers. One corner cost 40 seconds that
+# way. Holding still costs a few seconds and removes the cause -- there is
+# nothing to unwind if we never fought the transient.
+#
+# Not a controller fix: no lidar alignment or gain tuning helps, because the
+# measurement was never the problem.
+CORNER_SETTLE_S = 3.0
+
 # Consecutive in-band altitude samples required before a manoeuvre may finish.
 _ALTITUDE_STABLE_HITS_REQUIRED = 3
 
@@ -175,13 +193,34 @@ async def stabilize_corner(
     wall_distance: float,
     target_alt_m: float,
     timeout_s: float = CORNER_TIMEOUT_S,
+    settle_s: float = CORNER_SETTLE_S,
 ) -> bool:
     """Settle rear/left distances and altitude after a 90-degree turn.
+
+    Holds still for ``settle_s`` first, so position correction never runs
+    against an estimator that is still recovering from the rotation. See
+    CORNER_SETTLE_S.
 
     Returns False on timeout. Callers generally warn and continue rather than
     abort -- the next wall-follow leg re-establishes the wall reference anyway,
     so a slightly imperfect corner is recoverable.
     """
+    if settle_s > 0:
+        settle_started = time.time()
+        while time.time() - settle_started < settle_s:
+            # Altitude still holds: it uses the rangefinder, not optical flow,
+            # and drifting off a ceiling-safe altitude while waiting would
+            # trade one problem for a worse one.
+            agl = await _current_agl(drone)
+            down_speed, _, _ = altitude_hold_down_speed(agl, target_alt_m)
+            await drone.set_velocity(VelocityCommand(down_m_s=down_speed))
+            await asyncio.sleep(0.05)
+        scan = lidar.get_scan()
+        if scan is not None:
+            print(
+                f"  [corner] settled {settle_s:.1f}s after turn: "
+                f"left={scan.left_distance():.2f}m rear={scan.rear_distance():.2f}m"
+            )
     stabilizer = DistanceStabilizerController(
         targets=DistanceTargets(rear=wall_distance, left=wall_distance),
         max_forward_speed=CORNER_MAX_SPEED_M_S,
@@ -214,7 +253,7 @@ async def stabilize_corner(
                 f"rear={scan.rear_distance():.2f}m "
                 f"right={scan.right_distance():.2f}m "
                 f"agl={format_meters(agl, 2)} alt_err={alt_error:+.2f}m "
-                f"down={cmd.down_m_s:+.2f}"
+                f"down={cmd.down_m_s:+.2f} t={time.time() - started:.1f}s"
             )
 
         if stabilizer.done and altitude_stable_hits >= _ALTITUDE_STABLE_HITS_REQUIRED:
