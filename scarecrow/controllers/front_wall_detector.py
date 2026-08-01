@@ -6,9 +6,15 @@ is more consistent across maps with different obstacles and floor textures.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 
 import numpy as np
+
+
+# Loop rate the confirmation window was originally tuned against, used only to
+# convert a legacy confirm_cycles value into seconds.
+NOMINAL_LOOP_HZ = 7.0
 
 
 @dataclass
@@ -41,7 +47,8 @@ class FrontWallDetector:
         center_tolerance_rad: float = math.radians(8.0),
         min_cluster_points: int = 8,
         min_cluster_width_rad: float = math.radians(10.0),
-        confirm_cycles: int = 4,
+        confirm_seconds: float = 0.55,
+        confirm_cycles: int | None = None,
     ):
         self.stop_distance_m = stop_distance_m
         self.front_sector_half_width_rad = front_sector_half_width_rad
@@ -51,16 +58,40 @@ class FrontWallDetector:
         self.center_tolerance_rad = center_tolerance_rad
         self.min_cluster_points = min_cluster_points
         self.min_cluster_width_rad = min_cluster_width_rad
-        self.confirm_cycles = max(1, confirm_cycles)
 
-        self._stop_counter = 0
+        # Confirmation is a DURATION, not a number of calls.
+        #
+        # This used to be `confirm_cycles: int = 4`, counted in update() calls.
+        # The whole point of this class is to reject a spurious front reading
+        # by requiring it to persist -- but "persist" only means anything in
+        # time, and the caller's loop rate is not fixed.
+        #
+        # It broke exactly that way. Caching PX4 telemetry took the wall-follow
+        # loop from 7.0Hz to 12.8Hz, which silently cut the confirmation window
+        # from 571ms to 312ms -- from 17cm of travel at 0.30m/s down to 9cm.
+        # The detector then confirmed a wall that was not there: the leg
+        # stopped with 8.1m of open space ahead, and the corner turn that
+        # followed had no wall to align against and timed out at 62 degrees of
+        # error.
+        #
+        # 0.55s reproduces the 4-cycle window at the 7Hz the value was tuned
+        # at, and now holds at any loop rate -- including the Raspberry Pi.
+        #
+        # confirm_cycles is still accepted for callers that pass it, and is
+        # converted using the nominal rate.
+        if confirm_cycles is not None:
+            confirm_seconds = max(1, confirm_cycles) / NOMINAL_LOOP_HZ
+        self.confirm_seconds = max(0.0, confirm_seconds)
+
+        self._stop_since: float | None = None
 
     def reset(self) -> None:
-        self._stop_counter = 0
+        self._stop_since = None
 
     def update(self, scan) -> FrontWallState:
+        now = time.monotonic()
         if scan is None or scan.num_samples == 0:
-            self._stop_counter = 0
+            self._stop_since = None
             return FrontWallState(
                 raw_front_min_m=float("inf"),
                 robust_front_m=float("inf"),
@@ -77,16 +108,20 @@ class FrontWallDetector:
 
         stop_candidate = front_wall_visible and robust_front <= self.stop_distance_m
         if stop_candidate:
-            self._stop_counter += 1
+            if self._stop_since is None:
+                self._stop_since = now
         else:
-            self._stop_counter = 0
+            self._stop_since = None
 
         return FrontWallState(
             raw_front_min_m=raw_front_min,
             robust_front_m=robust_front,
             center_front_m=center_front,
             front_wall_visible=front_wall_visible,
-            stop_confirmed=self._stop_counter >= self.confirm_cycles,
+            stop_confirmed=(
+                self._stop_since is not None
+                and now - self._stop_since >= self.confirm_seconds
+            ),
         )
 
     def _robust_front_distance(self, scan) -> float:

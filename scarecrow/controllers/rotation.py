@@ -45,7 +45,8 @@ async def rotate_90(
     svd_tolerance: float = 2.0,
     svd_gain: float = 3.0,
     svd_max_speed: float = 15.0,
-    svd_timeout: int = 200,
+    svd_timeout_s: float = 25.0,
+    svd_timeout: int | None = None,
 ) -> bool:
     """Rotate exactly 90° using compass for coarse turn + lidar SVD for precision.
 
@@ -65,7 +66,17 @@ async def rotate_90(
         svd_tolerance: SVD alignment done when wall error < this (degrees).
         svd_gain: Proportional gain for SVD yaw correction.
         svd_max_speed: Max yaw speed during SVD alignment (deg/s).
-        svd_timeout: Max iterations for SVD phase (~0.05s each).
+        svd_timeout_s: Wall-clock budget for the SVD phase.
+
+            Was `svd_timeout: int = 200` iterations at 0.05s -- 10s of wall
+            clock, but the drone rotates in SIMULATED time. At the RTF measured
+            during flight (median 0.134) those 10s bought only ~1.3s of sim
+            time, nowhere near enough to correct a large error at the 15 deg/s
+            cap: an alignment was observed timing out while still converging,
+            at 11.6 degrees and closing. Seconds also keep the budget honest on
+            hardware, where RTF is 1.0 by definition.
+
+            The iteration form is still accepted and converted.
 
         yaw_provider: Optional async callable returning the current yaw. Pass
             `Drone.get_yaw` so the compass phase reads a cached value instead
@@ -83,6 +94,8 @@ async def rotate_90(
         True if alignment succeeded, False if SVD timed out.
     """
     read_yaw = yaw_provider or (lambda: get_yaw(drone))
+    if svd_timeout is not None:
+        svd_timeout_s = max(1, svd_timeout) * 0.05
     sign = 1 if direction == "right" else -1
 
     pre_scan = lidar.get_scan()
@@ -122,7 +135,10 @@ async def rotate_90(
     align_side = "left" if direction == "right" else "right"
     print(f"  Step 2 (lidar SVD): aligning perpendicular to {align_side} wall...")
 
-    for attempt in range(svd_timeout):
+    svd_deadline = time.monotonic() + svd_timeout_s
+    attempt = 0
+    while time.monotonic() < svd_deadline:
+        attempt += 1
         scan = lidar.get_scan()
         if scan is None:
             await asyncio.sleep(0.05)

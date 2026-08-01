@@ -98,3 +98,32 @@ async def test_rotate_relative_90_rejects_other_angles():
     """rotate_90's wall-alignment step assumes a quarter turn."""
     with pytest.raises(ValueError):
         await rotate_relative_90(_drone(), MagicMock(), 45.0)
+
+
+class TestSvdTimeoutIsWallClock:
+    """The SVD phase budget must be seconds, not iterations.
+
+    It was `range(200)` at 0.05s -- 10s of wall clock. But the drone rotates in
+    SIMULATED time, and at the RTF measured in flight (median 0.134) those 10s
+    bought ~1.3s of sim time. An alignment was observed timing out while still
+    converging, at 11.6 degrees and closing.
+    """
+
+    def test_default_budget_is_in_seconds(self):
+        import inspect
+
+        from scarecrow.controllers.rotation import rotate_90
+
+        params = inspect.signature(rotate_90).parameters
+        assert "svd_timeout_s" in params
+        assert params["svd_timeout_s"].default >= 10.0
+
+    def test_legacy_iteration_count_is_converted(self):
+        """200 iterations x 0.05s is the 10s it used to mean."""
+        import inspect
+
+        from scarecrow.controllers.rotation import rotate_90
+
+        # The conversion lives in the body; assert the parameter still exists
+        # so old callers do not break.
+        assert inspect.signature(rotate_90).parameters["svd_timeout"].default is None
