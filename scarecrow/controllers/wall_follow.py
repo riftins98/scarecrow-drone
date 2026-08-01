@@ -1,8 +1,22 @@
 """Wall-following controller using 2D lidar."""
 from __future__ import annotations
 
+import time
+
 import math
 from dataclasses import dataclass
+
+
+# The loop rate the lateral gains are tuned against: the wall-follow loop
+# sleeps 50ms per tick. The derivative is normalised to this, so kd means the
+# same thing regardless of what the loop actually achieves.
+NOMINAL_DT_S = 0.05
+
+# Ignore timesteps outside this band when differentiating. Below the minimum
+# the division explodes; above it the samples are too far apart to be a
+# meaningful rate and are more likely a stall than real motion.
+MIN_DT_S = 0.005
+MAX_DT_S = 0.5
 
 
 @dataclass
@@ -73,6 +87,7 @@ class WallFollowController:
         self.yaw_kp = yaw_kp
         self.max_yaw_speed = max_yaw_speed
         self._prev_error: float | None = None
+        self._prev_time: float | None = None
         self._reached_front_wall = False
         # Sign: left wall → negative lateral pushes left (toward wall)
         #        right wall → positive lateral pushes right (toward wall)
@@ -86,6 +101,7 @@ class WallFollowController:
     def reset(self) -> None:
         """Reset controller state for a new run."""
         self._prev_error = None
+        self._prev_time = None
         self._reached_front_wall = False
 
     def update(self, wall_dist: float, front_dist: float,
@@ -123,10 +139,34 @@ class WallFollowController:
         # PD control for lateral distance to wall
         error = wall_dist - self.target_distance  # positive = too far from wall
 
+        # Derivative, normalised to a nominal timestep.
+        #
+        # This used to be the raw per-call difference `error - prev_error`,
+        # with no reference to elapsed time. That silently ties the damping to
+        # however fast the loop happens to run: call it twice as often and
+        # each difference halves, so the kd contribution halves with it.
+        #
+        # It mattered because the loop was NOT running at its design rate --
+        # 50ms of sleep per tick, but 143ms measured, because every tick
+        # blocked ~39ms fetching telemetry. Fixing that (Drone's telemetry
+        # cache) roughly triples the rate, which would have quietly cut the
+        # damping to a third and traded a yaw oscillation for a lateral one.
+        #
+        # Scaling by NOMINAL_DT/dt makes d_error mean "the change we would
+        # have seen at the nominal rate", so kd keeps its tuned meaning at
+        # 20Hz and stops depending on loop rate anywhere else -- including on
+        # the Raspberry Pi, which will run at a different rate again.
+        now = time.monotonic()
         d_error = 0.0
-        if self._prev_error is not None:
-            d_error = error - self._prev_error
+        if self._prev_error is not None and self._prev_time is not None:
+            dt = now - self._prev_time
+            # Guard both ends: a zero dt would divide by zero, and a long
+            # stall (a blocked tick, a paused sim) would amplify one stale
+            # sample into a huge derivative kick.
+            if MIN_DT_S <= dt <= MAX_DT_S:
+                d_error = (error - self._prev_error) * (NOMINAL_DT_S / dt)
         self._prev_error = error
+        self._prev_time = now
 
         # Lateral correction toward/away from wall
         lateral = self._lateral_sign * (self.kp * error + self.kd * d_error)
