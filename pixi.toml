@@ -233,9 +233,20 @@ launch = { cmd = "./scripts/shell/launch.sh", args = [{ arg = "world", default =
 # derives the pose from the SDF (world_meta.py spawn-pose), which puts the drone
 # 2.0m off the walls -- for hangar_small that is -6.0,-3.0.
 #
-# -5.7,-2.7 is 2.3m clear of the south wall (x=-8.0) and 2.3m clear of the west
-# wall (y=-5.0). hangar_small's interior is x[-8, 8], y[-5, 5]; walls sit at
-# +/-8.1 and +/-5.1 and are 0.2m thick.
+# -5.7,2.7 puts the drone 2.3m off the wall behind it (x=-8.0) and 2.3m off the
+# wall on its LEFT (y=+5.0). hangar_small's interior is x[-8, 8], y[-5, 5];
+# walls sit at +/-8.1 and +/-5.1 and are 0.2m thick.
+#
+# The sign of y is load-bearing, not cosmetic. At yaw 0 the drone faces +x, so
+# its left is +y. The mission's Phase 1 defaults to --start-side left and
+# stabilises against the rear-LEFT corner, capped at 0.16 m/s with a 45s
+# timeout. An earlier pin of -5.7,-2.7 put it 2.3m from the rear and the RIGHT
+# wall, leaving the left wall 7.7m away: Phase 1 then had to cross 5.7m of
+# hangar, which needs ~36s at perfect tracking and in practice timed out at
+# 3.85m. The flight aborted and landed before reaching the circuit.
+#
+# So: match the spawn corner to the mission's start side, or pass
+# --start-side right and let it stabilise where it already is.
 #
 # NOTE: this pose is world-specific. Running another world through this task
 # (WORLD=hangar_lite pixi run sim) would apply the SAME pose, which may be
@@ -244,7 +255,7 @@ launch = { cmd = "./scripts/shell/launch.sh", args = [{ arg = "world", default =
 # and the SDF-derived default is used again.
 sim = { cmd = """
     ./scripts/shell/launch_with_stream.sh "$WORLD" --headless --fixed --no-open --no-build
-""", env = { WORLD = "hangar_small", PX4_GZ_MODEL_POSE = "-5.7,-2.7,0,0,0,0" }, description = "Headless sim + camera stream on :8080 (hangar_small, spawn 2.3m off walls)" }
+""", env = { WORLD = "hangar_small", PX4_GZ_MODEL_POSE = "-5.7,2.7,0,0,0,0" }, description = "Headless sim + camera stream on :8080 (hangar_small, rear-left corner 2.3m off both walls)" }
 
 # Fly the pigeon-pursuit mission against a running sim. Start `pixi run sim`
 # in another terminal first.
