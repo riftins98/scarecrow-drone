@@ -58,6 +58,70 @@ def _port_in_use(port: int) -> bool:
     return False
 
 
+#: Everything that makes up a running PX4 SITL instance. `pkill -x px4` alone
+#: is not enough, and getting this wrong is not a leaked process -- it breaks
+#: the *next* launch.
+#:
+#: A disconnect that killed only the main `px4` process left behind
+#: `px4-mavlink` (a `px4-<module>` shell client, whose process name is not
+#: "px4") and the `/bin/sh .../init.d-posix/rcS` startup script. Those keep the
+#: instance alive, so the next Connect fails with `ERROR [px4] Task already
+#: running`, never finishes bringing up the estimator, and the drone refuses to
+#: arm with "Preflight Fail: ekf2 missing data" / "heading estimate invalid" --
+#: symptoms that point at the EKF rather than at the real cause.
+_PX4_PATTERNS = (
+    ["pkill", "-x", "px4"],                      # the instance itself
+    ["pkill", "-f", r"^px4-"],                   # px4-mavlink, px4-commander, ...
+    ["pkill", "-f", "init.d-posix/rcS"],         # the startup shell
+)
+
+
+def _px4_alive() -> bool:
+    """True while any part of a PX4 SITL instance is still running."""
+    for pattern in (["pgrep", "-x", "px4"],
+                    ["pgrep", "-f", r"^px4-"],
+                    ["pgrep", "-f", "init.d-posix/rcS"]):
+        try:
+            if subprocess.run(pattern, capture_output=True).returncode == 0:
+                return True
+        except FileNotFoundError:   # no pgrep (non-POSIX); nothing to report
+            return False
+    return False
+
+
+def _kill_px4_instance(timeout_s: float = 5.0) -> bool:
+    """Tear down every part of a PX4 SITL instance. True if it is gone.
+
+    Escalates to SIGKILL rather than trusting SIGTERM, and then *waits*: the
+    next launch starts within a second of this returning, and a process that
+    is merely on its way out still holds the instance.
+    """
+    for cmd in _PX4_PATTERNS:
+        try:
+            subprocess.run(cmd, capture_output=True)
+        except FileNotFoundError:
+            return True     # no pkill: not a POSIX host, nothing spawned here
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if not _px4_alive():
+            return True
+        time.sleep(0.2)
+
+    for cmd in _PX4_PATTERNS:
+        try:
+            subprocess.run([cmd[0], "-9"] + cmd[1:], capture_output=True)
+        except FileNotFoundError:
+            break
+
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if not _px4_alive():
+            return True
+        time.sleep(0.2)
+    return not _px4_alive()
+
+
 def gui_available() -> bool:
     """Whether a Gazebo GUI window can actually open here.
 
@@ -542,7 +606,7 @@ class SimService:
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.
 
-        Kills only the currently running stream_camera_webrtc.py worker —
+        Kills only the currently running stream worker (MJPEG or WebRTC) —
         leaves PX4 and Gazebo untouched — then spawns a fresh worker
         pointed at the new camera's topic.
 
@@ -583,7 +647,17 @@ class SimService:
         # resolve to whatever is first on PATH.
         python_bin = sys.executable
 
-        streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera_webrtc.py")
+        # Must match the launcher's STREAM_MODE default, or a camera swap
+        # silently changes transport mid-session: the browser would keep an
+        # open WebRTC connection while the new worker served MJPEG, and the
+        # picture would just freeze.
+        mode = os.environ.get("STREAM_MODE", "mjpeg").strip().lower()
+        if mode == "webrtc":
+            streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera_webrtc.py")
+            quality_args = ["--bitrate", os.environ.get("STREAM_BITRATE", "8000000")]
+        else:
+            streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera.py")
+            quality_args = ["--quality", os.environ.get("STREAM_QUALITY", "92")]
         env = os.environ.copy()
         env["PYTHONPATH"] = REPO_ROOT
         # The original launcher sources scripts/shell/env.sh which sets
@@ -607,8 +681,9 @@ class SimService:
             subprocess.Popen(
                 [python_bin, streamer,
                  "--port", "8080",
-                 "--fps", "15",
+                 "--fps", os.environ.get("STREAM_FPS", "15"),
                  "--threads", "2",
+                 *quality_args,
                  "--topic", topic],
                 cwd=REPO_ROOT,
                 stdout=log_fh,
@@ -647,7 +722,7 @@ class SimService:
             self.process = None
 
         subprocess.run(["pkill", "-f", "gz sim"], capture_output=True)
-        subprocess.run(["pkill", "-x", "px4"], capture_output=True)
+        _kill_px4_instance()
         # Also kill stream camera workers spawned by launch_with_stream.sh
         subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
         # And any flight script / its mavsdk_server still running, so tearing
