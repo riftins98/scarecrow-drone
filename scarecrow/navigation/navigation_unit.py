@@ -223,6 +223,11 @@ class NavigationUnit:
                 wall_angle_error=wall_error,
                 front_wall_confirmed=front_state.front_wall_visible,
                 front_stop_reached=front_state.stop_confirmed,
+                # The scan's own capture time, so the derivative advances on
+                # sensor samples rather than on loop ticks. This loop runs
+                # faster than a real RPLidar spins, so on the drone most ticks
+                # read the same scan back -- see WallFollowController.update.
+                sample_time=scan.timestamp,
             )
             cmd.down_m_s = await self._altitude_hold_down_speed(
                 target_alt_m,
