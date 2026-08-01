@@ -100,7 +100,7 @@ class HangarCircuitPursuitMission:
         # serial ports. Defaults to auto-detection so a caller that does not
         # care gets the right one.
         self.sensors: SensorSuite = sensors or sensor_suite_for(
-            config.platform, repo_root=REPO_ROOT
+            config.platform, repo_root=REPO_ROOT, perches=config.target_perches
         )
 
         self.drone = Drone(system_address=config.system_address)
@@ -120,7 +120,7 @@ class HangarCircuitPursuitMission:
         self.arena_boundary: list[dict] | None = None
         self.frame_transform = None
         self.pursuit_count = 0
-        self.target_removal_event: dict | None = None
+        self.target_dispersal_event: dict | None = None
 
     # -- helpers --------------------------------------------------------
 
@@ -427,7 +427,7 @@ class HangarCircuitPursuitMission:
     async def _pursue_once(self, leg: int, attempt: int) -> TargetPursuitResult:
         """Run one pursuit attempt to the configured target distance."""
         cfg = self.config
-        self.target_removal_event = None
+        self.target_dispersal_event = None
         self.pursuit_count += 1
         pursuit_label = (
             f"leg{leg:02d}_Pursuit{self.pursuit_count:02d}_attermpt_{attempt:02d}"
@@ -506,7 +506,7 @@ class HangarCircuitPursuitMission:
                 yaw_deg=target_yaw,
                 range_m=pursuit_result.front_distance_m,
             )
-            self.target_removal_event = {
+            self.target_dispersal_event = {
                 "x": world_x,
                 "y": world_y,
                 "local_x": target_pos.position.north_m,
@@ -533,20 +533,21 @@ class HangarCircuitPursuitMission:
         await self.nav.hover(cfg.hover_seconds)
         return pursuit_result
 
-    def _remove_reached_target(self) -> None:
-        """Remove the pursued target from the world, where the platform can.
+    def _disperse_reached_target(self) -> None:
+        """Chase the reached target to its next destination.
 
-        Three distinct outcomes, logged differently on purpose:
-          - no frame transform  -> we never knew where the target was
-          - unsupported         -> hardware; nothing to remove, not a fault
-          - attempted           -> simulation; success or a real failure
+        Four distinct outcomes, logged differently on purpose:
+          - no frame transform -> we never knew where the target was
+          - unsupported        -> hardware; the bird leaves by itself
+          - moved              -> it relocated to another perch
+          - departed           -> it left the arena for good
         """
-        if self.target_removal_event is None:
-            print("  WARNING: target removal skipped: PX4/Gazebo frame transform unavailable")
+        if self.target_dispersal_event is None:
+            print("  WARNING: target dispersal skipped: PX4/Gazebo frame transform unavailable")
             return
 
-        event = self.target_removal_event
-        outcome = self.sensors.world.remove_target(
+        event = self.target_dispersal_event
+        outcome = self.sensors.world.disperse_target(
             x=float(event["x"]),
             y=float(event["y"]),
             name_prefixes=self.config.target_model_prefixes,
@@ -554,10 +555,14 @@ class HangarCircuitPursuitMission:
         )
         self.recorder.add_event(
             {
-                "type": "target_removed",
-                "label": "Pursued target removed from simulation",
+                "type": "target_dispersed",
+                "label": (
+                    "Target left the arena" if outcome.departed else "Target moved to another perch"
+                ),
                 "supported": outcome.supported,
                 "success": outcome.success,
+                "departed": outcome.departed,
+                "destination": outcome.destination,
                 "world": outcome.world_name,
                 "model": outcome.model_name,
                 "distance_m": outcome.distance_m,
@@ -573,16 +578,16 @@ class HangarCircuitPursuitMission:
         )
         if not outcome.supported:
             print(f"  Target dispersed ({outcome.message})")
-        elif outcome.success:
-            distance = format_meters(outcome.distance_m, 2)
-            print(
-                f"  Removed target model {outcome.model_name!r} "
-                f"from world {outcome.world_name!r} "
-                f"(target_estimate={event['x']:.2f},{event['y']:.2f} "
-                f"nearest={distance})"
-            )
+        elif not outcome.success:
+            print(f"  WARNING: target dispersal failed: {outcome.message}")
+        elif outcome.departed:
+            print(f"  Target {outcome.model_name!r} left the arena for good")
         else:
-            print(f"  WARNING: target removal skipped/failed: {outcome.message}")
+            dx, dy, dz = outcome.destination
+            print(
+                f"  Target {outcome.model_name!r} moved to another perch "
+                f"({dx:.2f},{dy:.2f},{dz:.2f}) -- it will be found again"
+            )
 
     # ==================================================================
     # Phases 5-6: return to entry
@@ -900,7 +905,7 @@ class HangarCircuitPursuitMission:
             self.session.set_enabled(False, "return to pursuit entry")
 
             if pursuit_result.reached_target:
-                self._remove_reached_target()
+                self._disperse_reached_target()
 
             await self.drone.set_velocity(VelocityCommand())
             returned = await self._return_to_pursuit_entry(

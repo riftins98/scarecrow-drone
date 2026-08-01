@@ -9,15 +9,21 @@ from __future__ import annotations
 
 import os
 
-from scarecrow.platform.base import SensorSuite, TargetRemovalOutcome, WorldServices
+from scarecrow.platform.base import (
+    SensorSuite,
+    TargetDispersalOutcome,
+    WorldServices,
+)
 from scarecrow.sensors.camera.gazebo import GazeboCamera
 from scarecrow.sensors.gz_entities import (
+    BANISH_POSE,
     GzPx4FrameTransform,
     discover_model_name,
     discover_world_name,
     find_model_pose,
     get_world_model_poses,
     remove_nearest_model,
+    teleport_model,
 )
 from scarecrow.sensors.gz_utils import prefetch_gz_env_async
 from scarecrow.sensors.lidar.gazebo import GazeboLidar
@@ -47,8 +53,12 @@ def find_drone_camera_topic(topics: str) -> str | None:
 class GazeboWorldServices(WorldServices):
     """World truth and model removal via the `gz` CLI."""
 
-    def __init__(self, suite: "GazeboSensorSuite") -> None:
+    def __init__(self, suite: "GazeboSensorSuite", *, perches=()) -> None:
         self._suite = suite
+        # Where a chased bird goes next, in order. Each entry is
+        # (x, y, z, yaw_rad). After the last one it leaves the arena.
+        self.perches = tuple(perches)
+        self._dispersal_count = 0
 
     @property
     def name(self) -> str:
@@ -86,15 +96,44 @@ class GazeboWorldServices(WorldServices):
         )
         return transform
 
-    def remove_target(
+    def disperse_target(
         self,
         *,
         x: float,
         y: float,
         name_prefixes: tuple[str, ...],
         uri_keywords: tuple[str, ...],
-    ) -> TargetRemovalOutcome:
-        removal = remove_nearest_model(
+    ) -> TargetDispersalOutcome:
+        """Chase the nearest target to its next destination.
+
+        The bird is moved, never deleted -- deleting crashes gz-rendering 8.2.2
+        (see gz_entities.teleport_model). Destinations come from
+        ``self.perches`` in order; once they are exhausted the bird leaves the
+        arena for good.
+        """
+        index = self._dispersal_count
+        self._dispersal_count += 1
+
+        if index < len(self.perches):
+            px, py, pz, pyaw = self.perches[index]
+            departed = False
+        else:
+            px, py, pz, pyaw = BANISH_POSE
+            departed = True
+
+        def action(*, world_name, model_name, env, timeout_ms):
+            return teleport_model(
+                world_name=world_name,
+                model_name=model_name,
+                x=px,
+                y=py,
+                z=pz,
+                yaw_rad=pyaw,
+                env=env,
+                timeout_ms=timeout_ms,
+            )
+
+        result = remove_nearest_model(
             world_name=self._suite.world_name,
             x=x,
             y=y,
@@ -104,21 +143,24 @@ class GazeboWorldServices(WorldServices):
             name_prefixes=name_prefixes,
             uri_keywords=uri_keywords,
             max_distance_m=None,
+            action=action,
         )
-        return TargetRemovalOutcome(
+        return TargetDispersalOutcome(
             supported=True,
-            success=removal.success,
-            message=removal.message,
-            model_name=removal.model_name,
-            world_name=removal.world_name,
-            distance_m=removal.distance_m,
+            success=result.success,
+            message=result.message,
+            model_name=result.model_name,
+            world_name=result.world_name,
+            distance_m=result.distance_m,
+            departed=departed,
+            destination=(px, py, pz),
         )
 
 
 class GazeboSensorSuite(SensorSuite):
     """Sensors backed by Gazebo topics."""
 
-    def __init__(self, *, repo_root: str) -> None:
+    def __init__(self, *, repo_root: str, perches=()) -> None:
         self.repo_root = repo_root
         self.env: dict = {}
         self.topics: str = ""
@@ -129,7 +171,7 @@ class GazeboSensorSuite(SensorSuite):
         self._lidar: GazeboLidar | None = None
         self._rangefinder: GazeboRangefinder | None = None
         self._camera: GazeboCamera | None = None
-        self._world = GazeboWorldServices(self)
+        self._world = GazeboWorldServices(self, perches=perches)
 
     @property
     def name(self) -> str:

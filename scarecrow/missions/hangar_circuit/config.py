@@ -56,11 +56,22 @@ class HangarCircuitConfig:
     image_width_px: int = 1280
     target_classes: tuple[str, ...] = ("bird", "pigeon")
 
-    # -- target removal ------------------------------------------------
-    # A reached target is deleted from the Gazebo world so the mission does not
-    # immediately re-detect the bird it just dispersed.
+    # -- target dispersal ----------------------------------------------
     target_model_prefixes: tuple[str, ...] = ("pigeon",)
     target_uri_keywords: tuple[str, ...] = ("pigeon",)
+
+    # Where a chased bird goes next, in order, as (x, y, z, yaw_rad) in world
+    # coordinates. After the last perch it leaves the arena entirely.
+    #
+    # Simulation only, and world-specific: these are hangar_small's two corner
+    # shelves. The world file places the bird on the first and deliberately
+    # leaves the second empty, so one pigeon relocates rather than two being
+    # deleted. That models real deterrence -- a disturbed bird moves to another
+    # perch, and only gives up if the drone keeps coming -- and it avoids
+    # deleting models at runtime, which segfaults gz-rendering 8.2.2.
+    target_perches: tuple[tuple[float, float, float, float], ...] = (
+        (7.65, -4.76, 5.00, -3.1416),
+    )
 
     # -- pursuit -------------------------------------------------------
     pursuit_timeout_s: float = 75.0

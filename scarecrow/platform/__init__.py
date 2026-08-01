@@ -12,13 +12,19 @@ from __future__ import annotations
 
 import os
 
-from .base import SensorSuite, TargetRemovalOutcome, WorldServices
+from .base import (
+    SensorSuite,
+    TargetDispersalOutcome,
+    TargetRemovalOutcome,
+    WorldServices,
+)
 from .hardware import HardwareSensorSuite
 from .simulation import GazeboSensorSuite, find_drone_camera_topic
 
 __all__ = [
     "SensorSuite",
     "WorldServices",
+    "TargetDispersalOutcome",
     "TargetRemovalOutcome",
     "GazeboSensorSuite",
     "HardwareSensorSuite",
@@ -53,7 +59,12 @@ def detect_platform() -> str:
     return "simulation"
 
 
-def sensor_suite_for(platform: str = "auto", *, repo_root: str | None = None) -> SensorSuite:
+def sensor_suite_for(
+    platform: str = "auto",
+    *,
+    repo_root: str | None = None,
+    perches=(),
+) -> SensorSuite:
     """Build the sensor suite for a platform.
 
     "auto" detects. Anything else must be "simulation" or "hardware"; an
@@ -66,7 +77,7 @@ def sensor_suite_for(platform: str = "auto", *, repo_root: str | None = None) ->
     if platform == "simulation":
         if repo_root is None:
             raise ValueError("repo_root is required for the simulation sensor suite")
-        return GazeboSensorSuite(repo_root=repo_root)
+        return GazeboSensorSuite(repo_root=repo_root, perches=perches)
     if platform == "hardware":
         return HardwareSensorSuite()
     raise ValueError(

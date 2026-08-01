@@ -13,15 +13,19 @@ which is why there is no driver for them here. That is true in simulation too,
 so nothing changes between environments.
 
 WHAT IS NOT SUPPORTED, HONESTLY
-There is no world model to query or edit. `calibrate_frame` returns None and
-`remove_target` reports `supported=False`. On a real drone a reached pigeon
-disperses on its own -- the deterrence is the point, and there is nothing to
-delete. The mission logs that outcome differently from a failed removal,
+There is no world model to query or move things in. `calibrate_frame` returns
+None and `disperse_target` reports `supported=False`. On a real drone the
+approach itself is the deterrent and the bird leaves on its own; nothing needs
+to be teleported. The mission logs that differently from a failed dispersal,
 because only the latter is a fault.
 """
 from __future__ import annotations
 
-from scarecrow.platform.base import SensorSuite, TargetRemovalOutcome, WorldServices
+from scarecrow.platform.base import (
+    SensorSuite,
+    TargetDispersalOutcome,
+    WorldServices,
+)
 from scarecrow.sensors.camera.base import CameraSource
 from scarecrow.sensors.camera.picamera import PiCameraSource
 from scarecrow.sensors.lidar.base import LidarSource
@@ -49,18 +53,21 @@ class NoWorldServices(WorldServices):
         # so there is nothing to calibrate against and nothing to report.
         return None
 
-    def remove_target(
+    def disperse_target(
         self,
         *,
         x: float,
         y: float,
         name_prefixes: tuple[str, ...],
         uri_keywords: tuple[str, ...],
-    ) -> TargetRemovalOutcome:
-        return TargetRemovalOutcome(
+    ) -> TargetDispersalOutcome:
+        # Nothing to do: the drone has already flown at the bird, which is the
+        # entire deterrent. Where it goes next is the bird's decision.
+        return TargetDispersalOutcome(
             supported=False,
             success=False,
-            message="target removal is simulation-only; on hardware the target disperses",
+            message="the bird disperses on its own",
+            departed=True,
         )
 
 

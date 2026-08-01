@@ -14,13 +14,13 @@ topic or a USB serial port.
 TWO KINDS OF DIFFERENCE
 1. **Sensors** -- same physical devices, different drivers. Fully hidden.
 2. **World services** -- things only a simulator can do: knowing the true world
-   pose of the drone, and deleting a bird from the world once it is reached.
-   These have no hardware equivalent, so they are explicit capabilities that
-   report themselves unsupported rather than being faked. On the real drone a
-   reached pigeon flies away on its own; there is nothing to delete.
+   pose of the drone, and moving a bird once it has been chased off. These have
+   no hardware equivalent, so they are explicit capabilities that report
+   themselves unsupported rather than being faked. On the real drone a
+   dispersed pigeon flies off by itself; nothing needs to move it.
 
-Keeping (2) visible is deliberate. Silently no-oping would let a mission look
-like it removed a target when it did not.
+Keeping (2) visible is deliberate. Silently no-oping would let a mission report
+a dispersal that never happened.
 """
 from __future__ import annotations
 
@@ -33,12 +33,17 @@ from scarecrow.sensors.rangefinder.base import RangefinderSource
 
 
 @dataclass
-class TargetRemovalOutcome:
-    """Result of trying to remove a reached target from the world.
+class TargetDispersalOutcome:
+    """Result of dispersing a reached target.
 
-    ``supported`` distinguishes "there is nothing to remove here, by design"
-    (hardware) from "removal was attempted and failed" (simulation). The
-    mission logs them differently because only the second is a problem.
+    ``supported`` distinguishes "there is nothing to disperse here, by design"
+    (hardware -- the bird leaves on its own) from "dispersal was attempted and
+    failed" (simulation). The mission logs them differently because only the
+    second is a fault.
+
+    ``departed`` is True once the target has left the arena for good, and False
+    while it has merely moved to another perch. That is what tells the mission
+    whether more birds remain to be dealt with.
     """
 
     supported: bool
@@ -47,6 +52,12 @@ class TargetRemovalOutcome:
     model_name: str | None = None
     world_name: str | None = None
     distance_m: float | None = None
+    departed: bool = False
+    destination: tuple[float, float, float] | None = None
+
+
+# Older name, kept so nothing breaks on import.
+TargetRemovalOutcome = TargetDispersalOutcome
 
 
 class WorldServices(ABC):
@@ -62,20 +73,26 @@ class WorldServices(ABC):
         """Tie the PX4 local frame to world coordinates.
 
         Returns a transform, or None where no external truth exists. The
-        mission needs it only to localise a target for removal, so None simply
-        disables that.
+        mission needs it only to localise a target for dispersal, so None
+        simply disables that.
         """
 
     @abstractmethod
-    def remove_target(
+    def disperse_target(
         self,
         *,
         x: float,
         y: float,
         name_prefixes: tuple[str, ...],
         uri_keywords: tuple[str, ...],
-    ) -> TargetRemovalOutcome:
-        """Remove the target nearest (x, y) from the world."""
+    ) -> TargetDispersalOutcome:
+        """Disperse the target nearest (x, y).
+
+        Deterrence, not deletion. A real pigeon that is chased off a perch
+        moves to another one, and only leaves the building once it decides the
+        place is not worth the trouble. Implementations model that with a
+        sequence of destinations, ending in departure.
+        """
 
 
 class SensorSuite(ABC):

@@ -313,11 +313,13 @@
       <name>pigeon_1</name>
       <pose>7.65 4.76 5.90 0 0 -3.1416</pose>
     </include>
-    <include>
-      <uri>model://pigeon_3d</uri>
-      <name>pigeon_2</name>
-      <pose>7.65 -4.76 5.00 0 0 -3.1416</pose>
-    </include>
+    <!-- The second perch (7.65 -4.76 5.00) deliberately has no pigeon on it.
+         There is ONE bird, and it relocates: the mission teleports pigeon_1 to
+         that perch after the first successful pursuit, then far outside the
+         world after the second. That models real deterrence - a disturbed
+         pigeon moves to another perch before it gives up and leaves - and it
+         avoids deleting models at runtime, which segfaults gz-rendering 8.2.2
+         (see scarecrow/sensors/gz_entities.py::banish_model). -->
     <include>
       <uri>model://mono_cam_hd</uri>
       <name>fixed_cam</name>
