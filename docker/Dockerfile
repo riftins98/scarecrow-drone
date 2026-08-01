@@ -61,6 +61,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
         gz-harmonic=${GZ_VERSION} \
+        python3-gz-transport13 \
+        python3-gz-msgs10 \
         libassimp-dev \
         libopencv-dev \
         cppzmq-dev \
@@ -248,6 +250,25 @@ RUN MS="$(find /opt/scarecrow/.venv -name 'mavsdk_server*' -type f 2>/dev/null |
     else \
         echo "mavsdk_server: $MS"; \
     fi
+
+# gz-transport's Python bindings come from apt, so they land in
+# /usr/lib/python3/dist-packages -- which this venv cannot see, because it was
+# created without --system-site-packages. Symlink them in rather than opening
+# the whole system site: the venv pins numpy, and exposing Ubuntu's would let
+# the two disagree at import time.
+#
+# Without this the sensors still work, which is the danger. They fall back to
+# spawning `gz topic -e -n 1` per sample, and the container runs several times
+# slower with nothing in the logs to say why. Measured on the pixi track:
+# lidar 6.2Hz vs 29.7Hz, RTF 0.134 vs 0.755. So this fails the BUILD rather
+# than shipping a quietly degraded image.
+RUN set -eux; \
+    SITE="$(/opt/scarecrow/.venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+    for pkg in /usr/lib/python3/dist-packages/gz*; do \
+        if [ -e "$pkg" ]; then ln -sfn "$pkg" "$SITE/$(basename "$pkg")"; fi; \
+    done; \
+    /opt/scarecrow/.venv/bin/python -c \
+        "from gz.transport13 import Node; from gz.msgs10.laserscan_pb2 import LaserScan; print('gz-transport bindings OK')"
 
 COPY docker /opt/scarecrow/docker
 RUN chmod +x /opt/scarecrow/docker/*.sh

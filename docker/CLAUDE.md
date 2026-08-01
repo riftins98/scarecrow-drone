@@ -100,6 +100,18 @@ with `lavapipe` and VMware's `SVGA3D`.
   lockstep is PX4's intended mode and gives deterministic sensor timing.
 - **GStreamer is not installed.** PX4's `gstreamer/CMakeLists.txt` drops
   `GSTREAMER_LIBRARY_DIRS`, and the streaming path here does not need it.
+  GStreamer is a pipeline *framework*, not a wire format, so adopting it would
+  not make streaming cross-platform — and it is broken on macOS, so it would
+  create an OS split rather than remove one.
+- **gz-transport Python bindings are symlinked into the venv.** They come from
+  apt (`python3-gz-transport13`, `python3-gz-msgs10`) and land in
+  `/usr/lib/python3/dist-packages`, which the venv cannot see — it is created
+  without `--system-site-packages` deliberately, since it pins numpy. Without
+  the symlink every sensor silently falls back to spawning `gz topic -e -n 1`
+  per sample and the container runs several times slower with nothing in the
+  logs. Measured on pixi: lidar 6.2Hz vs 29.7Hz, RTF 0.134 vs 0.906. The
+  Dockerfile asserts the import at **build** time so a broken binding fails the
+  build instead of shipping a quietly degraded image.
 
 ## Validation status
 Verified end to end on **arm64/macOS**: 43/43 image self-test checks, and

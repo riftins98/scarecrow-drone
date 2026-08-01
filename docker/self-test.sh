@@ -27,8 +27,12 @@ set -uo pipefail
 
 PASS=0
 FAIL=0
+WARN=0
 ok()   { echo "  [PASS] $*"; PASS=$((PASS + 1)); }
 bad()  { echo "  [FAIL] $*" >&2; FAIL=$((FAIL + 1)); }
+# For things that degrade the image without breaking it. Counted and reported
+# separately so a slow-but-working image is not mistaken for a clean one.
+warn() { echo "  [WARN] $*" >&2; WARN=$((WARN + 1)); }
 step() { echo; echo "=== $* ==="; }
 
 ROOT=/opt/scarecrow
@@ -199,6 +203,31 @@ python3 -c "import scarecrow" >/dev/null 2>&1 \
     && ok "import scarecrow (PYTHONPATH correct)" \
     || bad "import scarecrow FAILED -- every flight script would die on its first import"
 
+# The sensors fall back to `gz topic -e -n 1` polling without these, which is a
+# fork+exec per lidar scan and per camera frame. That fallback still flies, so
+# nothing here crashes -- the image just runs the simulator several times
+# slower than it should, silently. Warn rather than fail for exactly that
+# reason: a degraded image is not a broken one.
+# Which device YOLO will actually use here. CPU inference measured 200ms/frame
+# versus 41ms on an accelerator, and that load competes with the simulator for
+# cores. Not a failure: AMD and Intel hosts have no torch backend at all, so
+# CPU is the correct and only answer there.
+YOLO_DEV=$(SCARECROW_YOLO_DEVICE= python3 -c \
+    "from scarecrow.detection.yolo import select_inference_device as s; print(s())" \
+    2>/dev/null || echo "unknown")
+case "$YOLO_DEV" in
+    cuda*) ok "YOLO inference device: $YOLO_DEV (GPU accelerated)" ;;
+    mps)   ok "YOLO inference device: mps (GPU accelerated)" ;;
+    cpu)   warn "YOLO inference device: cpu -- detection will use ~200ms/frame and compete with the simulator. Expected on AMD/Intel hosts; on an NVIDIA host it means CUDA is not reaching the container (check --profile gpu and nvidia-container-toolkit)" ;;
+    *)     bad  "YOLO device could not be determined -- detection may not run at all" ;;
+esac
+
+if python3 -c "from gz.transport13 import Node" >/dev/null 2>&1; then
+    ok "gz-transport python bindings present (sensors subscribe in-process)"
+else
+    warn "gz-transport python bindings MISSING -- sensors will fall back to per-sample CLI polling and the sim will run slow"
+fi
+
 # ---------------------------------------------------------------------
 step "7. Webapp assets"
 # ---------------------------------------------------------------------
@@ -215,8 +244,12 @@ assert app.app
 # ---------------------------------------------------------------------
 step "Summary"
 # ---------------------------------------------------------------------
-echo "  passed: $PASS   failed: $FAIL"
+echo "  passed: $PASS   failed: $FAIL   warnings: $WARN"
 echo
+if [ "$WARN" -gt 0 ]; then
+    echo "  $WARN warning(s) above: the image works but runs slower than it should."
+    echo
+fi
 if [ "$FAIL" -eq 0 ]; then
     echo "  Nothing is missing from the image, and the renderer guard classifies"
     echo "  NVIDIA / AMD / Intel / WSL correctly."
