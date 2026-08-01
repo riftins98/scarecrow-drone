@@ -24,7 +24,12 @@ from ..util.math_utils import normalize_angle  # noqa: F401
 
 
 async def get_yaw(drone: System) -> float:
-    """Get current yaw in degrees (-180 to 180)."""
+    """Get current yaw in degrees (-180 to 180).
+
+    Opens a fresh subscription per call. rotate_90 polls yaw hundreds of times
+    per turn, so it should be given a cached provider instead -- see the
+    `yaw_provider` argument. This remains for callers holding only a System.
+    """
     async for att in drone.telemetry.attitude_euler():
         return att.yaw_deg
 
@@ -33,6 +38,7 @@ async def rotate_90(
     drone: System,
     lidar: LidarSource,
     direction: str = "right",
+    yaw_provider=None,
     compass_overshoot: float = 95.0,
     compass_speed: float = 30.0,
     compass_tolerance: float = 3.0,
@@ -61,9 +67,22 @@ async def rotate_90(
         svd_max_speed: Max yaw speed during SVD alignment (deg/s).
         svd_timeout: Max iterations for SVD phase (~0.05s each).
 
+        yaw_provider: Optional async callable returning the current yaw. Pass
+            `Drone.get_yaw` so the compass phase reads a cached value instead
+            of opening a subscription per poll.
+
+            This matters more than it looks. The compass phase polls yaw up to
+            300 times at 0.05s, and each default poll opens a new
+            attitude_euler subscription. Once Drone began holding a persistent
+            subscription of its own, the two contended: MAVSDK logged "User
+            callback queue slow" 43 times in one flight (against 2 before) and
+            three of four corner turns failed their SVD alignment. Sharing one
+            stream removes the contention.
+
     Returns:
         True if alignment succeeded, False if SVD timed out.
     """
+    read_yaw = yaw_provider or (lambda: get_yaw(drone))
     sign = 1 if direction == "right" else -1
 
     pre_scan = lidar.get_scan()
@@ -74,12 +93,12 @@ async def rotate_90(
             print(f"  Wall alignment error: {math.degrees(err):.1f}°")
 
     # --- Step 1: Compass coarse turn ---
-    start_yaw = await get_yaw(drone)
+    start_yaw = await read_yaw()
     target_yaw = normalize_angle(start_yaw + sign * compass_overshoot)
     print(f"  Step 1 (compass): {start_yaw:.0f}° → {target_yaw:.0f}°")
 
     for _ in range(300):
-        current_yaw = await get_yaw(drone)
+        current_yaw = await read_yaw()
         error = normalize_angle(target_yaw - current_yaw)
 
         if abs(error) < compass_tolerance:
@@ -259,4 +278,8 @@ async def rotate_relative_90(drone, lidar, degrees: float) -> bool:
     if not math.isclose(abs(degrees), 90.0, abs_tol=1e-6):
         raise ValueError("package rotation wrapper only supports +/-90 degrees")
     direction = "right" if degrees > 0.0 else "left"
-    return await rotate_90(drone.system, lidar, direction=direction)
+    # Hand rotate_90 the cached yaw so its compass poll does not open a new
+    # subscription per iteration alongside Drone's persistent one.
+    return await rotate_90(
+        drone.system, lidar, direction=direction, yaw_provider=drone.get_yaw
+    )

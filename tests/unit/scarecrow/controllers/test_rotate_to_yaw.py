@@ -70,7 +70,27 @@ async def test_rotate_relative_90_delegates_to_package_rotation(monkeypatch):
     ok = await rotate_relative_90(drone, lidar, 90.0)
 
     assert ok is True
-    rotate.assert_awaited_once_with(drone.system, lidar, direction="right")
+    rotate.assert_awaited_once_with(
+        drone.system, lidar, direction="right", yaw_provider=drone.get_yaw
+    )
+
+
+@pytest.mark.asyncio
+async def test_rotate_relative_90_shares_the_cached_yaw_stream(monkeypatch):
+    """rotate_90 must not open its own attitude subscription per poll.
+
+    Its compass phase polls yaw up to 300 times. Once Drone held a persistent
+    attitude subscription, that contended with it: MAVSDK logged "User callback
+    queue slow" 43 times in one flight (2 before) and 3 of 4 corner turns
+    failed SVD alignment. Passing the cached getter is what removes it.
+    """
+    drone = _drone()
+    rotate = AsyncMock(return_value=True)
+    monkeypatch.setattr(rotation, "rotate_90", rotate)
+
+    await rotate_relative_90(drone, MagicMock(), 90.0)
+
+    assert rotate.await_args.kwargs["yaw_provider"] is drone.get_yaw
 
 
 @pytest.mark.asyncio
