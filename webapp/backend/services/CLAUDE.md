@@ -22,5 +22,5 @@ Business logic layer. Services coordinate repositories and external resources (s
 ## Subprocess stdout protocol
 Flight scripts communicate with services via stdout lines parsed by the monitoring thread:
 - `DETECTION_IMAGE:/path/to/img.png` — parsed by DetectionService (implemented)
-- `MAP_RESULT:{"map_path":"..."}` — mission map JSON path; persisted on `flights.map_json_path` and rendered on demand via `mission_map_service.py` + `GET /api/flights/{id}/map/image`
+- `MAP_RESULT:{"map_path":"..."}` — path to the annotated mission map. The flight script renders it (`MapUnit` writes `map_annotated.png` beside the flight output); the backend only records the path and serves the file statically via `GET /mission_maps/{flight_id}/{filename}` in `static_controller.py`. There is no map-rendering service.
 - Future (Phase 4-6): `CHASE_START:type`, `CHASE_END:outcome`, `ABORT_REQUESTED`

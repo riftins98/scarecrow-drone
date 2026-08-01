@@ -1,6 +1,6 @@
 # backend
 
-FastAPI REST API server. Fully layered architecture: Controllers -> Services -> Repositories -> DTOs -> Database. 44 API routes organized by domain.
+FastAPI REST API server. Fully layered architecture: Controllers -> Services -> Repositories -> DTOs -> Database. 50 routes under `/api`, plus three static mounts and the SPA fallback.
 
 ## Subdirectories
 - `controllers/` — FastAPI router modules, one per ADD Appendix A section (see `controllers/CLAUDE.md`)
@@ -23,16 +23,24 @@ HTTP Request
            -> database/db.py + SQLite
 ```
 
-## API Endpoint Coverage (44 routes)
-- `/api/health` — health check
-- `/api/sim/*` — A.1 simulation lifecycle (connect, disconnect, status, options, camera, spawn, reset, log, log/view)
-- `/api/connection/*` — A.2 connection status (6 routes, mocked for sim)
-- `/api/drone/*` — A.3 drone control (6 routes)
-- `/api/flights/*`, `/api/flight/*` — A.4 flight history (9 routes + 3 legacy)
-- `/api/areas/*` — A.5 area maps (8 routes)
-- `/api/detection/*` — A.6 detection config (3 routes)
-- `/api/flights/{id}/chases`, `/api/chases/{id}` — A.7 chase events (2 routes)
-- `/detection_images/*`, `/recordings/*` — static file serving
+## API Endpoint Coverage
+
+Counts are method-level (a path with GET and DELETE is two). Regenerate with
+`python -c "from app import app; print(sum(len(r.methods-{'HEAD','OPTIONS'}) for r in app.routes if getattr(r,'methods',None)))"`.
+
+| prefix | routes | ADD section |
+|---|---|---|
+| `/api/sim/*` | 11 | A.1 simulation lifecycle (connect, disconnect, status, options, cameras, camera, spawn, reset, log, log/view, log/stream) |
+| `/api/flights/*` | 8 | A.4 flight history |
+| `/api/areas/*` | 8 | A.5 area maps |
+| `/api/flight/*` | 6 | A.4 legacy single-flight aliases |
+| `/api/drone/*` | 6 | A.3 drone control |
+| `/api/connection/*` | 6 | A.2 connection status (mocked for sim) |
+| `/api/detection/*` | 3 | A.6 detection config |
+| `/api/chases/*` | 1 | A.7 chase events |
+| `/api/health` | 1 | — |
+| `/detection_images/*`, `/recordings/*`, `/mission_maps/*` | 3 | static file serving |
+| `/{full_path:path}` | 1 | SPA fallback to `index.html` |
 
 See `controllers/CLAUDE.md` for per-controller details.
 

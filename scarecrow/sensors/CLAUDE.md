@@ -19,10 +19,13 @@ Sensor interface abstractions for sim and hardware. Each sensor type has a base 
   delivery image without `python3-gz-transport13`). `sensor.using_transport`
   says which path is live.
 
-  **Why**: the CLI path is a fork+exec *per sample, per thread*, in a spin loop.
-  Measured on the live sim 2026-08-01: lidar 6.2 Hz -> 29.7 Hz, concurrent `gz`
-  CLI processes 2 -> 0, load average during flight ~21 -> 3.7. The 6.2 Hz read
-  rate was what capped the 7 Hz control loop.
+  **Why**: the CLI path is a fork+exec *per sample, per thread*, in a spin
+  loop. That cost is paid on every scan and every frame, so it scales with
+  sensor rate and it competes with `gz sim` for the same cores — the simulator
+  was starved rather than expensive. It also capped the lidar read rate below
+  what the control loop asked for, which is the failure mode to watch for: a
+  host without the bindings falls back to this path silently. Check
+  `sensor.using_transport` if rates look low.
 - `gz_entities.py` — Gazebo CLI/SDF entity helpers for discovering world/model names, parsing live model poses, mapping PX4 local XY into Gazebo world XY, and removing pursued target models from running worlds.
 - `gz_utils.py` — Gazebo CLI helpers: `get_gz_env()` auto-detects env/partition; `prefetch_gz_env_async()` + `GzPrefetchResult` runs env detection + `gz topic -l` in a background thread so flight scripts can overlap ~2s of Gazebo setup with MAVSDK handshake
 

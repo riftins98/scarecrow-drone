@@ -117,9 +117,10 @@ with `lavapipe` and VMware's `SVGA3D`.
   without `--system-site-packages` deliberately, since it pins numpy. Without
   the symlink every sensor silently falls back to spawning `gz topic -e -n 1`
   per sample and the container runs several times slower with nothing in the
-  logs. Measured on pixi: lidar 6.2Hz vs 29.7Hz, RTF 0.134 vs 0.906. The
-  Dockerfile asserts the import at **build** time so a broken binding fails the
-  build instead of shipping a quietly degraded image.
+  logs — the sim still flies, just badly, which is the hardest kind of fault to
+  notice on someone else's machine. The Dockerfile asserts the import at
+  **build** time so a broken binding fails the build instead of shipping a
+  quietly degraded image.
 
 ## Validation status
 Verified end to end on **arm64/macOS**: 43/43 image self-test checks, and
