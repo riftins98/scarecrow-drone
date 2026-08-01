@@ -9,6 +9,20 @@ Sensor interface abstractions for sim and hardware. Each sensor type has a base 
 
 ## Files
 - `__init__.py` — Re-exports single-ray rangefinder support (`GazeboRangefinder`, `RangefinderReading`) from the `rangefinder/` subpackage.
+- `gz_transport.py` — **In-process Gazebo subscriptions.** `GzSubscription`
+  wraps a `gz.transport13` Node; `transport_available()` reports whether the
+  bindings are importable; `apply_gz_env()` exports `GZ_PARTITION`/`GZ_IP` into
+  the process (a Node reads them at construction, unlike the CLI which took
+  them per subprocess — miss this and the subscription silently finds no
+  publisher). Every Gazebo sensor prefers this and falls back to the old
+  `gz topic -e -n 1` polling when the bindings are missing (Raspberry Pi, or a
+  delivery image without `python3-gz-transport13`). `sensor.using_transport`
+  says which path is live.
+
+  **Why**: the CLI path is a fork+exec *per sample, per thread*, in a spin loop.
+  Measured on the live sim 2026-08-01: lidar 6.2 Hz -> 29.7 Hz, concurrent `gz`
+  CLI processes 2 -> 0, load average during flight ~21 -> 3.7. The 6.2 Hz read
+  rate was what capped the 7 Hz control loop.
 - `gz_entities.py` — Gazebo CLI/SDF entity helpers for discovering world/model names, parsing live model poses, mapping PX4 local XY into Gazebo world XY, and removing pursued target models from running worlds.
 - `gz_utils.py` — Gazebo CLI helpers: `get_gz_env()` auto-detects env/partition; `prefetch_gz_env_async()` + `GzPrefetchResult` runs env detection + `gz topic -l` in a background thread so flight scripts can overlap ~2s of Gazebo setup with MAVSDK handshake
 

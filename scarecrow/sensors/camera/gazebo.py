@@ -17,7 +17,41 @@ import cv2
 import numpy as np
 
 from .base import CameraFrame, CameraSource
+from ..gz_transport import GzSubscription, transport_available
 from ..gz_utils import get_gz_env
+
+
+def frame_from_proto(msg) -> np.ndarray | None:
+    """Convert a gz.msgs Image into a BGR numpy array.
+
+    The subscription path gets the pixels as a bytes field, so none of the
+    text-format unescaping below applies -- that whole dance exists only
+    because the CLI prints the image inside a quoted protobuf-text string.
+
+    Returns BGR to match parse_gz_frame: every consumer (YOLO, the recorder,
+    the streamer) already expects BGR, and getting it backwards is silent --
+    the picture still looks like a picture, detection accuracy just drops.
+    """
+    try:
+        width = int(msg.width)
+        height = int(msg.height)
+        raw = msg.data
+    except Exception:
+        return None
+
+    if width <= 0 or height <= 0:
+        return None
+    expected = width * height * 3
+    if raw is None or len(raw) < expected:
+        return None
+
+    try:
+        pixels = np.frombuffer(raw[:expected], dtype=np.uint8).reshape(
+            (height, width, 3)
+        )
+        return cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
+    except Exception:
+        return None
 
 
 def parse_gz_frame(raw: bytes) -> np.ndarray | None:
@@ -111,6 +145,7 @@ class GazeboCamera(CameraSource):
         self._lock = threading.Lock()
         self._running = False
         self._threads: list[threading.Thread] = []
+        self._subscription: GzSubscription | None = None
         self.on_frame = None   # callback(frame: np.ndarray) — set before start()
 
         # Recording state
@@ -121,6 +156,11 @@ class GazeboCamera(CameraSource):
         self._record_start: float | None = None
         self._record_stop: float | None = None
 
+    @property
+    def using_transport(self) -> bool:
+        """True when reading via subscription rather than the CLI fallback."""
+        return self._subscription is not None and self._subscription.active
+
     def start(self) -> None:
         if self._running:
             return
@@ -129,14 +169,68 @@ class GazeboCamera(CameraSource):
         if self._topic is None:
             raise RuntimeError("Could not find camera topic in Gazebo")
         self._running = True
+
+        if self._start_subscription():
+            return
+
         for _ in range(self._num_threads):
             t = threading.Thread(target=self._poll_loop, daemon=True)
             t.start()
             self._threads.append(t)
 
+    def _start_subscription(self) -> bool:
+        if not transport_available():
+            return False
+        try:
+            from gz.msgs10.image_pb2 import Image
+        except Exception:
+            return False
+        sub = GzSubscription(self._topic, Image, self._on_image, env=self._env)
+        if not sub.start():
+            return False
+        self._subscription = sub
+        return True
+
+    def _on_image(self, msg) -> None:
+        image = frame_from_proto(msg)
+        if image is not None:
+            self._publish(image)
+
+    def _publish(self, image) -> None:
+        """Store, optionally record, and hand the frame to the consumer.
+
+        Shared by both read paths so recording and the on_frame contract cannot
+        drift apart depending on how the frame arrived.
+
+        Recording writes a decoded PNG rather than the raw dump it used to.
+        The dump only ever existed because the CLI hands back protobuf *text*,
+        which had to be unescaped later; the subscription has no such format to
+        preserve, and save_video was decoding straight to PNG anyway. Writing
+        the PNG now does that work once instead of twice.
+        """
+        with self._lock:
+            self._latest_frame = CameraFrame(image=image)
+
+        if self._recording and self._record_dir:
+            with self._lock:
+                n = self._frame_count
+                self._frame_count += 1
+            try:
+                cv2.imwrite(
+                    os.path.join(self._record_dir, f"frame_{n:04d}.png"), image
+                )
+            except Exception:
+                pass
+
+        if self.on_frame is not None:
+            self.on_frame(image)
+
     def stop(self) -> None:
         self._running = False
         self._recording = False
+        if self._subscription is not None:
+            self._subscription.stop()
+            self._subscription = None
         for t in self._threads:
             t.join(timeout=3)
         self._threads.clear()
@@ -179,23 +273,7 @@ class GazeboCamera(CameraSource):
                 if image is None:
                     continue
 
-                # Update latest frame
-                frame = CameraFrame(image=image)
-                with self._lock:
-                    self._latest_frame = frame
-
-                # Save raw to disk if recording
-                if self._recording and self._record_dir:
-                    with self._lock:
-                        n = self._frame_count
-                        self._frame_count += 1
-                    outfile = os.path.join(self._record_dir, f"raw_{n:04d}.bin")
-                    with open(outfile, 'wb') as f:
-                        f.write(result.stdout)
-
-                # Share with consumer callback
-                if self.on_frame is not None:
-                    self.on_frame(image)
+                self._publish(image)
 
             except Exception:
                 pass
@@ -233,14 +311,30 @@ class GazeboCamera(CameraSource):
         if not self._record_dir or not self._output_dir:
             return None
 
+        # Frames are recorded as decoded PNGs. The raw_*.bin branch stays for
+        # recordings made before that change, and for anything that still feeds
+        # this method CLI dumps.
+        captured = sorted(glob.glob(os.path.join(self._record_dir, "frame_*.png")))
         raw_files = sorted(glob.glob(os.path.join(self._record_dir, "raw_*.bin")))
-        if not raw_files:
+        if not captured and not raw_files:
             print("  [camera] No frames captured")
             return None
 
         png_dir = os.path.join(self._output_dir, ".camera_png")
         os.makedirs(png_dir, exist_ok=True)
         good = 0
+
+        # ffmpeg needs a gap-free frame_%04d sequence, so renumber rather than
+        # copying names through: a single unreadable frame would otherwise end
+        # the video early at the hole.
+        for pngfile in captured:
+            try:
+                frame = cv2.imread(pngfile)
+                if frame is not None:
+                    cv2.imwrite(os.path.join(png_dir, f"frame_{good:04d}.png"), frame)
+                    good += 1
+            except Exception:
+                pass
 
         for rawfile in raw_files:
             try:
@@ -253,7 +347,7 @@ class GazeboCamera(CameraSource):
             except Exception:
                 pass
 
-        print(f"  [camera] Decoded {good}/{len(raw_files)} frames")
+        print(f"  [camera] Decoded {good}/{len(captured) + len(raw_files)} frames")
 
         if good == 0:
             print("  [camera] No valid frames")
