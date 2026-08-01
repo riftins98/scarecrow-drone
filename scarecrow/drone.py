@@ -334,10 +334,25 @@ class Drone:
             await self.prepare_takeoff(altitude)
         with Timer(_log, "takeoff", altitude=altitude):
             await self._system.action.takeoff()
-            ok = await wait_for_altitude(self._system, altitude, self._ground_z, timeout=timeout)
+            # Read through the cache: the pumps are running by now (started at
+            # connect), and these two poll every 0.2-0.5s for up to two
+            # minutes. Left as one-shots they open a subscription per sample
+            # against a stream this class already holds, which is what makes
+            # MAVSDK log "User callback queue slow".
+            ok = await wait_for_altitude(
+                self._system,
+                altitude,
+                self._ground_z,
+                timeout=timeout,
+                position_provider=self.get_position,
+            )
             if ok:
                 log_event(_log, "altitude_reached", altitude=altitude)
-                await wait_for_stable(self._system, self._ground_z)
+                await wait_for_stable(
+                    self._system,
+                    self._ground_z,
+                    position_provider=self.get_position,
+                )
                 self._in_air = True
                 log_event(_log, "takeoff_stable")
             else:
