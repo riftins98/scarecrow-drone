@@ -13,7 +13,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sim = ["opencv-python-headless", "matplotlib", "pillow"]
+# Everything a simulated flight touches. torch/torchvision/ultralytics were
+# missing here while being pinned in requirements.txt, so `pip install -e
+# ".[sim]"` produced a package that imported fine and then failed mid-flight
+# the first time YOLO was asked for a detection. aiohttp serves the MJPEG
+# stream. Versions are pinned in requirements.txt, not here — see the module
+# docstring of tests/unit/test_dependency_pins.py.
+sim = [
+    "opencv-python-headless",
+    "matplotlib",
+    "pillow",
+    "aiohttp",
+    "torch",
+    "torchvision",
+    "ultralytics",
+]
 hardware = ["rplidar-roboticia"]
 webapp = [
     "fastapi==0.135.3",
