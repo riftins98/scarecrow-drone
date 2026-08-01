@@ -63,7 +63,11 @@
           <visibility_mask>3</visibility_mask>
         </camera>
         <always_on>1</always_on>
-        <update_rate>30</update_rate>
+        <!-- Matches mono_cam and drone_view_cam. This is a monitoring camera
+             whose only consumer is the WebRTC streamer at 10 fps; rendering
+             faster than that produces frames nobody ever sees. Sharpness comes
+             from resolution and encoder bitrate, not from this. -->
+        <update_rate>15</update_rate>
         <visualize>true</visualize>
       </sensor>
       <gravity>true</gravity>

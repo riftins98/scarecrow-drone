@@ -40,9 +40,23 @@ OPEN_BROWSER=1
 INTERACTIVE_PXH=1
 STREAM_FPS_EXPLICIT="${STREAM_FPS:-}"
 STREAM_FPS="${STREAM_FPS:-10}"
-STREAM_QUALITY="${STREAM_QUALITY:-68}"
+# JPEG quality for the MJPEG path (the container's stream mode). 68 was sized
+# for a bandwidth budget this stream does not have: it never leaves the machine.
+STREAM_QUALITY="${STREAM_QUALITY:-92}"
 STREAM_THREADS="${STREAM_THREADS:-2}"
-STREAM_MODE="${STREAM_MODE:-webrtc}"
+# WebRTC target bitrate. aiortc defaults to 1Mbps with a 3Mbps ceiling, sized
+# for the open internet; at 720p that visibly softens the picture. This stream
+# is loopback-only, so the ceiling protects nothing here.
+STREAM_BITRATE="${STREAM_BITRATE:-8000000}"
+# MJPEG on every platform. The container has no choice -- WebRTC's ICE media
+# path cannot cross Docker port mapping -- and running a different transport on
+# macOS meant the two delivery tracks shipped different code for the same
+# feature. Measured at 1280x720: JPEG q92 costs 1.69ms/frame and 73KiB, against
+# 8.34ms and ~100KiB for aiortc's software H.264 at 8Mbps. Cheaper and sharper,
+# because the stream never leaves the machine and H.264's inter-frame
+# compression is solving a bandwidth problem that does not exist here.
+# Set STREAM_MODE=webrtc to opt back in; it stays supported.
+STREAM_MODE="${STREAM_MODE:-mjpeg}"
 SELECTED_CAMERAS=()
 DRONE_VIEW_ENABLED=0
 WORLD_SET=0
@@ -278,6 +292,7 @@ start_stream_worker() {
             --port "$STREAM_PORT"
             --fps "$STREAM_FPS"
             --threads "$STREAM_THREADS"
+            --bitrate "$STREAM_BITRATE"
         )
         if [ -n "$OPEN_FLAG" ]; then
             WEBRTC_ARGS+=("$OPEN_FLAG")

@@ -16,6 +16,7 @@ import webbrowser
 
 from aiohttp import web
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc.codecs import h264 as _h264, vpx as _vpx
 from av import VideoFrame
 import numpy as np
 
@@ -29,6 +30,37 @@ from scarecrow.logging_setup import get_logger, log_event
 _log = get_logger("stream.webrtc", prefix="stream")
 
 PCS: set[RTCPeerConnection] = set()
+
+
+def raise_encoder_bitrate(target_bps: int) -> dict:
+    """Lift aiortc's encoder bitrate ceiling.
+
+    aiortc ships conservative limits sized for the open internet: H.264 starts
+    at 1 Mbps and is clamped to 3, VP8 to 1.5. At 1280x720 one megabit is about
+    a third of what the picture needs, which is why the feed looked soft while
+    being perfectly smooth -- it was starved of bits, not of frames.
+
+    That distinction decides what to change: at this bitrate a higher-resolution
+    camera would look *worse*, spreading the same megabit over more pixels.
+    Raise the ceiling first, then consider resolution.
+
+    Safe to lift here because this stream never leaves the machine. The browser
+    still drives the actual rate via REMB, so the encoder settles wherever the
+    link allows; these constants only stop aiortc clamping that estimate down.
+    """
+    before = {
+        "h264_default": _h264.DEFAULT_BITRATE,
+        "h264_max": _h264.MAX_BITRATE,
+        "vpx_default": _vpx.DEFAULT_BITRATE,
+        "vpx_max": _vpx.MAX_BITRATE,
+    }
+    _h264.DEFAULT_BITRATE = target_bps
+    _h264.MAX_BITRATE = target_bps
+    _h264.MIN_BITRATE = min(_h264.MIN_BITRATE, target_bps)
+    _vpx.DEFAULT_BITRATE = target_bps
+    _vpx.MAX_BITRATE = target_bps
+    _vpx.MIN_BITRATE = min(_vpx.MIN_BITRATE, target_bps)
+    return before
 
 
 class SharedFrameBuffer:
@@ -47,6 +79,71 @@ class SharedFrameBuffer:
             return self._frame, self._updated_at
 
 
+class CameraGate:
+    """Run the Gazebo camera only while somebody is actually watching.
+
+    The camera used to start with the server and poll forever. That is not a
+    background cost: ``GazeboCamera`` spawns a ``gz topic -e -n 1`` process per
+    frame per thread, which measured 59% of a CPU during flight, and the
+    subscription itself is what makes ``gz-sensors`` render the camera at all
+    (an unsubscribed sensor is skipped via ``HasConnections()``). So an
+    unattended mission was paying for a video feed nobody would ever see, in
+    both CPU and GPU, on a machine already at load average 21.
+
+    Peers are counted rather than toggled because a browser refresh briefly
+    opens the second connection before dropping the first. The grace period
+    then keeps the camera warm across an ordinary reload, so a viewer coming
+    straight back does not wait for topic discovery again.
+    """
+
+    def __init__(self, camera, grace_s: float = 10.0) -> None:
+        self._camera = camera
+        self._grace_s = grace_s
+        self._peers = 0
+        self._started = False
+        self._stop_task: asyncio.Task | None = None
+
+    async def acquire(self) -> None:
+        self._peers += 1
+        if self._stop_task is not None:
+            self._stop_task.cancel()
+            self._stop_task = None
+        # Track started-ness separately from the peer count: a viewer arriving
+        # inside the grace period finds the camera already running, and
+        # starting it again would be wasted work at best.
+        if not self._started:
+            # Topic discovery shells out, so keep it off the event loop.
+            await asyncio.to_thread(self._camera.start)
+            self._started = True
+            log_event(_log, "camera_started",
+                      topic=getattr(self._camera, "topic", None) or "unknown",
+                      peers=self._peers)
+
+    def release(self) -> None:
+        self._peers = max(0, self._peers - 1)
+        if self._peers == 0 and self._stop_task is None:
+            self._stop_task = asyncio.create_task(self._stop_after_grace())
+
+    async def _stop_after_grace(self) -> None:
+        try:
+            await asyncio.sleep(self._grace_s)
+        except asyncio.CancelledError:
+            return
+        self._stop_task = None
+        if self._peers:
+            return
+        await asyncio.to_thread(self._camera.stop)
+        self._started = False
+        log_event(_log, "camera_idle_stopped", grace_s=self._grace_s)
+
+    async def shutdown(self) -> None:
+        if self._stop_task is not None:
+            self._stop_task.cancel()
+            self._stop_task = None
+        await asyncio.to_thread(self._camera.stop)
+        self._started = False
+
+
 class GazeboVideoTrack(VideoStreamTrack):
     def __init__(self, buffer: SharedFrameBuffer, fps: float):
         super().__init__()
@@ -60,8 +157,12 @@ class GazeboVideoTrack(VideoStreamTrack):
         if frame is None:
             if self._last_frame is None:
                 await asyncio.sleep(self.frame_period_s)
+                # Match the cameras (both 1280x720). A placeholder of a
+                # different size makes the very first real frame a mid-stream
+                # resolution change, which browsers handle but which shows as
+                # a visible resize the moment the feed comes alive.
                 black = VideoFrame.from_ndarray(
-                    np.zeros((540, 960, 3), dtype="uint8"),
+                    np.zeros((720, 1280, 3), dtype="uint8"),
                     format="bgr24",
                 )
                 black.pts = pts
@@ -128,12 +229,23 @@ async def offer(request):
     pc = RTCPeerConnection()
     PCS.add(pc)
 
+    gate = app["camera_gate"]
+    await gate.acquire()
+    released = False
+
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
+        nonlocal released
         log_event(_log, "pc_state_change", state=pc.connectionState)
         if pc.connectionState in {"failed", "closed", "disconnected"}:
             await pc.close()
             PCS.discard(pc)
+            # Guard the release: aiortc fires this for more than one terminal
+            # state, and a double release would stop the camera out from under
+            # a viewer who is still connected.
+            if not released:
+                released = True
+                gate.release()
 
     await pc.setRemoteDescription(offer_desc)
     track = GazeboVideoTrack(app["frame_buffer"], app["fps"])
@@ -152,7 +264,7 @@ async def on_shutdown(app):
     if coros:
         await asyncio.gather(*coros, return_exceptions=True)
     PCS.clear()
-    app["camera"].stop()
+    await app["camera_gate"].shutdown()
 
 
 def main():
@@ -163,20 +275,41 @@ def main():
     parser.add_argument("--threads", type=int, default=2)
     parser.add_argument("--fps", type=float, default=15.0)
     parser.add_argument("--topic", type=str, default=None)
+    parser.add_argument(
+        "--bitrate",
+        type=int,
+        default=8_000_000,
+        help="Target video bitrate in bits/sec (default 8Mbps). aiortc's own "
+             "default is 1Mbps with a 3Mbps ceiling, which visibly softens "
+             "720p. The stream is loopback-only, so the ceiling is not "
+             "protecting anything here.",
+    )
+    parser.add_argument(
+        "--idle-grace",
+        type=float,
+        default=10.0,
+        help="Seconds to keep the camera running after the last viewer leaves, "
+             "so a browser refresh does not pay for topic discovery again.",
+    )
     args = parser.parse_args()
 
+    before = raise_encoder_bitrate(args.bitrate)
     log_event(_log, "stream_init",
               port=args.port, fps=args.fps, threads=args.threads,
-              topic=args.topic or "auto")
+              topic=args.topic or "auto",
+              bitrate=args.bitrate,
+              bitrate_was=before["h264_default"],
+              bitrate_ceiling_was=before["h264_max"])
     frame_buffer = SharedFrameBuffer()
     camera = GazeboCamera(topic=args.topic, env=None, num_threads=args.threads)
     camera.on_frame = frame_buffer.update
-    camera.start()
-    log_event(_log, "camera_started", topic=getattr(camera, "topic", args.topic) or "unknown")
+    # Deliberately not started here — see CameraGate. The server listens
+    # immediately; the camera spins up on the first browser that connects.
 
     app = web.Application()
     app["frame_buffer"] = frame_buffer
     app["camera"] = camera
+    app["camera_gate"] = CameraGate(camera, grace_s=args.idle_grace)
     app["fps"] = max(1.0, min(float(args.fps), 30.0))
     app.router.add_get("/", index)
     app.router.add_post("/offer", offer)
