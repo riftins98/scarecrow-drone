@@ -4,6 +4,16 @@ GPS-denied indoor navigation system for autonomous quadcopters. Combines lidar-b
 
 **Repository**: https://github.com/riftins98/scarecrow-drone
 
+## Documentation map
+
+- `README.md` — what it does, how it navigates, how to run it
+- `docs/ARCHITECTURE.md` — processes, ports, layers, the mission state machine
+- `docs/HARDWARE_BRINGUP.md` — simulator to real aircraft
+- `docs/KNOWN_LIMITATIONS.md` — what has never run, and what is known thin
+- `docs/ACCEPTANCE_CHECKLIST.md` — the manual flight pass
+- `docs/guides/` — reviewer-facing walkthroughs
+- per-directory `CLAUDE.md` — local detail and the reasoning behind it
+
 ## Verification
 
 `docs/ACCEPTANCE_CHECKLIST.md` is the manual flight checklist — what only a
@@ -25,12 +35,12 @@ on 2026-06-20 silently broke the whole build (see the header of `pixi.toml`).
 
 ```bash
 pixi install          # materialise the locked environment
-pixi run build        # build PX4 SITL (once; ~90s)
+pixi run build        # build PX4 SITL (once)
 pixi run webapp       # backend :8000 + frontend :3000 — Connect launches the sim
 ```
 Other tasks: `pixi run sim` (headless sim + stream on :8080), `pixi run fly`,
 `pixi run sensors`, `pixi run test`, `pixi run verify-isolation`.
-First sim launch after a build takes ~165s; every launch after that ~22s.
+The first sim launch after a build is slow (PX4 relinks); later launches are quick.
 
 **Windows/Linux — Docker.** The whole product in one container:
 
@@ -76,7 +86,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - `airframes/` — PX4 airframe configurations
 - `config/` — Gazebo server configuration
 - `docker/` — Delivery image for Windows/Linux: webapp + sim in one container (see `docker/CLAUDE.md`)
-- `docs/` — Acceptance checklist and the reviewer-facing user guides under `docs/guides/`
+- `docs/` — Architecture, hardware bring-up, known limitations, the acceptance checklist, and the reviewer-facing guides under `docs/guides/`
 - `px4/` — PX4-Autopilot git submodule (do not edit directly)
 
 ## Root Files

@@ -24,7 +24,8 @@ docker compose up
 ```
 
 Both launch PX4 SITL, Gazebo and the monitoring stream. The first launch after
-a build takes ~165s; later launches ~22s. `pixi run sim` is the only supported
+a build is slow because PX4 relinks; later launches are quick. `pixi run sim`
+is the only supported
 way in on macOS — invoking `scripts/shell/launch_with_stream.sh` from a plain
 shell fails with `ERROR [init] Gazebo gz sim not found`, because the toolchain
 lives in the pixi environment and not on your PATH.
@@ -139,7 +140,7 @@ Normal, not regressions:
 - **`--r` (right-hand start) is unverified** — `stabilize_corner()` hardcodes
   the left wall.
 - **AMD and Intel GPUs render Gazebo but not YOLO.** Inference falls back to
-  CPU at roughly 200ms/frame. Slow, not broken.
+  CPU, which is several times slower. Slow, not broken.
 - **Camera frames are parsed after landing, never during flight** — parsing in
   flight destabilises the drone.
 - **Never `param set` an EKF2 value at runtime.** It resets the estimator and

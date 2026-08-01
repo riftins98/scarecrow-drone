@@ -27,7 +27,7 @@ Sensor interface abstractions for sim and hardware. Each sensor type has a base 
   host without the bindings falls back to this path silently. Check
   `sensor.using_transport` if rates look low.
 - `gz_entities.py` — Gazebo CLI/SDF entity helpers for discovering world/model names, parsing live model poses, mapping PX4 local XY into Gazebo world XY, and removing pursued target models from running worlds.
-- `gz_utils.py` — Gazebo CLI helpers: `get_gz_env()` auto-detects env/partition; `prefetch_gz_env_async()` + `GzPrefetchResult` runs env detection + `gz topic -l` in a background thread so flight scripts can overlap ~2s of Gazebo setup with MAVSDK handshake
+- `gz_utils.py` — Gazebo CLI helpers: `get_gz_env()` auto-detects env/partition; `prefetch_gz_env_async()` + `GzPrefetchResult` runs env detection + `gz topic -l` in a background thread so flight scripts overlap Gazebo setup with the MAVSDK handshake instead of paying for both
 
 
 ## Hardware drivers for the real drone

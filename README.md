@@ -166,10 +166,13 @@ finished.
 
 ## Repository layout
 
-Each directory has a `CLAUDE.md` describing what is in it and why it is built
-that way. Read the one for the area you are working in — that is where the
-real engineering documentation lives, including the reasoning behind decisions
-that look arbitrary from the code alone.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the map: what processes run,
+what talks to what, and how the layers stack.
+
+Each directory also has a `CLAUDE.md` describing what is in it and why it is
+built that way. Read the one for the area you are working in — that is where
+the reasoning lives, including which apparently-arbitrary choices are
+load-bearing.
 
 | | |
 |---|---|
@@ -209,8 +212,10 @@ SYSTEM_ADDRESS = "serial:///dev/ttyACM0:921600"    # companion computer → Pixh
 a `SensorSuite`, never on Gazebo, and each simulated sensor has a hardware
 driver behind the same interface.
 
-**None of it has flown.** Read
-[`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) first.
+**None of it has flown.** [`docs/HARDWARE_BRINGUP.md`](docs/HARDWARE_BRINGUP.md)
+is the bring-up order — sensor by sensor, on the ground, props off — and
+[`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) lists what is known
+thin before you start.
 
 ---
 

@@ -12,8 +12,9 @@ user picks world/camera/spawn in the UI and presses Connect to launch the sim.
 There is deliberately no other way in — the sim is the product, the UI is how
 the product is used.
 
-macOS does **not** use this. Docker Desktop exposes no GPU there (measured RTF
-0.055 vs 0.87 native), so macOS uses pixi. See the header of `pixi.toml`.
+macOS does **not** use this. Docker Desktop exposes no GPU there at all, so
+Gazebo falls back to software rendering and the simulator runs far too slowly
+to fly. macOS uses pixi. See the header of `pixi.toml`.
 
 ## Files
 - `Dockerfile` — 4 stages. `webbuild` (Node 22) builds the React bundle;
@@ -123,10 +124,10 @@ with `lavapipe` and VMware's `SVGA3D`.
   quietly degraded image.
 
 ## Validation status
-Verified end to end on **arm64/macOS**: 43/43 image self-test checks, and
-15/15 delivery checks in `--no-gpu` mode (UI served, Connect launches without
-rebuilding PX4, ~79 MJPEG frames in 8s, all four sensor groups via the flight
-subprocess).
+Verified end to end on **arm64/macOS**: the image self-test passes in full, and
+so does `verify-delivery.sh` in `--no-gpu` mode — UI served, Connect launches
+without rebuilding PX4, the stream carries real JPEG frames, and every sensor
+group reports through the flight subprocess.
 
 Still open, and neither is fixable from a Mac:
 - the **amd64** image must be built **on an amd64 host** — cross-building on
