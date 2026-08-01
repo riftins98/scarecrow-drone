@@ -17,6 +17,43 @@ import cv2
 import numpy as np
 
 
+def select_inference_device() -> str:
+    """Pick the fastest inference device available on this machine.
+
+    Measured on an 8-core arm64 Mac with yolov8s at imgsz=1280, which is what
+    the mission actually runs: 200ms/frame on CPU versus 41ms on MPS. Same
+    model, same input size, same thresholds -- 4.8x for free, and it moves the
+    load off the cores the simulator needs.
+
+    Ordering is deliberate:
+      cuda  the delivery laptops (RTX 5090/5080) and any Linux/Docker GPU host
+      mps   Apple silicon, this development machine
+      cpu   the Raspberry Pi, and any host where the above are unavailable
+
+    Override with $SCARECROW_YOLO_DEVICE when the automatic choice is wrong --
+    MPS in particular has occasional gaps in operator coverage, and a bad
+    inference device should be recoverable without a code change.
+    """
+    override = os.environ.get("SCARECROW_YOLO_DEVICE", "").strip()
+    if override:
+        return override
+    try:
+        import torch
+    except Exception:
+        return "cpu"
+    try:
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    try:
+        if torch.backends.mps.is_available():
+            return "mps"
+    except Exception:
+        pass
+    return "cpu"
+
+
 class YoloDetector:
     """Runs YOLO inference on incoming camera frames.
 
@@ -46,8 +83,10 @@ class YoloDetector:
         on_detection: Callable[[str], None] | None = None,
         on_detection_data: Callable[[list[dict]], None] | None = None,
         target_classes: Collection[str] | None = None,
+        device: str | None = None,
     ):
         self._model_path = model_path
+        self._device = device if device is not None else select_inference_device()
         self.output_dir = output_dir
         self.detection_dir = os.path.join(output_dir, "detections")
         self.frames_dir = os.path.join(output_dir, "frames")
@@ -102,7 +141,7 @@ class YoloDetector:
             logging.getLogger("ultralytics").setLevel(logging.WARNING)
             from ultralytics.models.yolo.model import YOLO
             self._model = YOLO(self._model_path, verbose=False)
-            print("  YOLO model loaded.")
+            print(f"  YOLO model loaded (device={self._device}).")
             return True
         except Exception as e:
             print(f"  YOLO load failed: {e}")
@@ -236,13 +275,33 @@ class YoloDetector:
         finally:
             self._detect_lock.release()
 
-        results = self._model(
-            frame,
-            conf=0.01,
-            iou=0.45,
-            imgsz=1280,
-            verbose=False
-        )
+        try:
+            results = self._model(
+                frame,
+                conf=0.01,
+                iou=0.45,
+                imgsz=1280,
+                device=self._device,
+                verbose=False
+            )
+        except Exception as e:
+            # An accelerator that cannot run this model must not end the
+            # flight. MPS in particular can fail on an unsupported operator,
+            # and that surfaces here rather than at load time. Drop to CPU for
+            # the rest of the mission: slower, but detection keeps working.
+            if self._device == "cpu":
+                raise
+            print(f"  YOLO {self._device} inference failed ({type(e).__name__}); "
+                  f"falling back to CPU for the rest of this flight")
+            self._device = "cpu"
+            results = self._model(
+                frame,
+                conf=0.01,
+                iou=0.45,
+                imgsz=1280,
+                device=self._device,
+                verbose=False
+            )
 
         image_height, image_width = frame.shape[:2]
         detections = []
