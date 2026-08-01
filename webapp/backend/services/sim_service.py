@@ -681,7 +681,9 @@ class SimService:
             subprocess.Popen(
                 [python_bin, streamer,
                  "--port", "8080",
-                 "--fps", os.environ.get("STREAM_FPS", "15"),
+                 # Match the launcher default: the monitoring feed spends
+                 # its budget on resolution rather than frame rate.
+                 "--fps", os.environ.get("STREAM_FPS", "5"),
                  "--threads", "2",
                  *quality_args,
                  "--topic", topic],

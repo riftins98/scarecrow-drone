@@ -53,13 +53,31 @@
         <camera>
           <horizontal_fov>1.74</horizontal_fov>
           <image>
-            <width>1280</width>
-            <height>720</height>
+            <!-- 1080p because the browser upscales this to fill the viewport:
+                 on a Retina display a 1280px frame is stretched roughly 2.4x,
+                 and no encoder setting can undo blur added after decoding.
+
+                 Worth being explicit about why this is safe NOW and was not
+                 before. under WebRTC, aiortc capped the bitrate at 1Mbps, so
+                 more pixels meant the same bits spread thinner and a HIGHER
+                 resolution looked WORSE. MJPEG at q92 has no such cap:
+                 quality is fixed per pixel and the frame simply gets bigger
+                 (~76KiB at 720p, ~150KiB here). On a loopback stream that
+                 costs nothing.
+
+                 Also raises angular detail: the 1.74rad (100 degree) FOV gives
+                 ~12.8 px/degree at 720p, ~19 at 1080p. -->
+            <width>1920</width>
+            <height>1080</height>
           </image>
           <clip>
             <near>0.1</near>
             <far>100</far>
           </clip>
+          <!-- Without this, edges alias badly, and the browser's ~2.4x
+               upscale turns jagged edges into mush. Cheap next to the render
+               itself and the most visible single improvement per unit cost. -->
+          <anti_aliasing>4</anti_aliasing>
           <visibility_mask>3</visibility_mask>
         </camera>
         <always_on>1</always_on>
@@ -67,7 +85,15 @@
              whose only consumer is the WebRTC streamer at 10 fps; rendering
              faster than that produces frames nobody ever sees. Sharpness comes
              from resolution and encoder bitrate, not from this. -->
-        <update_rate>15</update_rate>
+        <!-- Matched to what the streamer consumes (5 fps). At the measured
+             RTF this yields ~5.2 Hz wall-clock, so nothing is rendered only to
+             be discarded. Render cost scales with resolution x update_rate, so
+             halving this is what pays for 1080p: 1920x1080 at 6Hz costs about
+             the same to render as 1280x720 at 15Hz, for 2.25x the detail.
+             This is a MONITORING feed of a drone cruising at 0.3 m/s: 5 fps
+             is a frame every 6cm of travel. Sharpness is persistent, motion
+             smoothness is not. -->
+        <update_rate>6</update_rate>
         <visualize>true</visualize>
       </sensor>
       <gravity>true</gravity>

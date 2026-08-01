@@ -39,7 +39,9 @@ DEFAULT_POSE=""
 OPEN_BROWSER=1
 INTERACTIVE_PXH=1
 STREAM_FPS_EXPLICIT="${STREAM_FPS:-}"
-STREAM_FPS="${STREAM_FPS:-10}"
+# 5 fps for the monitoring feed. Spending the budget on resolution instead of
+# frame rate: the drone cruises at 0.3 m/s, so 5 fps is a frame every 6cm.
+STREAM_FPS="${STREAM_FPS:-5}"
 # JPEG quality for the MJPEG path (the container's stream mode). 68 was sized
 # for a bandwidth budget this stream does not have: it never leaves the machine.
 STREAM_QUALITY="${STREAM_QUALITY:-92}"
@@ -150,7 +152,7 @@ prepare_drone_view_overlay() {
 
 if [ "$DRONE_VIEW_ENABLED" -eq 1 ]; then
     if [ -z "$STREAM_FPS_EXPLICIT" ]; then
-        STREAM_FPS="10"
+        STREAM_FPS="5"
     fi
     prepare_drone_view_overlay
 fi
