@@ -88,7 +88,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - Optical flow needs 2.5m+ altitude for good feature tracking
 - Never param set EKF2 at runtime (resets estimator, breaks optical flow)
 - Stock x500_flow airframe defaults work — only disable GPS
-- GStreamer broken on Mac — use PNG+ffmpeg workaround for video
+- GStreamer broken on Mac — use PNG+ffmpeg workaround for video (it is a pipeline framework, not a wire format, so it would not unify streaming anyway)
 
 ## Cross-Platform Compatibility (macOS + Windows)
 All code, scripts, and tooling MUST work on both macOS and Windows. The team has devs on both OSes.
@@ -100,8 +100,22 @@ All code, scripts, and tooling MUST work on both macOS and Windows. The team has
 - When in doubt, document in the relevant sub-CLAUDE.md whether a workflow is "WSL on Windows" or "native on both".
 
 ## Recent Changes
+- **Simulator performance rebuilt from the sensor layer up.** Every Gazebo
+  sensor polled `gz topic -e -n 1` per sample in a spin loop — a fork+exec per
+  lidar scan and camera frame. Replaced with in-process `gz.transport13`
+  subscriptions (`scarecrow/sensors/gz_transport.py`), CLI kept as an automatic
+  fallback for hosts without the bindings. YOLO moved off the CPU
+  (`select_inference_device()`: cuda -> mps -> cpu). Streaming unified on MJPEG
+  for every OS. Measured in flight, same machine:
+  **RTF 0.134 -> 0.906**, load average **21 -> 4.8**, lidar **6.2Hz -> 29.7Hz**,
+  YOLO process **108% -> 12%**, stream worker **59% -> 8.6%**, and `gz sim`
+  **41% -> 98.6%** — it was starved, not expensive. Mission unchanged: 4/4
+  legs, 4/4 corners, 2/2 pursuits, 0 tracebacks. Altitude warnings rose 55 -> 64.
+- Fixed a Disconnect bug that broke the *next* Connect: `pkill -x px4` left
+  `px4-mavlink` and the `rcS` shell alive, so relaunching hit `ERROR [px4] Task
+  already running` and failed preflight with "ekf2 missing data".
 - UI polish: spawn map moved to the LEFT of a two-column pre-connect layout (`sim-config-layout`); the parked aircraft now render as **airplane silhouettes** (not red squares) in both maps; "Settings" removed from the sidebar; the right-side `Minimap` rebuilt to draw the **real** garage to scale (walls + aircraft + pads) with the drone at its **live** Gazebo pose (`SimService.drone_pose()` → `dronePose` in sim status), falling back to spawn. Shared geometry/airplane drawing lives in `webapp/frontend/src/components/garageMap.ts`.
-- Added a **configurable drone spawn location** (garage world only): a top-down `SpawnPicker` (click a room map; the ≥3m-from-wall margin is red-hatched and click-blocked) in `SimControl`, both pre-connect (sets initial spawn → `PX4_GZ_MODEL_POSE` at launch) and post-connect ("Move Drone Here" → `/api/sim/spawn`, teleports the running drone). The chosen spawn becomes the session `SimService._spawn_pose`, so the **panic RESET returns there** too. The picker also blocks the two parked RQ-7B aircraft (rotated 6x9m footprints at (±5,0) + 0.3m), drawn as red rectangles. Backend: `validate_spawn()` / `SPAWN_BOUNDS` (x[-9,9], y[-4.5,4.5]) + `SPAWN_OBSTACLES`/`_in_obstacle()` enforced in both the API and UI; `launch(spawn=)`, `set_spawn()`, `_teleport_to()`. Tested in `test_spawn.py` + `test_sim_api.py`.
+- Added a **configurable drone spawn location** (garage world only): a top-down `SpawnPicker` (click a room map; the ≥2m-from-wall margin (`SPAWN_WALL_MARGIN`) is red-hatched and click-blocked) in `SimControl`, both pre-connect (sets initial spawn → `PX4_GZ_MODEL_POSE` at launch) and post-connect ("Move Drone Here" → `/api/sim/spawn`, teleports the running drone). The chosen spawn becomes the session `SimService._spawn_pose`, so the **panic RESET returns there** too. The picker also blocks the two parked RQ-7B aircraft (rotated 6x9m footprints at (±5,0) + 0.3m), drawn as red rectangles. Backend: `validate_spawn()` / `SPAWN_BOUNDS` (x[-9,9], y[-4.5,4.5]) + `SPAWN_OBSTACLES`/`_in_obstacle()` enforced in both the API and UI; `launch(spawn=)`, `set_spawn()`, `_teleport_to()`. Tested in `test_spawn.py` + `test_sim_api.py`.
 - Added a **panic RESET button** (red, full-width, in `SimControl`, always available while connected): `POST /api/sim/reset` (1) hard-kills the flight script + its mavsdk_server child via group-kill (`DetectionService.kill()`, which also reaps any orphans so they can't squat on udp 14540), (2) disarms via PX4's **console** — `commander mode auto:hold` + `commander disarm -f` through the launcher's pxh FIFO (`SimService.disarm_via_console()`); this replaced an earlier MAVSDK/pymavlink approach that was slow (~9s mavsdk_server cold start) and flaky (SITL MAVLink streams race for an on-demand client), (3) teleports the Gazebo drone to spawn (`SimService.reset_drone_pose()` → world `set_pose`; spawn = `SPAWN_POSE` `5,-4.5,0,0,0,0`). Each step best-effort. Tested in `test_sim_api.py` + `test_sim_console.py` + `test_detection_cleanup.py`.
 - Removed the Gazebo RTF (real_time_factor) telemetry gauge end to end (inconsistent / looked bad): deleted the `gz topic -e -t /stats` poller + `rtf` property in `sim_service.py`, the `rtf` key in the sim status DTO, and `simStatus.rtf` in the frontend type. Replaced it with a **flight-log parser**: `DetectionService._parse_log_extras()` mines flight-script stdout (across all scripts) for `phase`, `agl`, `ceiling`, `leg`, lidar distances (`front`/`left`/`right`/`rear`/`wall`), commanded velocities (`fwd`/`lat`/`yaw`), pursuit `target`/`target_dist`, wall-follow `stop_reason`, and `fps`, merging them into `latest_telemetry`. Pure parser unit-tested in `tests/unit/webapp/services/test_detection_log_parser.py`. The `TelemetryRail` is now **dynamic** — it renders only the readouts the running script produces. HudHeader's RTF indicator light became a DETS light.
 - Webapp UI overhauled into a military / HUD console: top `HudHeader` (callsign, system-state pill, local clock, indicator lights), scrolling `Ticker`, dynamic `TelemetryRail` (log-parsed gauges + GPS-DENIED badge), vertical `Sidebar` (OPS / DIAGNOSTICS), `Minimap` (top-down garage with obstacle-avoiding drone path), and full-width `SystemLog` (terminal-style mock feed). All in `webapp/frontend/src/components/`.
