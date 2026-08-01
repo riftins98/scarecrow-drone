@@ -606,9 +606,9 @@ class SimService:
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.
 
-        Kills only the currently running stream worker (MJPEG or WebRTC) —
-        leaves PX4 and Gazebo untouched — then spawns a fresh worker
-        pointed at the new camera's topic.
+        Kills only the currently running stream worker — leaves PX4 and
+        Gazebo untouched — then spawns a fresh worker pointed at the new
+        camera's topic.
 
         Returns:
             {"success": True, "camera": "<cam>"} on success
@@ -630,8 +630,8 @@ class SimService:
             return {"success": False, "error": f"camera topic not found: {camera!r}"}
 
         # Kill the existing stream worker. -f matches anything with
-        # "stream_camera" in the command line (matches both the MJPEG and
-        # WebRTC variants spawned by launch_with_stream.sh).
+        # "stream_camera" in the command line, which is what
+        # launch_with_stream.sh spawns.
         subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
         # Wait for the port to actually free up. `pkill` only sends a
         # signal; the OS can take a moment to release the listening
@@ -642,22 +642,17 @@ class SimService:
             time.sleep(0.1)
 
         # Run the streamer with the interpreter that is running this backend.
-        # It is the only one guaranteed to have the deps (aiortc, av, gz-python)
-        # -- under pixi there is no .venv at all, and a bare "python3" would
-        # resolve to whatever is first on PATH.
+        # It is the only one guaranteed to have the gz-python bindings -- under
+        # pixi there is no .venv at all, and a bare "python3" would resolve to
+        # whatever is first on PATH.
         python_bin = sys.executable
 
-        # Must match the launcher's STREAM_MODE default, or a camera swap
-        # silently changes transport mid-session: the browser would keep an
-        # open WebRTC connection while the new worker served MJPEG, and the
-        # picture would just freeze.
-        mode = os.environ.get("STREAM_MODE", "mjpeg").strip().lower()
-        if mode == "webrtc":
-            streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera_webrtc.py")
-            quality_args = ["--bitrate", os.environ.get("STREAM_BITRATE", "8000000")]
-        else:
-            streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera.py")
-            quality_args = ["--quality", os.environ.get("STREAM_QUALITY", "92")]
+        # The same streamer the launcher runs. There is deliberately only one:
+        # a camera swap that changed transport mid-session would leave the
+        # browser holding a connection the new worker does not speak, and the
+        # picture would simply freeze.
+        streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera.py")
+        quality_args = ["--quality", os.environ.get("STREAM_QUALITY", "92")]
         env = os.environ.copy()
         env["PYTHONPATH"] = REPO_ROOT
         # The original launcher sources scripts/shell/env.sh which sets

@@ -57,10 +57,6 @@ services:
       STREAM_PORT: "8080"
       WEBAPP_PORT: "8000"
 
-      # MJPEG, not WebRTC. WebRTC's ICE media path cannot cross Docker port
-      # mapping (signalling connects, video stays black). See docker/Dockerfile.
-      STREAM_MODE: ${STREAM_MODE:-mjpeg}
-
       # Set to 1 on hardware that must not fall back to software rendering
       # (the ROG Strix delivery machines). All 5 sensors are GPU-rendered:
       # 3 cameras + 2 gpu_lidar. A silent llvmpipe fallback still "works",

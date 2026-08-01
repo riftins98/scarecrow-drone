@@ -170,7 +170,7 @@ export interface ConnectSimParams {
   world?: string;
   headless?: boolean;
   /** Headless-only. Picks which streamable camera the launcher points the
-   *  WebRTC stream at. Backend falls back to "fixed" if invalid. */
+   *  stream at. Backend falls back to "fixed" if invalid. */
   camera?: string;
   /** Custom start location for mapped worlds; omit for the default spawn. */
   spawn?: SpawnPoint;

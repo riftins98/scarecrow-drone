@@ -1,13 +1,9 @@
 """The MJPEG streamer runs its cameras only while a client is connected.
 
-This is the container's stream path: Docker must use MJPEG because WebRTC's
-ICE media path cannot cross Docker port mapping. Without this gate, the two
-delivery tracks behave differently -- the Mac stops rendering an unwatched
-camera and the customer's machine does not -- which is exactly the kind of
-divergence that makes "it works on my machine" true and useless.
-
-The contract mirrors tests/unit/scripts/test_stream_camera_gate.py on purpose.
-If the two ever disagree, one platform is paying for a feed nobody is watching.
+This is the only stream path, on every platform. Without the gate a camera
+nobody is watching still costs CPU, and GPU too -- gz-sensors skips rendering
+a camera with no subscribers, so an ungated stream keeps every camera live for
+the whole session.
 """
 import importlib.util
 import os
@@ -193,9 +189,9 @@ class TestGate:
         assert cam.starts == 1, "cameras restarted mid-session"
 
 
-class TestParityWithWebRTCGate:
-    def test_both_streamers_expose_the_same_gate_contract(self):
-        """Divergence here means one delivery track pays and the other does not."""
+class TestGateContract:
+    def test_the_gate_exposes_its_whole_contract(self):
+        """launch_with_stream.sh and switch_camera() both depend on all three."""
         for name in ("acquire", "release", "shutdown"):
             assert hasattr(CameraGate, name), f"MJPEG gate is missing {name}()"
 

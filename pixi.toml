@@ -100,8 +100,6 @@ opencv-python-headless = "==4.13.0.92"
 pillow = "==12.2.0"
 matplotlib = "==3.10.8"
 aiohttp = "==3.13.5"
-aiortc = "==1.14.0"
-av = "==16.1.0"
 
 # Webapp backend (webapp/backend/requirements.txt). Kept in sync with that
 # file; it stays as the reference for the Docker/WSL track, which installs with
@@ -226,7 +224,7 @@ test = { cmd = "python -m pytest tests/ -q", description = "Run the test suite" 
 # protobuf deprecation. Run `pixi run build` first (once, or after changing PX4).
 launch = { cmd = "./scripts/shell/launch.sh", args = [{ arg = "world", default = "hangar_small" }], description = "Launch sim with GUI. Run `pixi run build` first." }
 
-# Headless sim + MJPEG/WebRTC camera stream on http://localhost:8080/
+# Headless sim + MJPEG camera stream on http://localhost:8080/
 # Flags are baked in so the common case is one word:  pixi run sim
 #
 # PX4_GZ_MODEL_POSE pins the start position. Without it, launch_with_stream.sh

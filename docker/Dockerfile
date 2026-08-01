@@ -105,7 +105,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #
 # DELIBERATELY OMITTED: the gstreamer1.0-* packages that ubuntu.sh installs.
 # They exist only for PX4's GstCameraSystem plugin, which this project does not
-# use -- camera streaming goes through scripts/stream_camera_webrtc.py reading
+# use -- camera streaming goes through scripts/stream_camera.py reading
 # Gazebo topics directly. Skipping them keeps the image smaller. If a build
 # error ever names GstCameraSystem, add them back here rather than dropping
 # --no-sim-tools (which would pull an unpinned Gazebo).
@@ -225,8 +225,6 @@ COPY --from=webbuild /build/build /opt/scarecrow/webapp/frontend/build
 # use in simulation.
 RUN /opt/scarecrow/.venv/bin/pip install --no-cache-dir \
         aiohttp==3.13.5 \
-        aiortc==1.14.0 \
-        av==16.1.0 \
         numpy==2.4.4 \
         opencv-python-headless==4.13.0.92 \
         pillow==12.2.0 \
@@ -280,7 +278,6 @@ ENV PATH="/opt/scarecrow/.venv/bin:${PATH}" \
     CAMERA=fixed \
     STREAM_PORT=8080 \
     REQUIRE_GPU=0 \
-    STREAM_MODE=mjpeg \
     SCARECROW_MODE=webapp \
     WEBAPP_PORT=8000
 
@@ -301,20 +298,6 @@ ENV PATH="/opt/scarecrow/.venv/bin:${PATH}" \
 ENV NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,display
 
-# STREAM_MODE=mjpeg is REQUIRED in a container, not a preference.
-#
-# WebRTC negotiates its media path over dynamic UDP ports via ICE. aiortc
-# advertises the container's internal address (e.g. 172.17.0.2), which on
-# Docker Desktop lives inside the VM and is unreachable from the host browser.
-# Only the published TCP port crosses that boundary, so signalling succeeds
-# (the page loads) while media never connects. Observed 2026-07-31: nine peer
-# connections all stuck at pc_state=connecting, black video.
-#
-# MJPEG is plain HTTP multipart over the single published port, so it works
-# through any port mapping -- macOS, Windows/WSL2, and Linux alike.
-# Trade-off: whole JPEG frames instead of H.264, so heavier and less smooth.
-# Fine at the default 10 FPS. Restoring WebRTC in a container would need a TURN
-# server or a fixed published UDP range with forced ICE candidates.
 WORKDIR /opt/scarecrow
 # 8000 = webapp (UI + REST API), 8080 = camera stream.
 EXPOSE 8000 8080

@@ -83,7 +83,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 ## Root Files
 - `pyproject.toml` — Python project config (deps: mavsdk, numpy; optional: opencv, rplidar)
 - `.gitmodules` — Submodule reference to PX4-Autopilot fork
-- `requirements.txt` — Python dependencies
+- `requirements.txt` — Pinned runtime dependencies, and the reference `pixi.toml` and `docker/Dockerfile` are checked against by `tests/unit/test_dependency_pins.py`
 - `README.md` — Project readme
 
 ## Key Constraints
@@ -123,7 +123,6 @@ All code, scripts, and tooling MUST work on both macOS and Windows. The team has
 - Removed the Gazebo RTF (real_time_factor) telemetry gauge end to end (inconsistent / looked bad): deleted the `gz topic -e -t /stats` poller + `rtf` property in `sim_service.py`, the `rtf` key in the sim status DTO, and `simStatus.rtf` in the frontend type. Replaced it with a **flight-log parser**: `DetectionService._parse_log_extras()` mines flight-script stdout (across all scripts) for `phase`, `agl`, `ceiling`, `leg`, lidar distances (`front`/`left`/`right`/`rear`/`wall`), commanded velocities (`fwd`/`lat`/`yaw`), pursuit `target`/`target_dist`, wall-follow `stop_reason`, and `fps`, merging them into `latest_telemetry`. Pure parser unit-tested in `tests/unit/webapp/services/test_detection_log_parser.py`. The `TelemetryRail` is now **dynamic** — it renders only the readouts the running script produces. HudHeader's RTF indicator light became a DETS light.
 - Webapp UI overhauled into a military / HUD console: top `HudHeader` (callsign, system-state pill, local clock, indicator lights), scrolling `Ticker`, dynamic `TelemetryRail` (log-parsed gauges + GPS-DENIED badge), vertical `Sidebar` (OPS / DIAGNOSTICS), `Minimap` (top-down garage with obstacle-avoiding drone path), and full-width `SystemLog` (terminal-style mock feed). All in `webapp/frontend/src/components/`.
 - Design system established at `design-system/scarecrow/MASTER.md`. UI work should read it first; future sessions stay visually consistent.
-- `ui-ux-pro-max` skill installed at `.claude/skills/ui-ux-pro-max/`. Python `python3` shim at `~/.local/bin/python3.bat` is required on Windows.
 - Webapp launcher: live per-step substatus (`Compiling [N/1157] ...`, EKF state, etc.) so users see actual progress rather than just "active".
 - Backend: `SimService.launch(world, headless)` captures stream URL from `launch_with_stream.sh`; `DetectionService.start()` accepts script name + arg dict; `script_metadata.py` introspects flight scripts via `--help` for the dynamic pre-flight argparse form.
 - `Start Scarecrow.bat` rewritten: auto-installs backend deps, hard-fails if backend doesn't respond, `-d`/`--dev` flag for visible log windows.

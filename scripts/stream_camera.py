@@ -177,11 +177,8 @@ def _compose_grid(frames: list[np.ndarray | None], names: list[str]) -> np.ndarr
 class CameraGate:
     """Run the Gazebo cameras only while an MJPEG client is connected.
 
-    The WebRTC streamer has the same thing; this is the container's copy,
-    because Docker must use MJPEG (WebRTC's ICE media path cannot cross Docker
-    port mapping) and would otherwise be the one track still paying for a feed
-    nobody is watching -- in CPU, and in GPU too, since gz-sensors skips
-    rendering a camera with no subscribers.
+Without it every track pays for a feed nobody is watching -- in CPU, and
+    in GPU too, since gz-sensors skips rendering a camera with no subscribers.
 
     Threading rather than asyncio: this server is a ThreadedHTTPServer and each
     viewer is a thread blocked in a multipart write, not a coroutine.

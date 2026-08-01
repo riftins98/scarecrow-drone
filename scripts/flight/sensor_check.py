@@ -179,7 +179,7 @@ def capture_camera_frame():
     #   re.search(r'data: "(.*?)"', ...).decode('unicode_escape')
     # which raised UnicodeDecodeError whenever the captured pixel data happened
     # to end mid-escape-sequence ("\ at end of string"). parse_gz_frame reads
-    # the raw bytes and is what stream_camera_webrtc.py already relies on.
+    # the raw bytes and is what the streamer already relies on.
     from scarecrow.sensors.camera.gazebo import parse_gz_frame
 
     try:

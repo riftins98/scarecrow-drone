@@ -93,8 +93,16 @@ to someone and quietly flies the whole sim on CPU. Explicitly rejected, along
 with `lavapipe` and VMware's `SVGA3D`.
 
 ## Known deliberate choices
-- **MJPEG, not WebRTC** (`STREAM_MODE=mjpeg`). WebRTC's ICE media path cannot
-  cross Docker port mapping: signalling connects, video stays black.
+- **MJPEG is the only stream transport, here and on macOS.** A WebRTC
+  streamer used to exist and has been deleted. It could not work in a
+  container: ICE negotiates media over dynamic UDP ports and advertises the
+  container's internal address, which on Docker Desktop lives inside the VM
+  and is unreachable from the host browser. Only the published TCP port
+  crosses that boundary, so signalling succeeded (the page loaded) while media
+  never connected — observed 2026-07-31, nine peer connections all stuck at
+  pc_state=connecting, black video. Restoring it would need a TURN server or a
+  fixed published UDP range with forced ICE candidates. MJPEG is plain HTTP
+  multipart over the one published port and works through any port mapping.
 - **`SCARECROW_NOLOCKSTEP=1` on CPU, `0` on the GPU profiles.** Nolockstep
   exists to stop PX4 waiting on a slow software renderer; with a real GPU,
   lockstep is PX4's intended mode and gives deterministic sensor timing.

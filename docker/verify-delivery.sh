@@ -256,8 +256,9 @@ fi
 # ---------------------------------------------------------------------
 step "6. Camera stream carries real frames"
 # ---------------------------------------------------------------------
-# Not a status code: HTTP 200 on a stream endpoint proved nothing when the
-# WebRTC video was black. Pull real bytes and look for JPEG markers.
+# Not a status code: HTTP 200 on a stream endpoint proves nothing -- a stream
+# can answer 200 and then carry no picture. Pull real bytes and look for JPEG
+# markers.
 #
 # /stream is an endless multipart response, so curl ALWAYS exits 28 (timeout)
 # here -- that is success, not failure, and the partial body is the sample.

@@ -42,23 +42,10 @@ STREAM_FPS_EXPLICIT="${STREAM_FPS:-}"
 # 5 fps for the monitoring feed. Spending the budget on resolution instead of
 # frame rate: the drone cruises at 0.3 m/s, so 5 fps is a frame every 6cm.
 STREAM_FPS="${STREAM_FPS:-5}"
-# JPEG quality for the MJPEG path (the container's stream mode). 68 was sized
+# JPEG quality. 68 was sized
 # for a bandwidth budget this stream does not have: it never leaves the machine.
 STREAM_QUALITY="${STREAM_QUALITY:-92}"
 STREAM_THREADS="${STREAM_THREADS:-2}"
-# WebRTC target bitrate. aiortc defaults to 1Mbps with a 3Mbps ceiling, sized
-# for the open internet; at 720p that visibly softens the picture. This stream
-# is loopback-only, so the ceiling protects nothing here.
-STREAM_BITRATE="${STREAM_BITRATE:-8000000}"
-# MJPEG on every platform. The container has no choice -- WebRTC's ICE media
-# path cannot cross Docker port mapping -- and running a different transport on
-# macOS meant the two delivery tracks shipped different code for the same
-# feature. Measured at 1280x720: JPEG q92 costs 1.69ms/frame and 73KiB, against
-# 8.34ms and ~100KiB for aiortc's software H.264 at 8Mbps. Cheaper and sharper,
-# because the stream never leaves the machine and H.264's inter-frame
-# compression is solving a bandwidth problem that does not exist here.
-# Set STREAM_MODE=webrtc to opt back in; it stays supported.
-STREAM_MODE="${STREAM_MODE:-mjpeg}"
 SELECTED_CAMERAS=()
 DRONE_VIEW_ENABLED=0
 WORLD_SET=0
@@ -164,7 +151,6 @@ echo "  Stream: http://localhost:${STREAM_PORT}/"
 echo "  Open Browser: $([ "$OPEN_BROWSER" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Interactive PXH: $([ "$INTERACTIVE_PXH" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Build PX4: $([ -n "$NO_BUILD_FLAG" ] && echo 'NO' || echo 'YES')"
-echo "  Stream Mode: $STREAM_MODE"
 echo "  Stream FPS: $STREAM_FPS | JPEG Quality: $STREAM_QUALITY | Camera Threads: $STREAM_THREADS"
 if [ ${#SELECTED_CAMERAS[@]} -gt 0 ]; then
     echo "  Cameras: ${SELECTED_CAMERAS[*]}"
@@ -175,7 +161,7 @@ fi
 echo "============================================"
 
 # Pick python. Order matters: a pixi environment must win over a leftover
-# .venv, because only pixi has the locked aiortc/av/gz-python the streamer
+# .venv, because only pixi has the locked gz-python bindings the streamer
 # needs. CONDA_PREFIX is set by `pixi run` (and by conda), and is empty
 # otherwise, so the venv path is still used on the WSL/Windows track.
 PYTHON_BIN="python3"
@@ -188,7 +174,7 @@ fi
 # Ensure output directory exists for logs
 mkdir -p "$REPO_ROOT/output"
 
-_log_event step world="$WORLD" port="$STREAM_PORT" stream_mode="$STREAM_MODE" headless="$([ -n "$HEADLESS_FLAG" ] && echo true || echo false)" interactive_pxh="$([ "$INTERACTIVE_PXH" -eq 1 ] && echo true || echo false)"
+_log_event step world="$WORLD" port="$STREAM_PORT" stream_mode=mjpeg headless="$([ -n "$HEADLESS_FLAG" ] && echo true || echo false)" interactive_pxh="$([ "$INTERACTIVE_PXH" -eq 1 ] && echo true || echo false)"
 
 # Stream worker: waits for the drone+camera topics to come up, then execs the
 # stream server in its own subshell. Backgrounded so the main script can
@@ -256,15 +242,6 @@ start_stream_worker() {
     if [ "$OPEN_BROWSER" -eq 1 ]; then
         OPEN_FLAG="--open"
     fi
-    if [ "$STREAM_MODE" = "webrtc" ]; then
-        if ! "$PYTHON_BIN" -c "import aiortc, aiohttp, av" >/dev/null 2>&1; then
-            _log_warn webrtc_deps_missing python_bin="$PYTHON_BIN"
-            echo "[launch_with_stream] WARNING: WebRTC dependencies missing in $PYTHON_BIN"
-            echo "[launch_with_stream] Falling back to MJPEG stream mode"
-            STREAM_MODE="mjpeg"
-        fi
-    fi
-
     if [ ${#CAMERA_TOPICS[@]} -eq 0 ]; then
         _log_error camera_topic_missing
         echo "[launch_with_stream] ERROR: selected camera topic not found"
@@ -276,55 +253,27 @@ start_stream_worker() {
         echo "[launch_with_stream] Camera topics:  ${CAMERA_TOPICS[*]}"
     fi
 
-    if [ ${#CAMERA_TOPICS[@]} -gt 1 ] && [ "$STREAM_MODE" = "webrtc" ]; then
-        LAST_CAMERA_INDEX=$((${#CAMERA_TOPICS[@]} - 1))
-        SELECTED_CAMERA="${SELECTED_CAMERAS[$LAST_CAMERA_INDEX]}"
-        SELECTED_TOPIC="${CAMERA_TOPICS[$LAST_CAMERA_INDEX]}"
-        _log_warn webrtc_multi_camera_single_topic selected="$SELECTED_CAMERA" ignored_count="$LAST_CAMERA_INDEX"
-        echo "[launch_with_stream] WARNING: WebRTC supports one live stream; using ${SELECTED_CAMERA}"
-        CAMERA_TOPICS=("$SELECTED_TOPIC")
-        SELECTED_CAMERAS=("$SELECTED_CAMERA")
-    fi
-    _log_event stream_exec mode="$STREAM_MODE" port="$STREAM_PORT" topics="\"${CAMERA_TOPICS[*]:-}\""
+    _log_event stream_exec mode=mjpeg port="$STREAM_PORT" topics="\"${CAMERA_TOPICS[*]:-}\""
     _log_timer_end step4_stream
-    if [ "$STREAM_MODE" = "webrtc" ]; then
-        echo "[launch_with_stream] Starting WebRTC stream on http://localhost:${STREAM_PORT}/"
-        echo "[launch_with_stream] Stream topic: ${CAMERA_TOPICS[0]}"
-        WEBRTC_ARGS=(
-            --port "$STREAM_PORT"
-            --fps "$STREAM_FPS"
-            --threads "$STREAM_THREADS"
-            --bitrate "$STREAM_BITRATE"
-        )
-        if [ -n "$OPEN_FLAG" ]; then
-            WEBRTC_ARGS+=("$OPEN_FLAG")
-        fi
-        if [ ${#CAMERA_TOPICS[@]} -gt 0 ]; then
-            WEBRTC_ARGS+=(--topic "${CAMERA_TOPICS[0]}")
-        fi
-        exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera_webrtc.py" \
-            "${WEBRTC_ARGS[@]}"
-    else
-        echo "[launch_with_stream] Starting MJPEG stream on http://localhost:${STREAM_PORT}/"
-        MJPEG_ARGS=(
-            --port "$STREAM_PORT"
-            --fps "$STREAM_FPS"
-            --quality "$STREAM_QUALITY"
-            --threads "$STREAM_THREADS"
-        )
-        if [ -n "$OPEN_FLAG" ]; then
-            MJPEG_ARGS+=("$OPEN_FLAG")
-        fi
-        if [ ${#CAMERA_TOPICS[@]} -gt 1 ]; then
-            TOPICS_VALUE="$(IFS=,; echo "${CAMERA_TOPICS[*]}")"
-            NAMES_VALUE="$(IFS=,; echo "${SELECTED_CAMERAS[*]}")"
-            MJPEG_ARGS+=(--topics "$TOPICS_VALUE" --names "$NAMES_VALUE")
-        else
-            MJPEG_ARGS+=(--topic "${CAMERA_TOPICS[0]}" --names "${SELECTED_CAMERAS[0]}")
-        fi
-        exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera.py" \
-            "${MJPEG_ARGS[@]}"
+    echo "[launch_with_stream] Starting MJPEG stream on http://localhost:${STREAM_PORT}/"
+    MJPEG_ARGS=(
+        --port "$STREAM_PORT"
+        --fps "$STREAM_FPS"
+        --quality "$STREAM_QUALITY"
+        --threads "$STREAM_THREADS"
+    )
+    if [ -n "$OPEN_FLAG" ]; then
+        MJPEG_ARGS+=("$OPEN_FLAG")
     fi
+    if [ ${#CAMERA_TOPICS[@]} -gt 1 ]; then
+        TOPICS_VALUE="$(IFS=,; echo "${CAMERA_TOPICS[*]}")"
+        NAMES_VALUE="$(IFS=,; echo "${SELECTED_CAMERAS[*]}")"
+        MJPEG_ARGS+=(--topics "$TOPICS_VALUE" --names "$NAMES_VALUE")
+    else
+        MJPEG_ARGS+=(--topic "${CAMERA_TOPICS[0]}" --names "${SELECTED_CAMERAS[0]}")
+    fi
+    exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera.py" \
+        "${MJPEG_ARGS[@]}"
 }
 
 echo "[launch_with_stream] Step 1/4: create the sim"
