@@ -9,6 +9,7 @@ Python package for drone flight controllers, sensor interfaces, detection, and n
 - `flight/` — Async MAVSDK helpers + Flight orchestrator (see `flight/CLAUDE.md`)
 - `navigation/` — NavigationUnit, MapUnit, arena geometry and mission recording (see `navigation/CLAUDE.md`)
 - `missions/` — Complete flights; flight scripts are thin entry points over these (see `missions/CLAUDE.md`)
+- `platform/` — Simulation-vs-hardware seam: mission code depends on `SensorSuite`, never on Gazebo (see `platform/CLAUDE.md`)
 - `util/` — Dependency-free primitives: clamp, normalize_angle, log-line formatting
 
 ## Files

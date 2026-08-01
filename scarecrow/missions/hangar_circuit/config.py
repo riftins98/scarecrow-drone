@@ -23,7 +23,14 @@ REPO_ROOT = os.path.dirname(
 class HangarCircuitConfig:
     """Mission parameters. Defaults match the tuned hangar configuration."""
 
+    # -- platform ------------------------------------------------------
+    # "auto" picks hardware on a Raspberry Pi and simulation everywhere else.
+    # Override with SCARECROW_PLATFORM or --platform when the guess is wrong.
+    platform: str = "auto"
+
     # -- connection ----------------------------------------------------
+    # udp://:14540 is PX4's offboard API port, used by SITL and by a companion
+    # computer talking to a real Pixhawk over the same MAVLink router.
     system_address: str = "udp://:14540"
 
     # -- mission shape -------------------------------------------------

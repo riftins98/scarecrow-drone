@@ -67,19 +67,11 @@ from scarecrow.missions.hangar_circuit.reporting import (
 from scarecrow.navigation.arena import arena_boundary_from_start
 from scarecrow.navigation.mission_recorder import MissionRecorder, RouteRecorder
 from scarecrow.navigation.navigation_unit import NavigationUnit
-from scarecrow.sensors.camera.gazebo import GazeboCamera
-from scarecrow.sensors.gz_entities import (
-    GzPx4FrameTransform,
-    discover_model_name,
-    discover_world_name,
-    find_model_pose,
-    get_world_model_poses,
-    remove_nearest_model,
-)
-from scarecrow.sensors.gz_utils import prefetch_gz_env_async
-from scarecrow.sensors.lidar.gazebo import GazeboLidar
+from scarecrow.platform import SensorSuite, sensor_suite_for
+from scarecrow.sensors.camera.base import CameraSource
+from scarecrow.sensors.lidar.base import LidarSource
 from scarecrow.sensors.lidar.validation import current_landing_targets, valid_distance
-from scarecrow.sensors.rangefinder import GazeboRangefinder
+from scarecrow.sensors.rangefinder.base import RangefinderSource
 from scarecrow.util.formatting import format_meters
 from scarecrow.util.math_utils import normalize_angle
 
@@ -93,36 +85,29 @@ class LegOutcome(Enum):
     ABORT = "abort"
 
 
-def find_drone_camera_topic(topics: str) -> str | None:
-    """Pick the drone's own camera from the Gazebo topic list.
-
-    Must match on both the camera link *and* the drone model: worlds carry
-    fixed monitoring cameras on the same link path, and pointing YOLO at one of
-    those detects birds the drone cannot possibly reach.
-    """
-    return next(
-        (
-            line.strip()
-            for line in topics.splitlines()
-            if "camera_link/sensor/camera/image" in line
-            and "/model/holybro_x500" in line
-        ),
-        None,
-    )
-
-
 class HangarCircuitPursuitMission:
     """Orchestrates the hangar circuit pursuit flight."""
 
-    def __init__(self, config: HangarCircuitConfig) -> None:
+    def __init__(
+        self,
+        config: HangarCircuitConfig,
+        *,
+        sensors: SensorSuite | None = None,
+    ) -> None:
         self.config = config
+        # The suite is what makes this mission runnable on the real drone: it
+        # supplies the sensors and hides whether they are Gazebo topics or
+        # serial ports. Defaults to auto-detection so a caller that does not
+        # care gets the right one.
+        self.sensors: SensorSuite = sensors or sensor_suite_for(
+            config.platform, repo_root=REPO_ROOT
+        )
 
-        # Hardware / services, built during setup.
         self.drone = Drone(system_address=config.system_address)
         self.nav: NavigationUnit | None = None
-        self.lidar: GazeboLidar | None = None
-        self.camera: GazeboCamera | None = None
-        self.ceiling_sensor: GazeboRangefinder | None = None
+        self.lidar: LidarSource | None = None
+        self.camera: CameraSource | None = None
+        self.ceiling_sensor: RangefinderSource | None = None
         self.session: DetectionSession | None = None
         self.detector: YoloDetector | None = None
         self.tracker = TargetTracker(image_width=config.image_width_px)
@@ -133,9 +118,7 @@ class HangarCircuitPursuitMission:
         self.suppressor = TargetSuppressor()
         self.target_alt_m: float | None = None
         self.arena_boundary: list[dict] | None = None
-        self.frame_transform: GzPx4FrameTransform | None = None
-        self.sim_world: str | None = None
-        self.gz_env: dict = {}
+        self.frame_transform = None
         self.pursuit_count = 0
         self.target_removal_event: dict | None = None
 
@@ -175,12 +158,12 @@ class HangarCircuitPursuitMission:
         if cfg.ceiling_clearance_m is not None:
             print(f"Min ceiling clear: {cfg.ceiling_clearance_m:.2f}m")
 
-    def _build_detector(self) -> tuple:
-        """Create the detector and kick off model + Gazebo env preloading.
+    def _build_detector(self):
+        """Create the detector and start loading the YOLO model in background.
 
-        Both are slow and independent of each other and of the MAVSDK
-        connection, so they run on threads while the drone connects. Loading
-        YOLO serially here added several seconds before every flight.
+        Model loading is slow and independent of the MAVSDK connection, so it
+        overlaps with it rather than adding seconds before every flight. The
+        sensor suite warms up its own environment in parallel via prepare().
         """
         cfg = self.config
         self.detector = YoloDetector(
@@ -191,9 +174,7 @@ class HangarCircuitPursuitMission:
             target_classes=cfg.target_classes,
         )
         self.detector.configure_saving(save_detections=False, save_no_detections=False)
-        yolo_thread = self.detector.preload_async()
-        gz_thread, gz_result = prefetch_gz_env_async()
-        return yolo_thread, gz_thread, gz_result
+        return self.detector.preload_async()
 
     async def _connect(self) -> bool:
         print("\nConnecting to drone...")
@@ -216,40 +197,25 @@ class HangarCircuitPursuitMission:
             return False
         return True
 
-    def _resolve_world(self, topics: str) -> str:
-        self.sim_world = discover_world_name(topics)
-        drone_model_name = (
-            discover_model_name(topics, contains="holybro_x500") or "holybro_x500"
-        )
-        if self.sim_world:
-            print(f"  Gazebo world: {self.sim_world}")
-        else:
-            print("  WARNING: Gazebo world name not found; target removal will be skipped")
-        print(f"  Gazebo drone model: {drone_model_name}")
-        return drone_model_name
-
-    def _start_lidar(self, topics: str) -> None:
-        print("\nStarting 2D lidar...")
-        self.lidar = GazeboLidar(env=self.gz_env, num_threads=3)
-        self.lidar._topic = self.lidar._discover_topic(topic_list=topics)
-        self.lidar.start()
-        print(f"  Lidar topic: {self.lidar.topic}")
+    def _start_lidar(self) -> None:
+        self.lidar = self.sensors.start_lidar()
 
     async def _start_ceiling_sensor(self) -> bool:
-        print("Starting upward ceiling rangefinder...")
-        self.ceiling_sensor = GazeboRangefinder(env=self.gz_env)
+        """Bring up the upward rangefinder and wait for a first reading.
+
+        Fatal on failure: the mission derives its flight altitude from this
+        sensor, so continuing without it would fly at an unverified height
+        under a ceiling.
+
+        Started is not the same as publishing -- a Gazebo topic or a serial
+        port can be open seconds before the first sample arrives, and reading
+        too early looks identical to a missing sensor.
+        """
         try:
-            # Do not reuse the prefetched topic list here — the upward sensor
-            # topic often appears a few seconds after the 2D lidar.
-            self.ceiling_sensor.start(discover_timeout_s=30.0)
+            self.ceiling_sensor = self.sensors.start_ceiling_rangefinder()
         except RuntimeError as exc:
             print(f"ERROR: {exc}")
-            print(
-                "  Hint: confirm model://tf_luna_up is on the drone "
-                "(gz topic -l | grep ceiling_rangefinder)"
-            )
             return False
-        print(f"  Ceiling topic: {self.ceiling_sensor.topic}")
         if not await wait_for_rangefinder(self.ceiling_sensor):
             print("ERROR: no upward rangefinder data -- aborting")
             return False
@@ -370,42 +336,20 @@ class HangarCircuitPursuitMission:
                 return False
         return True
 
-    async def _calibrate_frame_transform(self, drone_model_name: str) -> None:
-        """Tie the PX4 local frame to Gazebo world coordinates.
+    async def _calibrate_frame_transform(self) -> None:
+        """Tie the PX4 local frame to world coordinates, where that exists.
 
-        Needed only to delete a reached target: PX4 knows where the drone is in
-        its own frame, and the removal API needs world coordinates. Without the
-        transform the mission still flies and still pursues -- it just cannot
-        remove what it caught, so it says so and carries on.
+        Needed only to localise a reached target for removal. In simulation the
+        world knows the drone's true pose; on hardware there is no such truth,
+        the suite returns None, and the mission simply cannot remove targets --
+        which is correct, because on a real drone the bird disperses by itself.
         """
-        if not self.sim_world:
-            return
-        circuit_start_pos = await self.drone.get_position()
-        circuit_start_yaw = await self.drone.get_yaw()
-        live_poses = get_world_model_poses(world_name=self.sim_world, env=self.gz_env)
-        gz_drone_pose = find_model_pose(
-            live_poses, name=drone_model_name, contains="holybro_x500"
-        )
-        if gz_drone_pose is None:
-            print("  WARNING: live Gazebo drone pose not found; target removal will be skipped")
-            return
-
-        self.frame_transform = GzPx4FrameTransform(
-            px4_origin_x=circuit_start_pos.position.north_m,
-            px4_origin_y=circuit_start_pos.position.east_m,
-            px4_origin_yaw_deg=circuit_start_yaw,
-            gz_origin_x=gz_drone_pose.x,
-            gz_origin_y=gz_drone_pose.y,
-            gz_origin_yaw_deg=gz_drone_pose.yaw_deg,
-        )
-        ft = self.frame_transform
-        print(
-            "  PX4/Gazebo frame calibrated: "
-            f"px4=({ft.px4_origin_x:.2f},{ft.px4_origin_y:.2f},"
-            f"{ft.px4_origin_yaw_deg:.1f}deg) "
-            f"gz=({ft.gz_origin_x:.2f},{ft.gz_origin_y:.2f},"
-            f"{ft.gz_origin_yaw_deg:.1f}deg) "
-            f"yaw_offset={ft.yaw_offset_deg:.1f}deg"
+        pos = await self.drone.get_position()
+        yaw = await self.drone.get_yaw()
+        self.frame_transform = self.sensors.world.calibrate_frame(
+            local_x=pos.position.north_m,
+            local_y=pos.position.east_m,
+            local_yaw_deg=yaw,
         )
 
     async def _record_circuit_start(self) -> None:
@@ -590,51 +534,55 @@ class HangarCircuitPursuitMission:
         return pursuit_result
 
     def _remove_reached_target(self) -> None:
-        """Delete the pursued target from the Gazebo world."""
+        """Remove the pursued target from the world, where the platform can.
+
+        Three distinct outcomes, logged differently on purpose:
+          - no frame transform  -> we never knew where the target was
+          - unsupported         -> hardware; nothing to remove, not a fault
+          - attempted           -> simulation; success or a real failure
+        """
         if self.target_removal_event is None:
             print("  WARNING: target removal skipped: PX4/Gazebo frame transform unavailable")
             return
 
         event = self.target_removal_event
-        removal = remove_nearest_model(
-            world_name=self.sim_world,
+        outcome = self.sensors.world.remove_target(
             x=float(event["x"]),
             y=float(event["y"]),
-            env=self.gz_env,
-            worlds_dir=os.path.join(REPO_ROOT, "worlds"),
-            model_names=None,
             name_prefixes=self.config.target_model_prefixes,
             uri_keywords=self.config.target_uri_keywords,
-            max_distance_m=None,
         )
         self.recorder.add_event(
             {
                 "type": "target_removed",
                 "label": "Pursued target removed from simulation",
-                "success": removal.success,
-                "world": removal.world_name,
-                "model": removal.model_name,
-                "distance_m": removal.distance_m,
+                "supported": outcome.supported,
+                "success": outcome.success,
+                "world": outcome.world_name,
+                "model": outcome.model_name,
+                "distance_m": outcome.distance_m,
                 "target_estimate_x": event["x"],
                 "target_estimate_y": event["y"],
                 "target_local_x": event["local_x"],
                 "target_local_y": event["local_y"],
                 "target_range_m": event["range_m"],
-                "message": removal.message,
+                "message": outcome.message,
                 "timestamp": time.time(),
                 "leg": event["leg"],
             }
         )
-        if removal.success:
-            distance = format_meters(removal.distance_m, 2)
+        if not outcome.supported:
+            print(f"  Target dispersed ({outcome.message})")
+        elif outcome.success:
+            distance = format_meters(outcome.distance_m, 2)
             print(
-                f"  Removed target model {removal.model_name!r} "
-                f"from world {removal.world_name!r} "
+                f"  Removed target model {outcome.model_name!r} "
+                f"from world {outcome.world_name!r} "
                 f"(target_estimate={event['x']:.2f},{event['y']:.2f} "
                 f"nearest={distance})"
             )
         else:
-            print(f"  WARNING: target removal skipped/failed: {removal.message}")
+            print(f"  WARNING: target removal skipped/failed: {outcome.message}")
 
     # ==================================================================
     # Phases 5-6: return to entry
@@ -1175,12 +1123,8 @@ class HangarCircuitPursuitMission:
                 pass
 
     def _stop_sensors(self) -> None:
-        if self.camera is not None:
-            self.camera.stop()
-        if self.ceiling_sensor is not None:
-            self.ceiling_sensor.stop()
-        if self.lidar is not None:
-            self.lidar.stop()
+        """Stop every sensor. The suite owns them, so it does the shutdown."""
+        self.sensors.stop()
 
     # ==================================================================
     # Entry point
@@ -1195,19 +1139,21 @@ class HangarCircuitPursuitMission:
         # this flight would never connect.
         subprocess.run(["pkill", "-f", "mavsdk_server"], capture_output=True)
 
-        yolo_thread, gz_thread, gz_result = self._build_detector()
+        yolo_thread = self._build_detector()
+        # Environment discovery runs alongside the MAVSDK connect. In
+        # simulation that is Gazebo topic enumeration; on hardware it is a
+        # no-op, so the same call is correct on both.
+        self.sensors.prepare()
 
         try:
             if not await self._connect():
                 return
 
             yolo_thread.join(timeout=30)
-            gz_thread.join(timeout=10)
-            self.gz_env = gz_result.env or {}
-            topics = gz_result.topics
-            drone_model_name = self._resolve_world(topics)
+            self.sensors.await_prepared(timeout_s=10.0)
+            self.sensors.describe_environment()
 
-            self._start_lidar(topics)
+            self._start_lidar()
             if not await self._start_ceiling_sensor():
                 return
             if not self._resolve_target_altitude():
@@ -1239,19 +1185,17 @@ class HangarCircuitPursuitMission:
                 takeoff_origin.position.east_m,
             )
 
-            await self._calibrate_frame_transform(drone_model_name)
+            await self._calibrate_frame_transform()
             await self._record_circuit_start()
 
             if not self._check_ceiling_once():
                 return
 
-            cam_topic = find_drone_camera_topic(topics)
-            if cam_topic is None:
-                print("ERROR: drone camera topic not found")
+            try:
+                self.camera = self.sensors.start_camera()
+            except RuntimeError as exc:
+                print(f"ERROR: {exc}")
                 return
-            self.camera = GazeboCamera(topic=cam_topic, env=self.gz_env)
-            self.camera.start()
-            print(f"  Camera topic: {self.camera.topic}")
 
             self.session = DetectionSession(
                 self.camera,

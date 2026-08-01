@@ -16,14 +16,11 @@ from mavsdk.offboard import VelocityBodyYawspeed
 
 from ..sensors.lidar.base import LidarSource
 
-
-def normalize_angle(deg: float) -> float:
-    """Normalize angle to -180..180."""
-    while deg > 180:
-        deg -= 360
-    while deg < -180:
-        deg += 360
-    return deg
+# Imported, not redefined. This module used to carry a byte-identical copy of
+# normalize_angle -- exactly the drift scarecrow.util exists to prevent. The
+# import keeps `from .rotation import normalize_angle` working for existing
+# callers while there is only one definition.
+from ..util.math_utils import normalize_angle  # noqa: F401
 
 
 async def get_yaw(drone: System) -> float:

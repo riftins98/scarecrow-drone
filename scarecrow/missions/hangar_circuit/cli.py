@@ -55,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
             "overrides auto altitude from the upward ceiling rangefinder."
         ),
     )
+    parser.add_argument(
+        "--platform",
+        choices=("auto", "simulation", "hardware"),
+        default="auto",
+        help=argparse.SUPPRESS,
+    )
     parser.set_defaults(start_side=DEFAULT_START_SIDE)
     start_side_group = parser.add_mutually_exclusive_group()
     start_side_group.add_argument(
@@ -93,5 +99,6 @@ def config_from_args(args: argparse.Namespace) -> HangarCircuitConfig:
         ceiling_clearance_m=args.ceiling_clearance,
         target_alt_m=args.target_alt,
         start_side=args.start_side,
+        platform=args.platform,
         flight_id=args.flight_id or f"hangar_circuit_pursuit_{int(time.time())}",
     )
