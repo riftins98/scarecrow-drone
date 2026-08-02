@@ -98,17 +98,24 @@ over a five-minute mission. If real-time factor is poor, try:
 *Symptom:* the simulation runs slowly but the renderer check passes and the GPU
 is clearly in use.
 
-**YOLO inference size is hardcoded at `imgsz=1280`** in
-`scarecrow/detection/yolo.py`. That size was chosen because an accelerator
-absorbed it. On any AMD or Intel machine inference falls to the CPU and then
-competes with Gazebo for the same cores — on this project, moving YOLO off the
-CPU was the single largest performance improvement ever measured, and those
-machines get none of it. There is currently no configuration knob; lowering it
-means editing the literal.
+**YOLO inference size is fixed at `imgsz=1280`, and must stay there.** On AMD
+and Intel machines inference runs on the CPU and competes with Gazebo for the
+same cores, which makes lowering it the obvious optimisation. It does not work.
+Measured on CPU against 32 real frames from a recorded flight:
 
-*Symptom:* the startup log says `device=cpu`, frame rate falls while detection
-is active, and the simulator recovers when the drone is not looking at
-anything.
+    imgsz    cost         pigeon found    mean confidence
+    1280     203 ms/f     7/32            0.519
+     960     122 ms/f     4/32            0.061
+     640      70 ms/f     0/32            0.000
+     480      51 ms/f     0/32            0.000
+
+The target is small in frame at the distances the mission flies, so
+downscaling erases it — 640 is three times faster at detecting nothing. Treat
+1280 as a floor, not a default: the cost is what the feature costs.
+
+*Symptom of the real problem:* the startup log says `device=cpu` and frame rate
+falls while detection is active. The remedy is an accelerator or a slower
+detector rate limit, never a smaller image.
 
 **Camera resolutions were chosen against Metal too** — a 1080p monitor camera,
 two 720p cameras and two GPU lidars, all rendered every frame. Render cost
