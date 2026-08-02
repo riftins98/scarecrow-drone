@@ -103,8 +103,6 @@ During flight:
 - The **minimap** shows the drone path in real time
 - **Detection Time**, frame count, and pigeon hits appear in the control panel
 
-![Mission active with telemetry and minimap](images/webapp-04-mission-active.png)
-
 Click **Stop Detection** to detach from the flight script; the drone finishes landing on its own. **Disconnect** ends the simulation (disabled while flying).
 
 ### Emergency controls
