@@ -114,7 +114,7 @@ simply absent. Installing Docker Engine inside Ubuntu-on-WSL2 (the normal
 ```bash
 # inside WSL2 (Ubuntu). Clone into the WSL filesystem, NOT /mnt/c —
 # cross-filesystem I/O is dramatically slower.
-git clone --recurse-submodules <repo-url> ~/scarecrow-drone
+git clone --recurse-submodules https://github.com/riftins98/scarecrow-drone.git ~/scarecrow-drone
 cd ~/scarecrow-drone
 
 bash docker/build.sh       # builds the image, then detects your GPU and
@@ -154,7 +154,7 @@ Docker Desktop on macOS exposes no GPU at all, so macOS runs natively.
 silently broke the entire build once, which is why the toolchain is pinned.
 
 ```bash
-git clone --recurse-submodules <repo-url>
+git clone --recurse-submodules https://github.com/riftins98/scarecrow-drone.git
 cd scarecrow-drone
 
 pixi install        # materialise the locked environment
