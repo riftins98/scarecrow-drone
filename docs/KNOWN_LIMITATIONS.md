@@ -35,9 +35,9 @@ everything it needs, but "pins correctly" and "builds" are different claims.
 
 *To close:* `bash docker/build.sh` on an amd64 host.
 
-**GPU passthrough has never run, on any vendor.** All three compose profiles
-(`gpu`, `gpu-wsl`, `gpu-dri`) are written from the documented mechanisms and
-verified only in `--no-gpu` mode. `docker/CLAUDE.md` records three traps that
+**GPU passthrough has never run, on any vendor.** All three compose overlays
+(`docker/compose.gpu.yml`, `compose.gpu-wsl.yml`, `compose.gpu-dri.yml`) are
+written from the documented mechanisms and verified only in `--no-gpu` mode. `docker/CLAUDE.md` records three traps that
 cost real debugging, including WSL silently falling back to "Microsoft Basic
 Render Driver" — software rendering that looks like a working GPU.
 
@@ -80,6 +80,44 @@ unit-tested, but the mission prints "Camera recording: disabled" and
 **Two Gazebo models are unused** — `models/ceiling_net/` (7.6 MB) and
 `models/pigeon_billboard/` (596 KB). Both belong to worlds that no longer
 exist. Harmless, but they are repository weight with no consumer.
+
+## Tuning on a machine that is not the developer's Mac
+
+Every performance choice here was measured on Apple Silicon with a Metal
+accelerator. They are reasonable defaults, not tuned values, and two of them
+are likely wrong on a Windows laptop reaching its GPU through WSL2.
+
+**Lockstep is on for every GPU path.** `SCARECROW_NOLOCKSTEP=0` assumes
+rendering is fast enough that PX4 waiting on each frame costs little. That was
+true on native Metal. WSL2 reaches the GPU through d3d12 paravirtualisation,
+where every render call crosses a VM boundary, and a laptop GPU will throttle
+over a five-minute mission. If real-time factor is poor, try:
+
+    SCARECROW_NOLOCKSTEP=1 docker compose up
+
+*Symptom:* the simulation runs slowly but the renderer check passes and the GPU
+is clearly in use.
+
+**YOLO inference size is hardcoded at `imgsz=1280`** in
+`scarecrow/detection/yolo.py`. That size was chosen because an accelerator
+absorbed it. On any AMD or Intel machine inference falls to the CPU and then
+competes with Gazebo for the same cores — on this project, moving YOLO off the
+CPU was the single largest performance improvement ever measured, and those
+machines get none of it. There is currently no configuration knob; lowering it
+means editing the literal.
+
+*Symptom:* the startup log says `device=cpu`, frame rate falls while detection
+is active, and the simulator recovers when the drone is not looking at
+anything.
+
+**Camera resolutions were chosen against Metal too** — a 1080p monitor camera,
+two 720p cameras and two GPU lidars, all rendered every frame. Render cost
+scales with resolution times update rate, and on this stack update rate costs
+more than resolution. `models/*/model.sdf` is where to change either.
+
+The honest position: nobody has measured any of this on Windows. One run of
+`docker/verify-delivery.sh` plus one full mission gives more information than
+all of the above reasoning.
 
 ## Scope, by choice
 
