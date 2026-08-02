@@ -27,23 +27,29 @@ The mission handles this by holding still before correcting position (see
 simulated, so the recovery is unlikely to be *shorter* on hardware. Any new
 manoeuvre that rotates and then holds position needs the same treatment.
 
-## Never built or run on the target machines
+## Partly verified on the target machines
 
-**The amd64 Docker image has never been built.** Development was on Apple
-Silicon, and cross-building amd64 there takes hours. The Dockerfile pins
-everything it needs, but "pins correctly" and "builds" are different claims.
+**The amd64 image builds, and reaches a real GPU under WSL2.** Confirmed on
+Windows with an AMD Radeon RX 7600S: `bash docker/build.sh` completes natively
+in about seven minutes, `detect-gpu.sh` selects the WSL overlay from
+`/dev/dxg`, and Mesa reports `D3D12 (AMD Radeon RX 7600S)`. That last part
+required `GALLIUM_DRIVER=d3d12` — without it Mesa silently chose llvmpipe even
+though the device, the WSL driver libraries and `d3d12_dri.so` were all present
+and correct. See the fourth trap in `docker/CLAUDE.md`.
 
-*To close:* `bash docker/build.sh` on an amd64 host.
+**No mission has been flown on Windows.** Rendering reaches the GPU. Whether
+the simulator holds real-time factor there is unmeasured, and
+`SCARECROW_NOLOCKSTEP=0` on the GPU paths remains an assumption carried over
+from native Metal — paravirtualised d3d12 is not native Metal.
 
-**GPU passthrough has never run, on any vendor.** All three compose overlays
-(`docker/compose.gpu.yml`, `compose.gpu-wsl.yml`, `compose.gpu-dri.yml`) are
-written from the documented mechanisms and verified only in `--no-gpu` mode. `docker/CLAUDE.md` records three traps that
-cost real debugging, including WSL silently falling back to "Microsoft Basic
-Render Driver" — software rendering that looks like a working GPU.
+*To close:* `bash docker/verify-delivery.sh` on that machine, then one full
+mission.
 
-*To close:* `bash docker/verify-delivery.sh` **on the target machine**. This is
-the acceptance test, and it is what actually decides whether the delivery
-works.
+**The NVIDIA and native-Linux paths have never run.**
+`docker/compose.gpu.yml` and `docker/compose.gpu-dri.yml` are written from the
+documented mechanisms only. Only the WSL2 path has touched real hardware, and
+it needed a fix that no amount of reading the documentation would have
+predicted.
 
 ## Flight behaviour
 
