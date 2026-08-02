@@ -83,10 +83,6 @@ the accelerator failed rather than that none exists.
 unit-tested, but the mission prints "Camera recording: disabled" and
 `RecordingService` holds no camera, so it is never exercised in a live run.
 
-**Two Gazebo models are unused** — `models/ceiling_net/` (7.6 MB) and
-`models/pigeon_billboard/` (596 KB). Both belong to worlds that no longer
-exist. Harmless, but they are repository weight with no consumer.
-
 ## Tuning on a machine that is not the developer's Mac
 
 Every performance choice here was measured on Apple Silicon with a Metal
@@ -147,3 +143,7 @@ rediscovering the reasoning.
   broken on macOS, so it would create an OS split rather than remove one.
 - **The pigeon is teleported, never deleted.** Removing a model from a running
   Gazebo world segfaults the server.
+- **`models/ceiling_net/` (7.6 MB) is kept although no world includes it.** The
+  drone carries an upward rangefinder and the mission has a ceiling-clearance
+  phase, which only mean anything in a roofed world. This is the asset that
+  builds one. Weight with no consumer *today* — not dead weight.
