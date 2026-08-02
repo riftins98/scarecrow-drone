@@ -1,0 +1,14 @@
+# Headless simulator without the webapp — the container equivalent of
+# `pixi run sim` on macOS.
+#
+# Applied by docker/dev.sh; you do not normally reference this by hand.
+#
+# The default container mode is `webapp`: it serves the UI and waits for the
+# user to press Connect. That is the product. This mode launches PX4, Gazebo
+# and the camera stream directly and leaves them in the foreground, which is
+# what you want when you are driving flights from a shell rather than a
+# browser — the same way the macOS track works.
+services:
+  sim:
+    environment:
+      SCARECROW_MODE: sim
