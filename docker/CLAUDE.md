@@ -42,14 +42,17 @@ to fly. macOS uses pixi. See the header of `pixi.toml`.
   missing. See below.
 - `verify-delivery.sh` — Acceptance test. **Run on the target machine before
   handing over.** Auto-detects the GPU path; `--no-gpu` skips the GPU checks.
-- `dev.sh` — The pixi workflow for the container: `sim`, `fly`, `sensors`,
+- `sim.sh` — The pixi workflow for the container: `sim`, `fly`, `sensors`,
   `map`, `shell`, `down`. Windows and Linux previously had only the webapp,
   because `docker compose up` starts the UI and nothing reached the scripts the
-  image already carries. Reads the same `.env`, so the GPU overlay applies;
-  layers `compose.dev.yml` on top for `sim`. Mission flags pass straight
-  through, so a command is identical to its macOS counterpart.
-- `compose.dev.yml` — Sets `SCARECROW_MODE=sim`: headless simulator and camera
-  stream, no webapp. The container equivalent of `pixi run sim`.
+  image already carries. `sim` forwards **`launch_with_stream.sh`'s own flags**
+  — `--headless` or not, camera flags, world name — by calling that launcher
+  through the image's command passthrough rather than through the entrypoint's
+  sim mode, which hardcodes `--headless`. That also means no rebuild was needed
+  to add GUI support, and the flags cannot drift from the native path. Reads
+  the same `.env`, so the GPU overlay applies.
+- `compose.sim.yml` — Opens the interactive path (`stdin_open`/`tty`) for
+  `sim.sh`. It does **not** choose headless or GUI; the caller's flags do.
 - `versions.env` — The two pins (Ubuntu digest, Gazebo version).
 - `requirements-px4.lock` — PX4's build-time Python deps, pinned.
 

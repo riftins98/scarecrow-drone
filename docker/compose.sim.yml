@@ -1,0 +1,15 @@
+# Overlay for `docker/sim.sh sim` — the shell workflow, not the product.
+#
+# The default container mode is `webapp`: it serves the UI and waits for the
+# user to press Connect. That is what a customer runs. sim.sh instead calls
+# scripts/shell/launch_with_stream.sh directly through the image's command
+# passthrough, so the flags it takes are that script's own flags -- --headless
+# for headless, omitted for a GUI window -- and the container cannot drift
+# from the native macOS path by reimplementing them.
+#
+# This overlay only opens the interactive path. It does not choose headless or
+# GUI; the caller's flags do.
+services:
+  sim:
+    stdin_open: true
+    tty: true

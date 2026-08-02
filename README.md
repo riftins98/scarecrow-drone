@@ -144,25 +144,36 @@ leaving you to infer it from how slow the simulation feels.
 
 `docker compose up` gives you the product: the web console, and Connect. If you
 would rather work the way the macOS side does — simulator in one terminal,
-missions in another — `docker/dev.sh` exposes exactly that. The container has
+missions in another — `docker/sim.sh` exposes exactly that. The container has
 always carried the same scripts; this reaches them.
 
 ```bash
-bash docker/dev.sh sim                        # headless sim + stream (blocks)
-bash docker/dev.sh fly                        # the mission, in another terminal
-bash docker/dev.sh fly --wall-distance 2.5 --r   # flags pass straight through
-bash docker/dev.sh sensors                    # diagnostics, no flight
-bash docker/dev.sh shell                      # a shell inside the container
-bash docker/dev.sh down                       # stop it
+bash docker/sim.sh sim --headless --fixed        # headless sim + stream (blocks)
+bash docker/sim.sh fly                           # the mission, another terminal
+bash docker/sim.sh fly --wall-distance 2.5 --r   # flags pass straight through
+bash docker/sim.sh sensors                       # diagnostics, no flight
+bash docker/sim.sh shell                         # a shell inside the container
+bash docker/sim.sh down                          # stop it
 ```
+
+`sim` takes **`launch_with_stream.sh`'s own flags**, unchanged — `--headless`
+for headless, omit it and Gazebo opens a window, exactly as the shell script
+defines it. Camera flags (`--fixed`, `--drone_cam`, `--drone_view`) and a world
+name work the same way. It calls that launcher directly rather than
+reimplementing it, so the container cannot drift from the macOS path.
 
 | macOS | Windows / Linux |
 |---|---|
-| `pixi run sim` | `bash docker/dev.sh sim` |
-| `pixi run fly` | `bash docker/dev.sh fly` |
-| `pixi run sensors` | `bash docker/dev.sh sensors` |
+| `pixi run sim` | `bash docker/sim.sh sim --headless --fixed` |
+| `pixi run fly` | `bash docker/sim.sh fly` |
+| `pixi run sensors` | `bash docker/sim.sh sensors` |
+| `pixi run launch` (GUI) | `bash docker/sim.sh sim --fixed` — needs a display |
 
-The GPU overlay still applies — `dev.sh` reads the same `.env`, so the
+A GUI launch needs a display the container can reach (WSLg on Windows 11, or
+an X server). The flags are honoured either way; the display is a separate
+prerequisite.
+
+The GPU overlay still applies — `sim.sh` reads the same `.env`, so the
 simulator reaches the GPU exactly as `docker compose up` does.
 
 **AMD and Intel machines get CPU-only YOLO.** Gazebo renders on the GPU, but
