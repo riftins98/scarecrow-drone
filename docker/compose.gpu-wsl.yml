@@ -21,6 +21,20 @@ services:
       REQUIRE_GPU: "1"
       SCARECROW_NOLOCKSTEP: "0"
       LD_LIBRARY_PATH: /usr/lib/wsl/lib
+
+      # REQUIRED. Without it Mesa silently picks llvmpipe even though the
+      # device, the WSL driver libraries and d3d12_dri.so are all present and
+      # correct. Verified on an AMD Radeon RX 7600S under WSL2:
+      #
+      #   (unset)                        llvmpipe (LLVM 20.1.2, 256 bits)
+      #   MESA_LOADER_DRIVER_OVERRIDE    llvmpipe  <- wrong knob
+      #   GALLIUM_DRIVER=d3d12           D3D12 (AMD Radeon RX 7600S)
+      #
+      # MESA_LOADER_DRIVER_OVERRIDE drives the DRI loader, which enumerates
+      # DRM nodes under /dev/dri -- and WSL2 has no /dev/dri at all. d3d12 is
+      # a Gallium driver reached through dxcore and /dev/dxg, so GALLIUM_DRIVER
+      # is the variable that selects it.
+      GALLIUM_DRIVER: d3d12
     devices:
       - /dev/dxg:/dev/dxg
     volumes:

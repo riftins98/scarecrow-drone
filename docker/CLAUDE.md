@@ -77,8 +77,10 @@ silently rendering on CPU.
 | `compose.gpu-wsl.yml` | **any** GPU on Windows (AMD/Intel/NVIDIA) | `/dev/dxg` + Mesa d3d12 |
 | `compose.gpu-dri.yml` | AMD or Intel on native Linux | `/dev/dri` |
 
-The image already carries the Mesa drivers for all of these (`d3d12`,
-`radeonsi`, `iris`, `zink`); only device passthrough differs.
+The image carries the Mesa drivers for all of these — `d3d12_dri.so`,
+`radeonsi_dri.so`, `iris_dri.so` and `zink_dri.so` are all present in
+`/usr/lib/x86_64-linux-gnu/dri/`, confirmed on the amd64 image. Device
+passthrough differs, and so does driver *selection*: see the WSL2 trap below.
 
 **These were Compose profiles on services that `extends: sim`, which was a
 bug.** `extends` copies the base service's four published ports, so activating
@@ -90,7 +92,22 @@ exist. Note that `extends` **appends** profile lists rather than replacing
 them, and `!reset` clears them entirely — neither gives a child its own profile,
 which is why this could not be fixed in place.
 
-### Three traps, all of which cost real debugging
+### Four traps, all of which cost real debugging
+
+**WSL2 needs `GALLIUM_DRIVER=d3d12` explicitly.** Everything can be present and
+correct — `/dev/dxg` passed through, `/usr/lib/wsl/lib` mounted with
+`libdxcore.so`, `d3d12_dri.so` sitting in the image — and Mesa will still
+select llvmpipe. Measured on an AMD Radeon RX 7600S under WSL2:
+
+    (unset)                        llvmpipe (LLVM 20.1.2, 256 bits)
+    MESA_LOADER_DRIVER_OVERRIDE    llvmpipe
+    GALLIUM_DRIVER=d3d12           D3D12 (AMD Radeon RX 7600S)
+
+`MESA_LOADER_DRIVER_OVERRIDE` is the obvious variable and it does nothing here:
+it drives the DRI loader, which enumerates DRM nodes under `/dev/dri`, and WSL2
+has no `/dev/dri` at all. d3d12 is a Gallium driver reached through dxcore and
+`/dev/dxg`, so `GALLIUM_DRIVER` is what selects it. Set in
+`compose.gpu-wsl.yml`.
 
 **`NVIDIA_DRIVER_CAPABILITIES` must include `graphics`.** The toolkit defaults
 to `compute,utility` — CUDA and `nvidia-smi` work, so every obvious check
@@ -142,13 +159,22 @@ with `lavapipe` and VMware's `SVGA3D`.
   quietly degraded image.
 
 ## Validation status
-Verified end to end on **arm64/macOS**: the image self-test passes in full, and
-so does `verify-delivery.sh` in `--no-gpu` mode — UI served, Connect launches
-without rebuilding PX4, the stream carries real JPEG frames, and every sensor
-group reports through the flight subprocess.
 
-Still open, and neither is fixable from a Mac:
-- the **amd64** image must be built **on an amd64 host** — cross-building on
-  Apple Silicon takes hours
-- **GPU rendering is unverified on every path.** Run `verify-delivery.sh` on
-  the target machine; that is what decides whether the delivery works.
+**arm64/macOS**: image self-test passes in full, and `verify-delivery.sh`
+passes in `--no-gpu` mode — UI served, Connect launches without rebuilding PX4,
+the stream carries real JPEG frames, every sensor group reports through the
+flight subprocess.
+
+**amd64/Windows+WSL2, AMD Radeon RX 7600S**: the image **builds** (428s,
+native), `detect-gpu.sh` correctly selects the WSL overlay from `/dev/dxg`, and
+Mesa reaches the real GPU — `D3D12 (AMD Radeon RX 7600S)` — once
+`GALLIUM_DRIVER=d3d12` is set. `REQUIRE_GPU=1` correctly refused to start on
+llvmpipe before that was fixed, which is exactly its job.
+
+Still open:
+- **No full mission has been flown on Windows.** Rendering reaches the GPU;
+  whether the simulator holds real-time factor there is unmeasured, and
+  `SCARECROW_NOLOCKSTEP=0` on the GPU paths is still an assumption carried
+  over from native Metal.
+- **NVIDIA and native-Linux DRI paths remain unverified.** Only the WSL2 path
+  has run on real hardware.
