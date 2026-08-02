@@ -92,7 +92,23 @@ one wastes your time.
 
 The whole product in one container.
 
+**On Windows, work inside WSL2 — not PowerShell.** Docker Desktop already runs
+its engine inside a WSL2 VM, so PowerShell gains you nothing, and it costs you
+two things: `docker/build.sh` is a bash script PowerShell cannot run, and the
+Windows GPU profile passes through `/dev/dxg` and `/usr/lib/wsl`, which are
+WSL2's own GPU device and driver libraries.
+
+In Docker Desktop, enable **Settings → Resources → WSL Integration** for your
+distribution first, or `docker` will not exist inside WSL at all.
+
 ```bash
+# inside WSL2 (Ubuntu). Clone into the WSL filesystem, NOT /mnt/c —
+# cross-filesystem I/O is dramatically slower.
+git clone --recurse-submodules <repo-url> ~/scarecrow-drone
+cd ~/scarecrow-drone
+
+bash docker/build.sh       # sources the pinned versions; plain
+                           # `docker compose build` produces a broken image
 docker compose up          # → http://localhost:8000/
 ```
 
@@ -101,15 +117,18 @@ your hardware so that software rendering fails loudly instead of silently
 running too slowly to fly:
 
 ```bash
-docker compose --profile gpu up        # NVIDIA
-docker compose --profile gpu-wsl up    # any GPU on Windows via WSL2
+docker compose --profile gpu up        # NVIDIA, via nvidia-container-toolkit
+docker compose --profile gpu-wsl up    # any GPU on Windows via WSL2 (/dev/dxg)
 docker compose --profile gpu-dri up    # AMD/Intel on native Linux
 ```
 
-Build with `bash docker/build.sh`, not `docker compose build` — the script
-sources the pinned versions. See [`docker/CLAUDE.md`](docker/CLAUDE.md) for the
-GPU traps, each of which otherwise ships as "the simulator is mysteriously
-slow" with no error anywhere.
+On Windows with an NVIDIA card **both `gpu` and `gpu-wsl` may work**, and which
+performs better has never been measured on real hardware. Run
+`bash docker/verify-delivery.sh` first — it auto-detects the working path and
+tells you.
+
+See [`docker/CLAUDE.md`](docker/CLAUDE.md) for the GPU traps, each of which
+otherwise ships as "the simulator is mysteriously slow" with no error anywhere.
 
 ### macOS — pixi
 
