@@ -92,14 +92,24 @@ one wastes your time.
 
 The whole product in one container.
 
-**On Windows, work inside WSL2 — not PowerShell.** Docker Desktop already runs
-its engine inside a WSL2 VM, so PowerShell gains you nothing, and it costs you
-two things: `docker/build.sh` is a bash script PowerShell cannot run, and the
-Windows GPU profile passes through `/dev/dxg` and `/usr/lib/wsl`, which are
-WSL2's own GPU device and driver libraries.
+**On Windows, work inside WSL2 — not PowerShell.** `docker/build.sh` is a bash
+script PowerShell cannot run, and the Windows GPU profile passes through
+`/dev/dxg` and `/usr/lib/wsl`, which are WSL2's own GPU device and driver
+libraries.
 
-In Docker Desktop, enable **Settings → Resources → WSL Integration** for your
-distribution first, or `docker` will not exist inside WSL at all.
+**Which Docker you install depends on your GPU**, and getting this wrong is the
+single most likely way to end up running the simulator on the CPU without
+noticing:
+
+| GPU | Docker | Profile |
+|---|---|---|
+| **NVIDIA** | Docker Desktop, with WSL Integration enabled for your distro | `--profile gpu` |
+| **AMD or Intel** | Docker Engine installed **natively inside the WSL2 distro** | `--profile gpu-wsl` |
+
+Docker Desktop's WSL2 backend forwards only NVIDIA devices, so on an AMD or
+Intel laptop `/dev/dxg` will not exist inside the container and the GPU is
+simply absent. Installing Docker Engine inside Ubuntu-on-WSL2 (the normal
+`apt` install, no Docker Desktop) is what makes that path work.
 
 ```bash
 # inside WSL2 (Ubuntu). Clone into the WSL filesystem, NOT /mnt/c —
@@ -112,8 +122,8 @@ bash docker/build.sh       # sources the pinned versions; plain
 docker compose up          # → http://localhost:8000/
 ```
 
-That URL is the entire interface. On a machine with a GPU, use the profile for
-your hardware so that software rendering fails loudly instead of silently
+That URL is the entire interface. On a machine with a GPU, use the profile from
+the table above so that software rendering fails loudly instead of silently
 running too slowly to fly:
 
 ```bash
@@ -122,10 +132,13 @@ docker compose --profile gpu-wsl up    # any GPU on Windows via WSL2 (/dev/dxg)
 docker compose --profile gpu-dri up    # AMD/Intel on native Linux
 ```
 
-On Windows with an NVIDIA card **both `gpu` and `gpu-wsl` may work**, and which
-performs better has never been measured on real hardware. Run
-`bash docker/verify-delivery.sh` first — it auto-detects the working path and
-tells you.
+Run `bash docker/verify-delivery.sh` before trusting any of it — it auto-detects
+which path actually works on the machine and reports it, rather than leaving you
+to infer it from how slow the simulation feels.
+
+**AMD and Intel machines get CPU-only YOLO.** Gazebo renders on the GPU, but
+PyTorch has no backend for those cards on Windows, so pigeon detection runs on
+the processor. It works; it is just slow. Only NVIDIA and Apple accelerate it.
 
 See [`docker/CLAUDE.md`](docker/CLAUDE.md) for the GPU traps, each of which
 otherwise ships as "the simulator is mysteriously slow" with no error anywhere.
