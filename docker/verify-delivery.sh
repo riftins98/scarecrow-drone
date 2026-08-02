@@ -54,13 +54,22 @@ if [ "$GPU_KIND" = "auto" ]; then
     echo "[auto-detect] GPU path: $GPU_KIND"
 fi
 
+# There is one service, `sim`; the GPU paths are overlay files that modify it
+# in place. Exporting COMPOSE_FILE makes every `docker compose` call below use
+# the right one without repeating a flag.
 case "$GPU_KIND" in
-    nvidia) COMPOSE_PROFILE="gpu";     SERVICE="sim-gpu" ;;
-    wsl)    COMPOSE_PROFILE="gpu-wsl"; SERVICE="sim-gpu-wsl" ;;
-    dri)    COMPOSE_PROFILE="gpu-dri"; SERVICE="sim-gpu-dri" ;;
-    none)   COMPOSE_PROFILE="none";    SERVICE="sim" ;;
+    nvidia) OVERLAY="docker/compose.gpu.yml"     ;;
+    wsl)    OVERLAY="docker/compose.gpu-wsl.yml" ;;
+    dri)    OVERLAY="docker/compose.gpu-dri.yml" ;;
+    none)   OVERLAY=""                           ;;
     *) echo "unknown --gpu value: $GPU_KIND (want nvidia|wsl|dri|none)" >&2; exit 2 ;;
 esac
+SERVICE="sim"
+if [ -n "$OVERLAY" ]; then
+    export COMPOSE_FILE="docker-compose.yml:$OVERLAY"
+else
+    export COMPOSE_FILE="docker-compose.yml"
+fi
 GPU_MODE=1
 [ "$GPU_KIND" = "none" ] && GPU_MODE=0
 
@@ -90,7 +99,7 @@ fi
 cleanup() {
     echo
     echo "=== Tearing down ==="
-    docker compose --profile "$COMPOSE_PROFILE" down --remove-orphans >/dev/null 2>&1 || true
+    docker compose down --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -178,15 +187,15 @@ fi
 # ---------------------------------------------------------------------
 step "4. Start the product"
 # ---------------------------------------------------------------------
-docker compose --profile "$COMPOSE_PROFILE" up -d "$SERVICE" >/dev/null 2>&1 \
+docker compose up -d "$SERVICE" >/dev/null 2>&1 \
     && ok "container started" \
-    || { bad "docker compose up failed"; docker compose --profile "$COMPOSE_PROFILE" logs --tail 40; exit 1; }
+    || { bad "docker compose up failed"; docker compose logs --tail 40; exit 1; }
 
 echo "  waiting for the UI (renderer check + Gazebo preflight take ~20-60s)..."
 UI_UP=0
 for _ in $(seq 1 60); do
     if curl -fs -m 3 "$WEBAPP/api/health" >/dev/null 2>&1; then UI_UP=1; break; fi
-    if [ "$(docker compose --profile "$COMPOSE_PROFILE" ps -q "$SERVICE" | wc -l)" -eq 0 ]; then break; fi
+    if [ "$(docker compose ps -q "$SERVICE" | wc -l)" -eq 0 ]; then break; fi
     sleep 3
 done
 
@@ -194,13 +203,13 @@ if [ "$UI_UP" = "1" ]; then
     ok "backend healthy at $WEBAPP/api/health"
 else
     bad "UI never came up. Logs:"
-    docker compose --profile "$COMPOSE_PROFILE" logs --tail 60 >&2
+    docker compose logs --tail 60 >&2
     exit 1
 fi
 
 # The renderer line the container itself reported. This is the real answer to
 # "is it using the GPU", as opposed to "can it see one".
-RENDERER="$(docker compose --profile "$COMPOSE_PROFILE" logs 2>/dev/null | grep -m1 '\[renderer\]')"
+RENDERER="$(docker compose logs 2>/dev/null | grep -m1 '\[renderer\]')"
 echo "  container reported: ${RENDERER:-<none>}"
 case "$RENDERER" in
     *llvmpipe*|*softpipe*|*swrast*|*unknown*)

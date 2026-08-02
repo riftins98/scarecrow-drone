@@ -218,7 +218,7 @@ YOLO_DEV=$(SCARECROW_YOLO_DEVICE= python3 -c \
 case "$YOLO_DEV" in
     cuda*) ok "YOLO inference device: $YOLO_DEV (GPU accelerated)" ;;
     mps)   ok "YOLO inference device: mps (GPU accelerated)" ;;
-    cpu)   warn "YOLO inference device: cpu -- detection will use ~200ms/frame and compete with the simulator. Expected on AMD/Intel hosts; on an NVIDIA host it means CUDA is not reaching the container (check --profile gpu and nvidia-container-toolkit)" ;;
+    cpu)   warn "YOLO inference device: cpu -- detection is several times slower there and competes with the simulator for cores. Expected on AMD/Intel hosts; on an NVIDIA host it means CUDA is not reaching the container (check nvidia-container-toolkit, and that detect-gpu.sh chose the NVIDIA overlay)" ;;
     *)     bad  "YOLO device could not be determined -- detection may not run at all" ;;
 esac
 

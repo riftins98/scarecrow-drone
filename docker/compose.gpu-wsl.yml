@@ -1,0 +1,27 @@
+# Any GPU on Windows via WSL2 — AMD, Intel, or NVIDIA.
+#
+# WSL2 paravirtualises the GPU through /dev/dxg regardless of vendor, and Mesa
+# talks to it with the d3d12 Gallium driver. This is the path for a machine
+# that is not NVIDIA; the nvidia overlay would do nothing for it and the sim
+# would silently run on llvmpipe.
+#
+# /usr/lib/wsl/lib holds the host-side driver shims (libd3d12core.so and
+# friends) that WSL mounts into the distro; the container needs them on its
+# library path or Mesa cannot load d3d12.
+#
+# Run Docker INSIDE the WSL2 distro for this -- Docker Engine installed with
+# apt, not Docker Desktop. Docker Desktop's WSL2 backend forwards only NVIDIA
+# devices, so /dev/dxg will not be there and the GPU is simply absent.
+#
+# Applied by docker/detect-gpu.sh via COMPOSE_FILE in .env. Manually:
+#   COMPOSE_FILE=docker-compose.yml:docker/compose.gpu-wsl.yml docker compose up
+services:
+  sim:
+    environment:
+      REQUIRE_GPU: "1"
+      SCARECROW_NOLOCKSTEP: "0"
+      LD_LIBRARY_PATH: /usr/lib/wsl/lib
+    devices:
+      - /dev/dxg:/dev/dxg
+    volumes:
+      - /usr/lib/wsl:/usr/lib/wsl:ro

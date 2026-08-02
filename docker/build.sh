@@ -62,6 +62,15 @@ STATUS=$?
 # Only unreferenced data is removed: `image prune` touches dangling images
 # only, never a tagged one, and `builder prune` drops cache entries no current
 # image depends on. The next incremental build is unaffected.
+# Work out which GPU this machine has and write it to .env, so the customer's
+# next command is a bare `docker compose up` rather than a profile they have to
+# choose correctly. Picking wrong is silent: the container simply gets no GPU
+# and Gazebo renders on the CPU.
+if [ "$STATUS" -eq 0 ]; then
+    echo
+    bash "$(dirname "$0")/detect-gpu.sh" || true
+fi
+
 if [ "$STATUS" -eq 0 ]; then
     echo
     echo "[build] Reclaiming orphaned images and build cache..."

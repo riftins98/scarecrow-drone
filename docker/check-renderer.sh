@@ -19,7 +19,7 @@
 # `glxinfo -B` prints "unable to open display" and nothing else. The previous
 # version of this script used glxinfo, so on the *delivery machine* it would
 # have seen no renderer, called it "unknown", and with REQUIRE_GPU=1 refused to
-# start -- meaning `docker compose --profile gpu up` would fail on a perfectly
+# start -- meaning the NVIDIA overlay would fail on a perfectly
 # good RTX 5090. EGL's surfaceless platform needs no display and is the same
 # path OGRE2 uses for offscreen rendering, so it reports what Gazebo will
 # actually get.
@@ -59,10 +59,11 @@ case "$RENDERER" in
             echo "[renderer] FATAL: REQUIRE_GPU=1 but renderer is software ($RENDERER)." >&2
             echo "[renderer] Every camera and gpu_lidar would render on CPU." >&2
             echo "" >&2
-            echo "[renderer] Pick the compose profile that matches your GPU:" >&2
+            echo "[renderer] Run 'bash docker/detect-gpu.sh' on the host: it picks the" >&2
+            echo "[renderer] right GPU overlay and records it, then 'docker compose up'" >&2
+            echo "[renderer] uses it. If it reports no GPU, one of these is why:" >&2
             echo "" >&2
             echo "[renderer]   NVIDIA (Windows/WSL2 or Linux):" >&2
-            echo "[renderer]     docker compose --profile gpu up" >&2
             echo "[renderer]     Needs nvidia-container-toolkit, and Docker restarted" >&2
             echo "[renderer]     after installing it. If nvidia-smi works but this check" >&2
             echo "[renderer]     still fails, the cause is almost always capabilities:" >&2
@@ -71,12 +72,11 @@ case "$RENDERER" in
             echo "[renderer]     required. Current: ${NVIDIA_DRIVER_CAPABILITIES:-<unset>}" >&2
             echo "" >&2
             echo "[renderer]   Any GPU on Windows (AMD, Intel, or NVIDIA) via WSL2:" >&2
-            echo "[renderer]     docker compose --profile gpu-wsl up" >&2
             echo "[renderer]     Uses /dev/dxg and Mesa's d3d12 driver. Run Docker inside" >&2
-            echo "[renderer]     the WSL2 distro; Docker Desktop only forwards NVIDIA." >&2
+            echo "[renderer]     the WSL2 distro -- Docker Engine via apt, NOT Docker" >&2
+            echo "[renderer]     Desktop, whose WSL2 backend forwards only NVIDIA." >&2
             echo "" >&2
             echo "[renderer]   AMD or Intel on native Linux:" >&2
-            echo "[renderer]     docker compose --profile gpu-dri up" >&2
             echo "[renderer]     Passes /dev/dri through to Mesa (radeonsi / iris)." >&2
             echo "" >&2
             echo "[renderer] Diagnostics inside the container:" >&2

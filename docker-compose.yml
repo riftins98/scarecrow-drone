@@ -87,89 +87,32 @@ services:
       start_period: 60s
 
 # =====================================================================
-# GPU profiles
+# GPU
 # =====================================================================
-# Three, because the delivery machines and the machine a future student
-# inherits this on are not the same hardware. All of them set REQUIRE_GPU=1,
-# so a profile that does not actually reach the GPU fails loudly at startup
-# instead of quietly rendering every camera and lidar on the CPU.
+# There is one service. The GPU variants are overlay files in docker/ that
+# modify THIS service rather than defining new ones, and `docker/detect-gpu.sh`
+# selects the right overlay by writing COMPOSE_FILE into .env -- so a plain
+# `docker compose up` is correct on any machine.
 #
-#   --profile gpu       NVIDIA, Windows/WSL2 or Linux (the delivery laptops)
-#   --profile gpu-wsl   ANY GPU on Windows via WSL2 — AMD, Intel or NVIDIA
-#   --profile gpu-dri   AMD or Intel on native Linux
+#   bash docker/detect-gpu.sh   # once, after cloning
+#   docker compose up
 #
-# The image already carries the Mesa drivers these need: d3d12 (WSL2, any
+# Compose YAML has no conditionals, and the three GPU paths need different
+# devices: an NVIDIA runtime reservation, /dev/dxg for WSL2, /dev/dri for
+# native Linux. They cannot all be listed here, because a device that does not
+# exist on the host fails the container outright rather than being skipped.
+#
+#   docker/compose.gpu.yml       NVIDIA, Windows/WSL2 or Linux
+#   docker/compose.gpu-wsl.yml   ANY GPU on Windows via WSL2 -- AMD, Intel, NVIDIA
+#   docker/compose.gpu-dri.yml   AMD or Intel on native Linux
+#
+# Each sets REQUIRE_GPU=1, so a path that does not actually reach the GPU fails
+# loudly at startup instead of quietly rendering every camera and lidar on the
+# CPU. The image already carries the Mesa drivers they need: d3d12 (WSL2, any
 # vendor), radeonsi (AMD), iris (Intel), zink (Vulkan fallback). Only the
 # device passthrough differs.
 #
-# ---------------------------------------------------------------------
-# NVIDIA. Requires nvidia-container-toolkit on the host.
-#   docker compose --profile gpu up
-# ---------------------------------------------------------------------
-  sim-gpu:
-    profiles: ["gpu"]
-    extends:
-      service: sim
-    environment:
-      # Software rendering becomes fatal instead of a silent slow fallback.
-      REQUIRE_GPU: "1"
-
-      # Lockstep ON, unlike the CPU default. Nolockstep exists to stop PX4
-      # waiting on a slow software renderer; with a real GPU that wait is
-      # cheap, and lockstep is PX4's intended mode -- deterministic sensor
-      # timing, and the same behaviour the sim was developed against natively
-      # on macOS (RTF 0.87 with lockstep on). Set SCARECROW_NOLOCKSTEP=1 to
-      # override if a machine turns out to need it.
-      SCARECROW_NOLOCKSTEP: "0"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-# ---------------------------------------------------------------------
-# Any GPU on Windows via WSL2 — AMD, Intel, or NVIDIA.
-#   docker compose --profile gpu-wsl up
-# ---------------------------------------------------------------------
-# WSL2 paravirtualises the GPU through /dev/dxg regardless of vendor, and Mesa
-# talks to it with the d3d12 Gallium driver. This is the path for a student
-# whose laptop is not NVIDIA — the nvidia profile above would do nothing for
-# them, and the sim would silently run on llvmpipe.
-#
-# /usr/lib/wsl/lib holds the host-side driver shims (libd3d12core.so and
-# friends) that WSL mounts into the distro; the container needs them on its
-# library path or Mesa cannot load d3d12.
-#
-# Run Docker INSIDE the WSL2 distro for this. Docker Desktop's WSL2 backend
-# only forwards NVIDIA devices, so /dev/dxg will not be there.
-  sim-gpu-wsl:
-    profiles: ["gpu-wsl"]
-    extends:
-      service: sim
-    environment:
-      REQUIRE_GPU: "1"
-      SCARECROW_NOLOCKSTEP: "0"
-      LD_LIBRARY_PATH: /usr/lib/wsl/lib
-    devices:
-      - /dev/dxg:/dev/dxg
-    volumes:
-      - /usr/lib/wsl:/usr/lib/wsl:ro
-
-# ---------------------------------------------------------------------
-# AMD or Intel on native Linux.
-#   docker compose --profile gpu-dri up
-# ---------------------------------------------------------------------
-# Straight /dev/dri passthrough to Mesa (radeonsi for AMD, iris for Intel).
-# No vendor toolkit needed. If the render node is missing, check the user is
-# in the `render` and `video` groups on the host.
-  sim-gpu-dri:
-    profiles: ["gpu-dri"]
-    extends:
-      service: sim
-    environment:
-      REQUIRE_GPU: "1"
-      SCARECROW_NOLOCKSTEP: "0"
-    devices:
-      - /dev/dri:/dev/dri
+# These were once profiles on services that `extends: sim`. That inherited the
+# base service's four published ports, so activating a profile started two
+# containers which fought over 8000, 8080, 14540 and 14550 -- and the error
+# named a port, not a profile.

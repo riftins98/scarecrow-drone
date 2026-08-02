@@ -93,7 +93,7 @@ one wastes your time.
 The whole product in one container.
 
 **On Windows, work inside WSL2 — not PowerShell.** `docker/build.sh` is a bash
-script PowerShell cannot run, and the Windows GPU profile passes through
+script PowerShell cannot run, and the Windows GPU path passes through
 `/dev/dxg` and `/usr/lib/wsl`, which are WSL2's own GPU device and driver
 libraries.
 
@@ -101,10 +101,10 @@ libraries.
 single most likely way to end up running the simulator on the CPU without
 noticing:
 
-| GPU | Docker | Profile |
-|---|---|---|
-| **NVIDIA** | Docker Desktop, with WSL Integration enabled for your distro | `--profile gpu` |
-| **AMD or Intel** | Docker Engine installed **natively inside the WSL2 distro** | `--profile gpu-wsl` |
+| GPU | Which Docker to install |
+|---|---|
+| **NVIDIA** | Docker Desktop, with WSL Integration enabled for your distro |
+| **AMD or Intel** | Docker Engine installed **natively inside the WSL2 distro** |
 
 Docker Desktop's WSL2 backend forwards only NVIDIA devices, so on an AMD or
 Intel laptop `/dev/dxg` will not exist inside the container and the GPU is
@@ -117,24 +117,28 @@ simply absent. Installing Docker Engine inside Ubuntu-on-WSL2 (the normal
 git clone --recurse-submodules <repo-url> ~/scarecrow-drone
 cd ~/scarecrow-drone
 
-bash docker/build.sh       # sources the pinned versions; plain
-                           # `docker compose build` produces a broken image
+bash docker/build.sh       # builds the image, then detects your GPU and
+                           # records it in .env
 docker compose up          # → http://localhost:8000/
 ```
 
-That URL is the entire interface. On a machine with a GPU, use the profile from
-the table above so that software rendering fails loudly instead of silently
-running too slowly to fly:
+**You do not pick a GPU setting.** `build.sh` runs `docker/detect-gpu.sh`,
+which looks for an NVIDIA runtime, then `/dev/dxg`, then `/dev/dri`, and writes
+the matching overlay into `.env`. Compose reads that automatically, so a bare
+`docker compose up` is already correct for the machine — and it says out loud
+what it found, so a machine that has a GPU the container cannot see tells you
+so instead of quietly running on the CPU.
+
+Re-run it by hand any time the situation changes:
 
 ```bash
-docker compose --profile gpu up        # NVIDIA, via nvidia-container-toolkit
-docker compose --profile gpu-wsl up    # any GPU on Windows via WSL2 (/dev/dxg)
-docker compose --profile gpu-dri up    # AMD/Intel on native Linux
+bash docker/detect-gpu.sh          # detect and record
+bash docker/detect-gpu.sh --print  # just show what it would use
 ```
 
-Run `bash docker/verify-delivery.sh` before trusting any of it — it auto-detects
-which path actually works on the machine and reports it, rather than leaving you
-to infer it from how slow the simulation feels.
+Run `bash docker/verify-delivery.sh` before trusting any of it — it exercises
+the same detection and then proves the GPU actually renders, rather than
+leaving you to infer it from how slow the simulation feels.
 
 **AMD and Intel machines get CPU-only YOLO.** Gazebo renders on the GPU, but
 PyTorch has no backend for those cards on Windows, so pigeon detection runs on

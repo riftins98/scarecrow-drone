@@ -49,12 +49,14 @@ docker compose up          # -> http://localhost:8000/
 ```
 That URL is the entire interface: pick world/camera/spawn, press Connect to
 launch PX4 + Gazebo, then fly. No shell in the container, no second port to
-open. On NVIDIA hardware use `docker compose --profile gpu up`, which makes
-software rendering fatal instead of a silent slow fallback.
+open.
 
-GPU profiles cover every vendor: `--profile gpu` (NVIDIA), `--profile gpu-wsl`
-(any GPU on Windows via WSL2 — AMD, Intel or NVIDIA), `--profile gpu-dri`
-(AMD/Intel on native Linux).
+**The user never picks a GPU setting.** `docker/detect-gpu.sh` (run by
+`build.sh`) chooses among three overlay files — NVIDIA, any-GPU-on-WSL2, and
+AMD/Intel-on-native-Linux — and writes `COMPOSE_FILE` into `.env`, so a bare
+`docker compose up` is correct on any machine. The overlays modify the single
+`sim` service rather than adding services, which is what stops two containers
+competing for the published ports. On Windows this must run inside WSL2.
 
 - Build with `bash docker/build.sh` (sources the pinned versions and prunes
   orphaned images); plain `docker compose build` produces `FROM ubuntu@`.
@@ -98,7 +100,7 @@ asserts they agree.
 - `requirements.txt` — The pinned reference. Versions live here, and the other two environments are checked against it.
 - `pyproject.toml` — The `scarecrow` package itself: what `pip install -e ".[sim]"` needs on a Raspberry Pi. Deliberately unpinned — a library that pins `==` cannot be co-installed with anything.
 - `pixi.toml` + `pixi.lock` — The macOS environment: the conda toolchain PX4 SITL builds against, plus the Python deps. **Commit both**; the lock is what makes it reproducible.
-- `docker-compose.yml` — The Windows/Linux entry point (`docker compose up`), plus the GPU profiles. The image itself is `docker/Dockerfile`.
+- `docker-compose.yml` — The Windows/Linux entry point (`docker compose up`). One service; the GPU variants are overlay files under `docker/`, selected by `docker/detect-gpu.sh`. The image itself is `docker/Dockerfile`.
 
 - `.gitmodules` — Submodule reference to the PX4-Autopilot fork
 - `README.md` — Project readme

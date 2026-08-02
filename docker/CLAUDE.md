@@ -27,6 +27,12 @@ to fly. macOS uses pixi. See the header of `pixi.toml`.
   (`SCARECROW_MODE=sim`, for CI/debugging). Any explicit command is passed
   through, so `docker run <image> bash` works for inspection.
 - `check-renderer.sh` — Detects software rendering. Fatal when `REQUIRE_GPU=1`.
+- `detect-gpu.sh` — Chooses the GPU overlay for this machine and writes
+  `COMPOSE_FILE` into `.env`. Run by `build.sh`; safe to re-run. `--print`
+  reports the value without writing. Checks in the same order as
+  `verify-delivery.sh`: NVIDIA runtime, then `/dev/dxg`, then `/dev/dri`.
+- `compose.gpu.yml`, `compose.gpu-wsl.yml`, `compose.gpu-dri.yml` — GPU
+  overlays; see below.
 - `smoke-test.sh` — Preflight: proves a Gazebo server can start and publish
   `/clock` before PX4 is launched.
 - `build.sh` — **Use this instead of `docker compose build`.** Sources
@@ -59,18 +65,30 @@ is verified on hardware the developer machine has never had. That is how the
 
 ## GPU
 
-Compose profiles, because the delivery laptops and whatever a future student
-owns are not the same hardware. All set `REQUIRE_GPU=1`, so a profile that does
-not reach the GPU fails loudly instead of silently rendering on CPU.
+One service, `sim`, plus overlay files that modify it in place. `detect-gpu.sh`
+picks one and writes `COMPOSE_FILE` into `.env`, so a bare `docker compose up`
+is correct on any machine and the customer never chooses. All overlays set
+`REQUIRE_GPU=1`, so a path that does not reach the GPU fails loudly instead of
+silently rendering on CPU.
 
-| profile | for | mechanism |
+| overlay | for | mechanism |
 |---|---|---|
-| `gpu` | NVIDIA, Windows/WSL2 or Linux | nvidia-container-toolkit |
-| `gpu-wsl` | **any** GPU on Windows (AMD/Intel/NVIDIA) | `/dev/dxg` + Mesa d3d12 |
-| `gpu-dri` | AMD or Intel on native Linux | `/dev/dri` |
+| `compose.gpu.yml` | NVIDIA, Windows/WSL2 or Linux | nvidia-container-toolkit |
+| `compose.gpu-wsl.yml` | **any** GPU on Windows (AMD/Intel/NVIDIA) | `/dev/dxg` + Mesa d3d12 |
+| `compose.gpu-dri.yml` | AMD or Intel on native Linux | `/dev/dri` |
 
 The image already carries the Mesa drivers for all of these (`d3d12`,
 `radeonsi`, `iris`, `zink`); only device passthrough differs.
+
+**These were Compose profiles on services that `extends: sim`, which was a
+bug.** `extends` copies the base service's four published ports, so activating
+a profile started *two* containers competing for 8000, 8080, 14540 and 14550 —
+and the failure named a port, not a profile. `verify-delivery.sh` avoided it by
+naming the service explicitly; the documented `docker compose --profile gpu up`
+did not. Overlays modify the one service instead, so a second container cannot
+exist. Note that `extends` **appends** profile lists rather than replacing
+them, and `!reset` clears them entirely — neither gives a child its own profile,
+which is why this could not be fixed in place.
 
 ### Three traps, all of which cost real debugging
 
