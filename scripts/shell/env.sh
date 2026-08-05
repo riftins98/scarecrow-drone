@@ -54,9 +54,26 @@ fi
 export GZ_SIM_RESOURCE_PATH="$SCARECROW_DIR/worlds:$SCARECROW_DIR/models:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
 export GZ_SIM_SERVER_CONFIG_PATH="$SCARECROW_DIR/config/server.config"
 
-# Network — Gazebo needs real IP (not 127.0.0.1, loopback breaks multicast)
-if command -v ipconfig &>/dev/null; then
-    export GZ_IP="$(ipconfig getifaddr en0 2>/dev/null)"
+# Network — the interface gz-transport runs discovery on. Everything that
+# speaks gz here (PX4, Gazebo, the stream worker) is on this machine, so
+# discovery never needs to leave it.
+#
+# On macOS it must not even try. The OS gates multicast on a LAN interface
+# behind Local Network permission, which the conda-forge gz binaries do not
+# hold; a denied send fails with EHOSTUNREACH, which gz reports as
+#   Exception sending a multicast message:No route to host
+# thousands of times while PX4 sits in "Waiting for Gazebo world..." and then
+# times out. Gazebo is running fine throughout — it simply cannot be
+# discovered. Measured 2026-08-05 against a live server: GZ_IP=<en0 address>
+# -> `gz topic -l` listed 0 topics; GZ_IP=127.0.0.1 -> listed all of them.
+#
+# Export GZ_IP yourself to override (a genuine multi-host setup).
+#
+# Only the macOS branch changed. Linux still resolves its own address exactly
+# as before, because that is the customer's delivery path and it was verified
+# on the target machine — this fix must not perturb it.
+if [[ "$(uname)" == "Darwin" ]]; then
+    export GZ_IP="${GZ_IP:-127.0.0.1}"
 elif command -v hostname &>/dev/null; then
     export GZ_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 fi
