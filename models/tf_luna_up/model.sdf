@@ -44,7 +44,10 @@
       <sensor name="ceiling_rangefinder" type="gpu_lidar">
         <gz_frame_id>tf_luna_up_link</gz_frame_id>
         <pose>0 0 0 0 -1.5708 0</pose>
-        <update_rate>50</update_rate>
+        <!-- Benewake TF-Luna default frame rate is 100Hz (configurable
+             1-250Hz). The simulator was running this one SLOWER than the
+             hardware. Single ray, so the extra rate is nearly free. -->
+        <update_rate>100</update_rate>
         <ray>
           <scan>
             <horizontal>

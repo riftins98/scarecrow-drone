@@ -74,8 +74,6 @@ Example:
 
 **What you should see:** a Gazebo window opens with the selected environment and the drone at spawn. The terminal shows build/startup progress.
 
-![Gazebo garage world with drone at spawn](images/02-gazebo-gui.png)
-
 **First run:** PX4 compiles on first launch — expect several minutes. Later runs are faster. Skip rebuild with `--no-build` if already built.
 
 ### Mode B — Headless + browser stream (best for WSL / projector)
@@ -144,7 +142,5 @@ webapp/output/<flight_id>/
   detections/
   flight_camera.mp4    # takeoff → hover → land recording
 ```
-
-![Output folder with MP4 and detections](images/08-flight-output.png)
 
 Open detection images directly from `detections/`. Open `map_annotated.png` to review the mission path and pursuit events.

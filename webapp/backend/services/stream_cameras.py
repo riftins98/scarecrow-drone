@@ -14,14 +14,12 @@ class StreamCamera(str, Enum):
     """Launcher flag stems (``--<value>``) for headless stream cameras."""
 
     FIXED = "fixed"
-    CENTER = "center"
     DRONE_CAM = "drone_cam"
     DRONE_VIEW = "drone_view"
 
 
 _STREAM_CAMERA_LABELS: dict[StreamCamera, str] = {
     StreamCamera.FIXED: "Fixed",
-    StreamCamera.CENTER: "Center",
     StreamCamera.DRONE_CAM: "Drone Camera",
     StreamCamera.DRONE_VIEW: "Drone View",
 }
@@ -30,7 +28,6 @@ _STREAM_CAMERA_LABELS: dict[StreamCamera, str] = {
 # variants from the SDF; drone-mounted cameras use the drone or overlay model.
 _STREAM_CAMERA_MODELS: dict[StreamCamera, str] = {
     StreamCamera.FIXED: "mono_cam_hd",
-    StreamCamera.CENTER: "mono_cam_hd",
     StreamCamera.DRONE_CAM: "holybro_x500",
     StreamCamera.DRONE_VIEW: "drone_view_cam",
 }
@@ -57,8 +54,8 @@ def list_stream_cameras() -> list[StreamCameraInfo]:
     ]
 
 
-def stream_camera_names() -> tuple[str, ...]:
-    return tuple(cam.value for cam in StreamCamera)
+def stream_camera_names() -> list[str]:
+    return [cam.value for cam in StreamCamera]
 
 
 def is_stream_camera(name: Optional[str]) -> bool:

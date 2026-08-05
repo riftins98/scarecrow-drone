@@ -1,8 +1,10 @@
 """Manages Gazebo simulation lifecycle."""
 import math
 import re
+import socket
 import subprocess
 import os
+import sys
 import time
 import threading
 from typing import Optional
@@ -38,6 +40,133 @@ SPAWN_OBSTACLES = _DEFAULT_SPAWN_MAP.get("obstacles", [])
 def validate_spawn(x: float, y: float, world: str = DEFAULT_WORLD):
     """Check an (x, y) spawn against a world's SDF-derived spawn map."""
     return validate_world_spawn(world, x, y)
+
+
+def _port_in_use(port: int) -> bool:
+    """True if something is still listening on ``port`` (any platform).
+
+    This replaced a `ss -tln` subprocess, which is iproute2 and therefore
+    Linux-only: on macOS it raised FileNotFoundError out of switch_camera and
+    turned every camera swap into a 500.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
+#: Everything that makes up a running PX4 SITL instance. `pkill -x px4` alone
+#: is not enough, and getting this wrong is not a leaked process -- it breaks
+#: the *next* launch.
+#:
+#: A disconnect that killed only the main `px4` process left behind
+#: `px4-mavlink` (a `px4-<module>` shell client, whose process name is not
+#: "px4") and the `/bin/sh .../init.d-posix/rcS` startup script. Those keep the
+#: instance alive, so the next Connect fails with `ERROR [px4] Task already
+#: running`, never finishes bringing up the estimator, and the drone refuses to
+#: arm with "Preflight Fail: ekf2 missing data" / "heading estimate invalid" --
+#: symptoms that point at the EKF rather than at the real cause.
+_PX4_PATTERNS = (
+    ["pkill", "-x", "px4"],                      # the instance itself
+    ["pkill", "-f", r"^px4-"],                   # px4-mavlink, px4-commander, ...
+    ["pkill", "-f", "init.d-posix/rcS"],         # the startup shell
+)
+
+
+def _px4_alive() -> bool:
+    """True while any part of a PX4 SITL instance is still running."""
+    for pattern in (["pgrep", "-x", "px4"],
+                    ["pgrep", "-f", r"^px4-"],
+                    ["pgrep", "-f", "init.d-posix/rcS"]):
+        try:
+            if subprocess.run(pattern, capture_output=True).returncode == 0:
+                return True
+        except FileNotFoundError:   # no pgrep (non-POSIX); nothing to report
+            return False
+    return False
+
+
+def _kill_px4_instance(timeout_s: float = 5.0) -> bool:
+    """Tear down every part of a PX4 SITL instance. True if it is gone.
+
+    Escalates to SIGKILL rather than trusting SIGTERM, and then *waits*: the
+    next launch starts within a second of this returning, and a process that
+    is merely on its way out still holds the instance.
+    """
+    for cmd in _PX4_PATTERNS:
+        try:
+            subprocess.run(cmd, capture_output=True)
+        except FileNotFoundError:
+            return True     # no pkill: not a POSIX host, nothing spawned here
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if not _px4_alive():
+            return True
+        time.sleep(0.2)
+
+    for cmd in _PX4_PATTERNS:
+        try:
+            subprocess.run([cmd[0], "-9"] + cmd[1:], capture_output=True)
+        except FileNotFoundError:
+            break
+
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if not _px4_alive():
+            return True
+        time.sleep(0.2)
+    return not _px4_alive()
+
+
+def gui_available() -> bool:
+    """Whether a Gazebo GUI window can actually open here.
+
+    In the delivery container there is no X or Wayland display, so choosing
+    "GUI (open Gazebo window)" produces a launch that cannot succeed -- and it
+    was the *pre-selected* option, so it was the first thing a customer would
+    click. The UI asks this and offers headless only when the answer is no.
+
+    Only Linux is probed for a display: on macOS the Gazebo GUI is a native
+    Cocoa/Metal window and DISPLAY is legitimately unset there.
+
+    SCARECROW_GUI_AVAILABLE=0/1 overrides the probe.
+    """
+    override = os.environ.get("SCARECROW_GUI_AVAILABLE")
+    if override is not None:
+        return override not in ("0", "false", "False", "")
+    if sys.platform.startswith("linux"):
+        return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return True
+
+
+PX4_BINARY = os.path.join(REPO_ROOT, "px4", "build", "px4_sitl_default", "bin", "px4")
+
+
+def _skip_px4_build() -> bool:
+    """Whether to pass --no-build to the launcher.
+
+    Rebuild only when there is no binary to run. This is not just an
+    optimisation -- on the pixi (macOS) path it is required for correctness.
+    launch.sh's own `make px4_sitl` invokes CMake with none of the flags in
+    pixi.toml's `build` task, so it re-resolves against whatever Gazebo it
+    finds and dies on protobuf 35's deprecated RepeatedField::Resize (PX4
+    builds with -Werror). The result was that pressing "Connect" in the webapp
+    destroyed a working build.
+
+    Building PX4 is a developer action with its own command (`pixi run build`,
+    or `make px4_sitl_default` in Docker), not something a monitoring UI should
+    trigger. The one case where the webapp still builds is a fresh clone that
+    has never been built -- otherwise "Connect" would fail with nothing to run.
+
+    Set SCARECROW_FORCE_BUILD=1 to always let the launcher build.
+    """
+    if os.environ.get("SCARECROW_FORCE_BUILD") == "1":
+        return False
+    return os.path.isfile(PX4_BINARY)
 
 LAUNCH_STEPS = [
     ("cleanup", "Cleaning up old sessions"),
@@ -176,6 +305,9 @@ class SimService:
             launch_args = [world]
             self._camera = None
 
+        if _skip_px4_build():
+            launch_args.append("--no-build")
+
         if not os.path.exists(launch_script):
             raise FileNotFoundError(f"launch script not found at {launch_script}")
 
@@ -231,8 +363,12 @@ class SimService:
 
     def _wait_for_ready(self):
         """Wait for PX4 to be ready, reading output and tracking stages."""
+        proc = self.process
+        if proc is None or proc.stdout is None:
+            self.launching = False
+            return
         try:
-            for line in self.process.stdout:
+            for line in proc.stdout:
                 line = line.strip()
                 with self._log_condition:
                     self._log_lines.append(line)
@@ -318,7 +454,7 @@ class SimService:
                     self.launching = False
                     continue
 
-                if self.process.poll() is not None:
+                if proc.poll() is not None:
                     self.launching = False
                     return
         except Exception as e:
@@ -470,9 +606,9 @@ class SimService:
     def switch_camera(self, camera: str) -> dict:
         """Hot-swap the headless stream to a different camera.
 
-        Kills only the currently running stream_camera_webrtc.py worker —
-        leaves PX4 and Gazebo untouched — then spawns a fresh worker
-        pointed at the new camera's topic.
+        Kills only the currently running stream worker — leaves PX4 and
+        Gazebo untouched — then spawns a fresh worker pointed at the new
+        camera's topic.
 
         Returns:
             {"success": True, "camera": "<cam>"} on success
@@ -494,26 +630,29 @@ class SimService:
             return {"success": False, "error": f"camera topic not found: {camera!r}"}
 
         # Kill the existing stream worker. -f matches anything with
-        # "stream_camera" in the command line (matches both the MJPEG and
-        # WebRTC variants spawned by launch_with_stream.sh).
+        # "stream_camera" in the command line, which is what
+        # launch_with_stream.sh spawns.
         subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
         # Wait for the port to actually free up. `pkill` only sends a
         # signal; the OS can take a moment to release the listening
         # socket (TIME_WAIT, lingering FDs). 2s upper bound is plenty.
         for _ in range(20):
-            check = subprocess.run(
-                ["ss", "-tln", "sport", "= :8080"],
-                capture_output=True, text=True,
-            )
-            if ":8080" not in check.stdout:
+            if not _port_in_use(8080):
                 break
             time.sleep(0.1)
 
-        # Pick the same python the launcher would have picked.
-        venv_python = os.path.join(REPO_ROOT, ".venv", "bin", "python")
-        python_bin = venv_python if os.path.isfile(venv_python) else "python3"
+        # Run the streamer with the interpreter that is running this backend.
+        # It is the only one guaranteed to have the gz-python bindings -- under
+        # pixi there is no .venv at all, and a bare "python3" would resolve to
+        # whatever is first on PATH.
+        python_bin = sys.executable
 
-        streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera_webrtc.py")
+        # The same streamer the launcher runs. There is deliberately only one:
+        # a camera swap that changed transport mid-session would leave the
+        # browser holding a connection the new worker does not speak, and the
+        # picture would simply freeze.
+        streamer = os.path.join(REPO_ROOT, "scripts", "stream_camera.py")
+        quality_args = ["--quality", os.environ.get("STREAM_QUALITY", "92")]
         env = os.environ.copy()
         env["PYTHONPATH"] = REPO_ROOT
         # The original launcher sources scripts/shell/env.sh which sets
@@ -537,8 +676,11 @@ class SimService:
             subprocess.Popen(
                 [python_bin, streamer,
                  "--port", "8080",
-                 "--fps", "15",
+                 # Match the launcher default: the monitoring feed spends
+                 # its budget on resolution rather than frame rate.
+                 "--fps", os.environ.get("STREAM_FPS", "5"),
                  "--threads", "2",
+                 *quality_args,
                  "--topic", topic],
                 cwd=REPO_ROOT,
                 stdout=log_fh,
@@ -563,7 +705,12 @@ class SimService:
         self._step_substatus = {}
         self._stream_url = None
         self._camera = None
+        self._headless = False
         self._drone_model = None  # re-discover for the next session
+        with self._log_condition:
+            self._log_lines = []
+            self._log_offset = 0
+            self._log_condition.notify_all()
         if self.process:
             try:
                 self.process.kill()
@@ -572,7 +719,7 @@ class SimService:
             self.process = None
 
         subprocess.run(["pkill", "-f", "gz sim"], capture_output=True)
-        subprocess.run(["pkill", "-x", "px4"], capture_output=True)
+        _kill_px4_instance()
         # Also kill stream camera workers spawned by launch_with_stream.sh
         subprocess.run(["pkill", "-f", "stream_camera"], capture_output=True)
         # And any flight script / its mavsdk_server still running, so tearing

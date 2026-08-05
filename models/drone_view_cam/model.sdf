@@ -22,16 +22,23 @@
         <camera>
           <horizontal_fov>1.74</horizontal_fov>
           <image>
-            <width>960</width>
-            <height>540</height>
+            <width>1280</width>
+            <height>720</height>
           </image>
           <clip>
             <near>0.05</near>
             <far>100</far>
           </clip>
+          <visibility_mask>3</visibility_mask>
         </camera>
         <always_on>1</always_on>
-        <update_rate>10</update_rate>
+        <!-- Sim-time rate, so wall-clock delivery is update_rate x RTF. At the
+             measured RTF (~0.7) this yields ~10 Hz, matching the streamer's
+             fps setting of 10: every rendered frame reaches the browser and
+             none are rendered only to be discarded. Raising this does NOT
+             sharpen the picture. Resolution and encoder bitrate do that; this
+             only costs render time. -->
+        <update_rate>15</update_rate>
         <visualize>false</visualize>
       </sensor>
       <gravity>false</gravity>

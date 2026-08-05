@@ -10,10 +10,10 @@ Worlds are discovered automatically from `worlds/*.sdf`. The webapp dropdown lab
 
 | ID (launch arg) | UI label | Floor | Ceiling | Shadows | Parked aircraft | Pigeon targets | Stream cameras |
 |-----------------|----------|-------|---------|---------|-----------------|----------------|----------------|
-| `hangar_lite` | Hangar Lite | 12 × 8 m | ~8 m flat sheet | Off | No | 2 × `pigeon_3d` | fixed, center |
-| `hangar_small` | Hangar Small | 16 × 10 m | Beams + collision sheet | Off | 2 (half-scale) | 2 × `pigeon_3d` | fixed, center |
-| `hangar` | Hangar | 24 × 15 m | Beams + collision sheet | Off | 2 (RQ-7B props) | 2 × `pigeon_3d` | fixed, center |
-| `hangar_detailed` | Hangar Detailed | 24 × 15 m | Full beam grid + debris | **On** | 2 (visual pads/drones) | 2 × `pigeon_3d` | fixed, center |
+| `hangar_lite` | Hangar Lite | 12 × 8 m | ~8 m flat sheet | Off | No | 2 × `pigeon_3d` | fixed |
+| `hangar_small` | Hangar Small | 16 × 10 m | Beams + collision sheet | Off | 2 (half-scale) | 2 × `pigeon_3d` | fixed |
+| `hangar` | Hangar | 24 × 15 m | Beams + collision sheet | Off | 2 (RQ-7B props) | 2 × `pigeon_3d` | fixed |
+| `hangar_detailed` | Hangar Detailed | 24 × 15 m | Full beam grid + debris | **On** | 2 (visual pads/drones) | 2 × `pigeon_3d` | fixed |
 
 All worlds include the active **Holybro X500** drone (with lidar, downward camera, upward ceiling rangefinder) spawned by PX4 at launch.
 
@@ -29,7 +29,7 @@ All worlds include the active **Holybro X500** drone (with lidar, downward camer
 
 **Lighting:** Scene ambient only + two non-shadow point lights. Shadows disabled for performance.
 
-**Cameras:** `fixed_cam` (external overview from south), `center_cam` (overhead). Headless stream flags: `--fixed`, `--center`, plus `--drone_cam` / `--drone_view` on the live drone.
+**Cameras:** `fixed_cam` (external overview from south). Headless webapp choices: Fixed, Drone Camera, and Drone View. The legacy shell `--center` flag still exists for manual debugging but is not offered in the UI.
 
 **Spawn:** Webapp spawn picker supported. Mission-tuned spawn for circuit start alignment: `PX4_GZ_MODEL_POSE=4,-3,0,0,0,0`. Auto-computed default (first clear floor corner) may differ — use the tuned pose for reliable start-corner stabilization.
 
@@ -47,7 +47,7 @@ All worlds include the active **Holybro X500** drone (with lidar, downward camer
 
 **Lighting:** Two non-shadow point lights. Shadows off.
 
-**Cameras:** `fixed_cam`, `center_cam`.
+**Cameras:** `fixed_cam`; the webapp also offers drone-mounted stream choices.
 
 **Spawn:** Supported (with aircraft obstacle footprints). Auto default from floor geometry.
 
@@ -65,7 +65,7 @@ All worlds include the active **Holybro X500** drone (with lidar, downward camer
 
 **Lighting:** Two non-shadow fill lights. Shadows off, fewer lights than Hangar Detailed.
 
-**Cameras:** `fixed_cam`, `center_cam`.
+**Cameras:** `fixed_cam`; the webapp also offers drone-mounted stream choices.
 
 **Spawn:** Supported (aircraft obstacles). Tuned stream spawn historically: `-9,4.5,0,0,0,0`.
 
@@ -83,7 +83,7 @@ All worlds include the active **Holybro X500** drone (with lidar, downward camer
 
 **Lighting:** Six point lights with **shadows enabled**.
 
-**Cameras:** `fixed_cam`, `center_cam`.
+**Cameras:** `fixed_cam`; the webapp also offers drone-mounted stream choices.
 
 **Spawn:** Supported. Tuned stream spawn historically: `-9,4.5,0,0,0,0`.
 

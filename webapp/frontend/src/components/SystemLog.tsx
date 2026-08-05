@@ -33,10 +33,12 @@ const MAX_RENDERED_ROWS = 600;
 
 /**
  * Live stdout tail with two sources:
- *   pre-connect  — /api/sim/log (PX4/Gazebo launcher)
- *   post-connect — /api/flight/log (mission script)
+ *   no active flight — /api/sim/log (PX4/Gazebo launcher/current sim run)
+ *   active flight    — /api/flight/log (mission script)
  */
 export default function SystemLog({ connected, flying }: Props) {
+  const logSource: 'sim' | 'flight' = connected && flying ? 'flight' : 'sim';
+  const isFlightLog = logSource === 'flight';
   const [rows, setRows] = useState<Row[]>([]);
   const [cursor, setCursor] = useState(0);
   const [expanded, setExpanded] = useState(false);
@@ -45,8 +47,9 @@ export default function SystemLog({ connected, flying }: Props) {
   const [routeMissing, setRouteMissing] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const flightIdRef = useRef<string | null>(null);
+  const cursorRef = useRef(0);
 
-  // Clear stale lines when switching between launcher and flight log sources.
+  // Clear stale lines when switching sources or sim connection sessions.
   useEffect(() => {
     setRows([]);
     setCursor(0);
@@ -54,9 +57,8 @@ export default function SystemLog({ connected, flying }: Props) {
     setRunning(false);
     setRouteMissing(false);
     flightIdRef.current = null;
-  }, [connected]);
+  }, [logSource, connected]);
 
-  const cursorRef = useRef(0);
   useEffect(() => { cursorRef.current = cursor; }, [cursor]);
 
   useEffect(() => {
@@ -86,7 +88,12 @@ export default function SystemLog({ connected, flying }: Props) {
 
     const handleLogData = (data: LogPollResponse & { flight_id?: string | null }) => {
       if (cancelled) return;
-      if (connected && data.flight_id && data.flight_id !== flightIdRef.current) {
+      if (data.cursor < cursorRef.current) {
+        setRows([]);
+        setCursor(0);
+        cursorRef.current = 0;
+      }
+      if (isFlightLog && data.flight_id && data.flight_id !== flightIdRef.current) {
         flightIdRef.current = data.flight_id;
         setRows([]);
         setCursor(0);
@@ -103,7 +110,7 @@ export default function SystemLog({ connected, flying }: Props) {
 
     const tick = async () => {
       try {
-        if (connected) {
+        if (isFlightLog) {
           const data = await getFlightLog(cursorRef.current);
           if (cancelled) return;
           handleLogData(data);
@@ -124,12 +131,12 @@ export default function SystemLog({ connected, flying }: Props) {
     const startPollingFallback = () => {
       if (cancelled || pollId !== null) return;
       tick();
-      pollId = window.setInterval(tick, connected ? 1000 : 3000);
+      pollId = window.setInterval(tick, isFlightLog ? 1000 : 3000);
     };
 
     let source: EventSource | null = null;
     if (typeof window !== 'undefined' && 'EventSource' in window) {
-      const url = connected
+      const url = isFlightLog
         ? flightLogStreamUrl(cursorRef.current)
         : simLogStreamUrl(cursorRef.current);
       source = new EventSource(url);
@@ -154,7 +161,7 @@ export default function SystemLog({ connected, flying }: Props) {
       source?.close();
       if (pollId !== null) window.clearInterval(pollId);
     };
-  }, [connected, routeMissing]);
+  }, [isFlightLog, routeMissing]);
 
   useEffect(() => {
     if (!autoscroll) return;
@@ -180,23 +187,25 @@ export default function SystemLog({ connected, flying }: Props) {
 
   const headerPill = routeMissing
     ? 'NO LOG ROUTE'
-    : !connected
-    ? 'LAUNCH'
-    : running
+    : isFlightLog && running
     ? 'STREAMING'
-    : flying
+    : isFlightLog
     ? 'WAITING'
+    : connected
+    ? 'SIM'
     : 'IDLE';
 
   const emptyMessage = routeMissing
-    ? connected
+    ? isFlightLog
       ? 'backend does not expose /api/flight/log yet — restart backend to enable live log'
       : 'backend does not expose /api/sim/log yet — restart backend to enable live log'
-    : connected
+    : isFlightLog
     ? 'awaiting flight script — start a mission to see live output'
+    : connected
+    ? 'simulator connected — no active mission output'
     : 'awaiting sim launch…';
 
-  const popoutUrl = connected ? flightLogViewUrl() : simLogViewUrl();
+  const popoutUrl = isFlightLog ? flightLogViewUrl() : simLogViewUrl();
 
   const panel = (variant: 'inline' | 'overlay') => (
     <div className={`syslog ${variant === 'overlay' ? 'syslog-expanded' : ''}`}>

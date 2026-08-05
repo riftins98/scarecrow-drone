@@ -1,0 +1,26 @@
+# PX4 is cloned inside the Dockerfile at a pinned SHA, not sent through the
+# build context. Excluding it here drops the context from ~412MB / 49,000 files
+# to ~10MB, which on macOS is the difference between a 23-minute build and a
+# fast one (BuildKit hashes the whole context on EVERY build, cached or not).
+#
+# The drone parts that live only in px4/Tools/simulation/gz/models
+# (x500, x500_base, optical_flow, LW20) still reach the image -- they arrive
+# via the clone, not via COPY.
+px4/
+
+webapp/frontend/node_modules/
+# The UI is built inside the image (stage `webbuild`), so a local build/ is
+# dead weight in the context and could only cause confusion about which bundle
+# actually shipped.
+webapp/frontend/build/
+output/
+webapp/output/
+.venv/
+venv/
+.git/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Local scratch
+docs/superpowers/

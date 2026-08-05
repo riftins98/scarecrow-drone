@@ -38,7 +38,12 @@ export SCARECROW_DEFAULT_WORLD="${SCARECROW_DEFAULT_WORLD:-hangar_lite}"
 
 # On macOS, prefer the repo virtualenv for PX4's Python/CMake probes. Without
 # this, non-interactive launches can pick Homebrew's newest python.
-if [[ "$(uname)" == "Darwin" ]] && [ -x "$SCARECROW_DIR/.venv/bin/python" ]; then
+#
+# Skipped under pixi (CONDA_PREFIX set): pixi already puts its own python first
+# on PATH, and prepending a stale .venv ahead of it would hand PX4 an
+# interpreter with none of the locked dependencies.
+if [[ "$(uname)" == "Darwin" ]] && [ -z "${CONDA_PREFIX:-}" ] \
+   && [ -x "$SCARECROW_DIR/.venv/bin/python" ]; then
     export PATH="$SCARECROW_DIR/.venv/bin:$PATH"
 fi
 
@@ -46,8 +51,8 @@ fi
 # NOTE: Load ONLY from local directories, not from PX4's copy
 # Note: GZ_SIM_SYSTEM_PLUGIN_PATH is set lower down — it depends on whether
 # nolockstep is active (different build dir name).
-export GZ_SIM_RESOURCE_PATH="$SCARECROW_DIR/worlds:$SCARECROW_DIR/models"
-export GZ_SIM_SERVER_CONFIG_PATH="$PX4_DIR/src/modules/simulation/gz_bridge/server.config"
+export GZ_SIM_RESOURCE_PATH="$SCARECROW_DIR/worlds:$SCARECROW_DIR/models:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
+export GZ_SIM_SERVER_CONFIG_PATH="$SCARECROW_DIR/config/server.config"
 
 # Network — Gazebo needs real IP (not 127.0.0.1, loopback breaks multicast)
 if command -v ipconfig &>/dev/null; then

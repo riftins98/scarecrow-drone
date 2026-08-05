@@ -4,7 +4,7 @@ import { setSimCamera } from '../services/api';
 
 interface Props {
   /** Backend-captured stream root, e.g. `http://localhost:8080`. The same
-   *  URL the popout link uses — embeds the WebRTC viewer page directly. */
+   *  URL the popout link uses — embeds the MJPEG viewer page directly. */
   streamUrl: string | null;
   /** Sim is mid-launch. Skip the embed and show a STANDBY state — the
    *  stream server isn't up yet and trying to load just produces a flicker
@@ -20,9 +20,9 @@ interface Props {
 }
 
 /**
- * Embeds the headless Gazebo camera by iframing the launcher's own WebRTC
- * viewer page. The page does its own SDP/ICE handshake against /offer on
- * the same origin, so there's no CORS to navigate from our side.
+ * Embeds the headless Gazebo camera by iframing the launcher's own MJPEG
+ * viewer page. The page pulls its own multipart stream from the same origin,
+ * so there's no CORS to navigate from our side.
  *
  * States:
  *   no-url      — GUI mode or launcher hasn't surfaced the URL yet

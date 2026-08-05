@@ -77,6 +77,9 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 
         boundary = b"--frame\r\n"
 
+        # One viewer = one long-lived multipart response. Counting them here is
+        # what tells the cameras whether anyone is actually watching.
+        self.server.camera_gate.acquire()
         try:
             while True:
                 # Read the latest JPEG frame from the server object
@@ -107,6 +110,11 @@ class MJPEGHandler(BaseHTTPRequestHandler):
                 time.sleep(self.server.stream_interval_s)
         except Exception:
             pass
+        finally:
+            # Must run on every exit path -- a client that vanishes mid-write
+            # raises rather than breaking cleanly, and a leaked count would
+            # keep the cameras rendering for a viewer that is already gone.
+            self.server.camera_gate.release()
 
 
 def _compose_grid(frames: list[np.ndarray | None], names: list[str]) -> np.ndarray | None:
@@ -166,6 +174,85 @@ def _compose_grid(frames: list[np.ndarray | None], names: list[str]) -> np.ndarr
     return cv2.vconcat(rows_imgs)
 
 
+class CameraGate:
+    """Run the Gazebo cameras only while an MJPEG client is connected.
+
+Without it every track pays for a feed nobody is watching -- in CPU, and
+    in GPU too, since gz-sensors skips rendering a camera with no subscribers.
+
+    Threading rather than asyncio: this server is a ThreadedHTTPServer and each
+    viewer is a thread blocked in a multipart write, not a coroutine.
+    """
+
+    def __init__(self, cameras: list, grace_s: float = 10.0) -> None:
+        self._cameras = cameras
+        self._grace_s = grace_s
+        self._lock = threading.Lock()
+        self._viewers = 0
+        self._started = False
+        self._timer: threading.Timer | None = None
+
+    @property
+    def watching(self) -> bool:
+        """True while at least one client is attached; gates the encoder."""
+        with self._lock:
+            return self._viewers > 0
+
+    def acquire(self) -> None:
+        with self._lock:
+            self._viewers += 1
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            if self._started:
+                return
+            self._started = True
+        # Topic discovery shells out; do it outside the lock so a second
+        # viewer arriving mid-startup is not blocked behind it.
+        for camera in self._cameras:
+            try:
+                camera.start()
+            except Exception as e:
+                log_event(_log, "camera_start_failed", error=str(e))
+        log_event(_log, "camera_started", viewers=self._viewers)
+
+    def release(self) -> None:
+        with self._lock:
+            self._viewers = max(0, self._viewers - 1)
+            if self._viewers or self._timer is not None:
+                return
+            # A browser refresh drops one connection before opening the next;
+            # the grace period keeps the camera warm across an ordinary reload.
+            self._timer = threading.Timer(self._grace_s, self._stop_if_idle)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _stop_if_idle(self) -> None:
+        with self._lock:
+            self._timer = None
+            if self._viewers or not self._started:
+                return
+            self._started = False
+        for camera in self._cameras:
+            try:
+                camera.stop()
+            except Exception:
+                pass
+        log_event(_log, "camera_idle_stopped", grace_s=self._grace_s)
+
+    def shutdown(self) -> None:
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            self._started = False
+        for camera in self._cameras:
+            try:
+                camera.stop()
+            except Exception:
+                pass
+
+
 def run_server(cameras: list[GazeboCamera], host: str, port: int, open_browser: bool, fps: float, quality: int, names: list[str]):
     server = ThreadedHTTPServer((host, port), MJPEGHandler)
 
@@ -192,6 +279,11 @@ def run_server(cameras: list[GazeboCamera], host: str, port: int, open_browser: 
     # Encoder thread: encode at paced output FPS, reusing latest raw frame.
     def encoder_loop():
         while not server.stop_event.is_set():
+            # No viewer, nothing to encode. JPEG encoding a 720p frame is not
+            # free, and with the gate closed there are no fresh frames anyway.
+            if not server.camera_gate.watching:
+                time.sleep(0.1)
+                continue
             with server.frame_lock:
                 frames = list(server.latest_raw_frames)
             frame = _compose_grid(frames, names)
@@ -214,9 +306,10 @@ def run_server(cameras: list[GazeboCamera], host: str, port: int, open_browser: 
     for idx, camera in enumerate(cameras):
         camera.on_frame = make_on_frame(idx)
 
-    print("Starting GazeboCamera (discovering topic if needed)...")
-    for camera in cameras:
-        camera.start()
+    # Deliberately not started here: the gate starts them on the first viewer.
+    # An unwatched stream should cost nothing, and an unsubscribed gz-sensors
+    # camera is not rendered at all.
+    server.camera_gate = CameraGate(cameras)
 
     encoder_thread = threading.Thread(target=encoder_loop, daemon=True)
     encoder_thread.start()
@@ -241,8 +334,9 @@ def run_server(cameras: list[GazeboCamera], host: str, port: int, open_browser: 
         server.stop_event.set()
         server.shutdown()
         encoder_thread.join(timeout=2)
-        for camera in cameras:
-            camera.stop()
+        # Cancels the idle timer too, so a pending grace-period stop cannot
+        # fire after shutdown and touch cameras that are already gone.
+        server.camera_gate.shutdown()
 
 
 def main():
@@ -251,7 +345,11 @@ def main():
     parser.add_argument('--port', type=int, default=8080, help='HTTP port (default: 8080)')
     parser.add_argument('--open', dest='open', action='store_true', help='Open browser automatically')
     parser.add_argument('--threads', type=int, default=2, help='Number of camera poll threads (default: 2)')
-    parser.add_argument('--quality', type=int, default=68, help='JPEG quality 1-100 (default: 68)')
+    # 68 was sized for a bandwidth budget this stream does not have: it never
+    # leaves the machine. Measured at 1280x720, q92 costs 1.69ms/frame and
+    # 73KiB -- cheaper per frame than the H.264 path it mirrors (8.34ms,
+    # ~100KiB) and visibly sharper than q68.
+    parser.add_argument('--quality', type=int, default=92, help='JPEG quality 1-100 (default: 92)')
     parser.add_argument('--fps', type=float, default=12.0, help='Stream FPS limit (default: 12)')
     parser.add_argument('--topic', type=str, default=None,
                         help='Gazebo camera image topic (optional; auto-discover if omitted)')

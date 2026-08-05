@@ -276,6 +276,77 @@ def remove_model(
     return GzRemoveResult(False, world_name, model_name, output or f"gz exited {proc.returncode}")
 
 
+# Where a bird goes when it finally leaves. Far outside any world this project
+# flies, so it is beyond every sensor -- the 2D lidar tops out at 20m and the
+# camera cannot see it. The model still exists, which is the whole point.
+BANISH_POSE = (1000.0, 1000.0, 0.0, 0.0)
+
+
+def teleport_model(
+    *,
+    world_name: str,
+    model_name: str,
+    x: float,
+    y: float,
+    z: float,
+    yaw_rad: float = 0.0,
+    env: dict | None = None,
+    timeout_ms: int = 2000,
+) -> GzRemoveResult:
+    """Move a model to a pose via the world's ``set_pose`` service.
+
+    WHY THE MISSION TELEPORTS RATHER THAN DELETES
+    Deleting a model tears down its materials, and gz-rendering 8.2.2 recurses
+    doing it:
+
+        Ogre2Material::Destroy -> Ogre2MeshFactory::ClearMaterialsCache
+            -> ~Ogre2Material -> Ogre2Material::Destroy -> ...
+
+    until the stack overflows. Observed 2026-08-01 on macOS/arm64: the first
+    pigeon removal succeeded, the second killed the simulator mid-flight
+    (SIGSEGV on SensorsPrivate::RenderThread). It is a library bug, not a
+    resource limit -- 8.2.2 is the newest conda-forge publishes, and faster
+    hardware would crash on the same frame.
+
+    Teleporting reaches the same mission outcome without destroying anything,
+    so that code path is never entered. It also models the real behaviour
+    better: a disturbed pigeon moves, it does not vanish.
+
+    Safe because target models are ``<static>true</static>`` -- they stay where
+    they are put instead of falling under gravity.
+    """
+    qz = sin(yaw_rad / 2.0)
+    qw = cos(yaw_rad / 2.0)
+    req = (
+        f'name: "{model_name}", '
+        f"position: {{x: {x}, y: {y}, z: {z}}}, "
+        f"orientation: {{x: 0, y: 0, z: {qz}, w: {qw}}}"
+    )
+    try:
+        proc = subprocess.run(
+            [
+                "gz", "service", "-s", f"/world/{world_name}/set_pose",
+                "--reqtype", "gz.msgs.Pose",
+                "--reptype", "gz.msgs.Boolean",
+                "--timeout", str(timeout_ms),
+                "--req", req,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=max(1.0, timeout_ms / 1000.0 + 1.0),
+            env=env,
+        )
+    except FileNotFoundError:
+        return GzRemoveResult(False, world_name, model_name, "gz CLI not found")
+    except subprocess.TimeoutExpired:
+        return GzRemoveResult(False, world_name, model_name, "set_pose request timed out")
+
+    output = "\n".join(part.strip() for part in (proc.stdout, proc.stderr) if part.strip())
+    if proc.returncode == 0 and "data: true" in output.lower():
+        return GzRemoveResult(True, world_name, model_name, output or "moved")
+    return GzRemoveResult(False, world_name, model_name, output or f"gz exited {proc.returncode}")
+
+
 def remove_nearest_model(
     *,
     world_name: str | None,
@@ -289,13 +360,20 @@ def remove_nearest_model(
     max_distance_m: float | None = None,
     timeout_ms: int = 2000,
     prefer_live_poses: bool = True,
+    action=None,
 ) -> GzRemoveResult:
-    """Remove the best matching target model.
+    """Act on the best matching target model.
 
-    If the world only has one matching target, remove it directly. When several
-    targets match, choose the one nearest to the successful pursuit position and
-    apply the optional distance guard.
+    If the world only has one matching target, act on it directly. When several
+    match, choose the one nearest to the successful pursuit position and apply
+    the optional distance guard.
+
+    ``action(world_name=..., model_name=..., env=..., timeout_ms=...)`` performs
+    the deed and defaults to ``remove_model``. The mission passes a teleport
+    instead, because deleting a model crashes gz-rendering 8.2.2 -- see
+    ``teleport_model``.
     """
+    act = action or remove_model
     if not world_name:
         return GzRemoveResult(False, None, None, "Gazebo world name not found")
 
@@ -329,7 +407,7 @@ def remove_nearest_model(
     if len(candidates) == 1:
         model = candidates[0]
         distance = hypot(model.x - x, model.y - y) if isfinite(x) and isfinite(y) else None
-        result = remove_model(
+        result = act(
             world_name=world_name,
             model_name=model.name,
             env=env,
@@ -354,7 +432,7 @@ def remove_nearest_model(
         )
 
     model, distance = chosen
-    result = remove_model(
+    result = act(
         world_name=world_name,
         model_name=model.name,
         env=env,

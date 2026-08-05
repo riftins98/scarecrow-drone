@@ -1,0 +1,30 @@
+# NVIDIA overlay. Requires nvidia-container-toolkit on the host.
+#
+# Applied by docker/detect-gpu.sh, which writes COMPOSE_FILE into .env so that
+# a plain `docker compose up` picks it up. Manually:
+#   COMPOSE_FILE=docker-compose.yml:docker/compose.gpu.yml docker compose up
+#
+# This overlays the `sim` service rather than defining a second one. An earlier
+# design used a separate service that `extends: sim`, which inherited its four
+# published ports -- so activating the GPU profile started two containers that
+# fought over 8000, 8080, 14540 and 14550, and the error named a port instead
+# of a profile.
+services:
+  sim:
+    environment:
+      # Software rendering becomes fatal instead of a silent slow fallback.
+      REQUIRE_GPU: "1"
+
+      # Lockstep ON, unlike the CPU default. Nolockstep exists to stop PX4
+      # waiting on a slow software renderer; with a real GPU that wait is
+      # cheap, and lockstep is PX4's intended mode -- deterministic sensor
+      # timing, and the same behaviour the sim was developed against natively
+      # on macOS. Set SCARECROW_NOLOCKSTEP=1 to override if a machine needs it.
+      SCARECROW_NOLOCKSTEP: "0"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

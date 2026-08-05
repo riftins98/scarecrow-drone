@@ -29,3 +29,21 @@ scarecrow/mapped_env/*
 docs/guides/*.docx
 .tools/
 .agents/skills/ui-ux-pro-max
+
+# Pixi materialised environment (~4GB). pixi.toml and pixi.lock ARE committed —
+# they are what makes the environment reproducible. This directory is the
+# unpacked result and is rebuilt by `pixi install`.
+.pixi/
+
+# Temporary design/planning scratch for the environment work.
+docs/superpowers/
+
+# macOS/sync duplicates ("file 2.ext"). These accumulate silently and once
+# polluted the PX4 submodule with 261 stale symlinks.
+* [0-9].*
+*\ [0-9]
+# Built React bundle. Produced by `pixi run build-frontend` (macOS) or the
+# `webbuild` Dockerfile stage (delivery) -- never committed. It used to be
+# tracked, which became a hazard once the backend started serving it: :8000
+# would quietly hand out a months-old UI with nothing to indicate it was stale.
+webapp/frontend/build/

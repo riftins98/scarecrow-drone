@@ -71,7 +71,20 @@
           </noise>
         </ray>
         <always_on>0</always_on>
-        <update_rate>30</update_rate>
+        <!-- Matches the hardware this model stands in for. A Slamtec RPLidar
+             A1M8 spins at 5.5Hz typical (adjustable 2-10Hz) and samples 8000
+             points/second, which is 1455 points per revolution - the 1440
+             samples above are already right, only the rate was not.
+
+             This is deliberately SLOWER than the simulator can manage. At 30Hz
+             the control loop saw a fresh scan nearly every tick; the drone will
+             see one roughly every fourth tick, and tuning against 30Hz produces
+             numbers the hardware cannot reproduce. It is also ~5.5x less GPU
+             raycasting, so fidelity and cost point the same way here.
+
+             Raise it only to match a unit configured for a higher scan rate.
+             http://bucket.download.slamtec.com/.../LD108_SLAMTEC_rplidar_datasheet_A1M8_v2.2_en.pdf -->
+        <update_rate>5.5</update_rate>
         <visualize>false</visualize>
       </sensor>
     </link>

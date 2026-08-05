@@ -4,9 +4,22 @@ GPS-denied indoor navigation system for autonomous quadcopters. Combines lidar-b
 
 **Repository**: https://github.com/riftins98/scarecrow-drone
 
-## Implementation Plan
+## Documentation map
 
-See `docs/implementation/README.md` for the phased plan to complete the ADD. Each phase is a self-contained document in `docs/implementation/phases/`.
+- `README.md` — what it does, how it navigates, how to run it
+- `docs/ARCHITECTURE.md` — processes, ports, layers, the mission state machine
+- `docs/HARDWARE_BRINGUP.md` — simulator to real aircraft
+- `docs/KNOWN_LIMITATIONS.md` — what has never run, and what is known thin
+- `docs/ACCEPTANCE_CHECKLIST.md` — the manual flight pass
+- `docs/guides/` — reviewer-facing walkthroughs
+- per-directory `CLAUDE.md` — local detail and the reasoning behind it
+
+## Verification
+
+`docs/ACCEPTANCE_CHECKLIST.md` is the manual flight checklist — what only a
+human watching a full mission can judge. Run it after any change to
+controllers, sensors, missions or worlds. `docker/verify-delivery.sh` is its
+automated counterpart and proves the *environment* works on target hardware.
 
 ## Key Technologies
 - **PX4 Autopilot** + **Gazebo** for simulation
@@ -16,10 +29,50 @@ See `docs/implementation/README.md` for the phased plan to complete the ADD. Eac
 - **SQLite** for flight history
 
 ## Development Workflows
+
+**macOS — use pixi.** Never `brew install` the sim dependencies; a `brew upgrade`
+on 2026-06-20 silently broke the whole build (see the header of `pixi.toml`).
+
+```bash
+pixi install          # materialise the locked environment
+pixi run build        # build PX4 SITL (once)
+pixi run webapp       # backend :8000 + frontend :3000 — Connect launches the sim
+```
+Other tasks: `pixi run sim` (headless sim + stream on :8080), `pixi run fly`,
+`pixi run sensors`, `pixi run test`, `pixi run verify-isolation`.
+The first sim launch after a build is slow (PX4 relinks); later launches are quick.
+
+**Windows/Linux — Docker.** The whole product in one container:
+
+```bash
+docker compose up          # -> http://localhost:8000/
+```
+That URL is the entire interface: pick world/camera/spawn, press Connect to
+launch PX4 + Gazebo, then fly. No shell in the container, no second port to
+open.
+
+**The user never picks a GPU setting.** `docker/detect-gpu.sh` (run by
+`build.sh`) chooses among three overlay files — NVIDIA, any-GPU-on-WSL2, and
+AMD/Intel-on-native-Linux — and writes `COMPOSE_FILE` into `.env`, so a bare
+`docker compose up` is correct on any machine. The overlays modify the single
+`sim` service rather than adding services, which is what stops two containers
+competing for the published ports. On Windows this must run inside WSL2.
+
+- Build with `bash docker/build.sh` (sources the pinned versions and prunes
+  orphaned images); plain `docker compose build` produces `FROM ubuntu@`.
+- `docker run --rm scarecrow-sim:dev /opt/scarecrow/docker/self-test.sh` proves
+  nothing is missing from the image — no GPU needed.
+- Before handing over, run `bash docker/verify-delivery.sh` **on the target
+  machine**. It auto-detects the GPU path and checks rendering, the stream and
+  a real flight. `--no-gpu` skips only the GPU checks.
+
+See `docker/CLAUDE.md` for the GPU traps (driver capabilities, EGL vs glxinfo,
+and WSL's software fallback).
+
+**WSL/Windows native — venv.** The pre-Docker path, still supported.
 - Launch sim: `source scripts/shell/env.sh && ./scripts/shell/launch.sh [world_name]`
 - Run flights: `source .venv/bin/activate && python3 scripts/flight/<script>.py`
 - Web app: `cd webapp && ./start.sh` (frontend :3000, backend :8000)
-- Commit: use `/commit` skill — updates all CLAUDE.md files and commits with clean message
 
 ## Directory Map
 
@@ -34,13 +87,22 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - `design-system/` — Visual design system for the webapp (see `design-system/CLAUDE.md`). Read `design-system/scarecrow/MASTER.md` before any UI work.
 - `airframes/` — PX4 airframe configurations
 - `config/` — Gazebo server configuration
-- `docs/` — Implementation plan and specs (see `docs/implementation/README.md`)
+- `docker/` — Delivery image for Windows/Linux: webapp + sim in one container (see `docker/CLAUDE.md`)
+- `docs/` — Architecture, hardware bring-up, known limitations, the acceptance checklist, and the reviewer-facing guides under `docs/guides/`
 - `px4/` — PX4-Autopilot git submodule (do not edit directly)
 
 ## Root Files
-- `pyproject.toml` — Python project config (deps: mavsdk, numpy; optional: opencv, rplidar)
-- `.gitmodules` — Submodule reference to PX4-Autopilot fork
-- `requirements.txt` — Python dependencies
+
+Four files declare dependencies and each answers a different question, so none
+can be deleted in favour of another. `tests/unit/test_dependency_pins.py`
+asserts they agree.
+
+- `requirements.txt` — The pinned reference. Versions live here, and the other two environments are checked against it.
+- `pyproject.toml` — The `scarecrow` package itself: what `pip install -e ".[sim]"` needs on a Raspberry Pi. Deliberately unpinned — a library that pins `==` cannot be co-installed with anything.
+- `pixi.toml` + `pixi.lock` — The macOS environment: the conda toolchain PX4 SITL builds against, plus the Python deps. **Commit both**; the lock is what makes it reproducible.
+- `docker-compose.yml` — The Windows/Linux entry point (`docker compose up`). One service; the GPU variants are overlay files under `docker/`, selected by `docker/detect-gpu.sh`. The image itself is `docker/Dockerfile`.
+
+- `.gitmodules` — Submodule reference to the PX4-Autopilot fork
 - `README.md` — Project readme
 
 ## Key Constraints
@@ -48,7 +110,7 @@ Read only the sub-CLAUDE.md for the area you're working in.
 - Optical flow needs 2.5m+ altitude for good feature tracking
 - Never param set EKF2 at runtime (resets estimator, breaks optical flow)
 - Stock x500_flow airframe defaults work — only disable GPS
-- GStreamer broken on Mac — use PNG+ffmpeg workaround for video
+- GStreamer is not used anywhere and is not installed in the delivery image. It is a pipeline framework, not a wire format, so adopting it would not make streaming cross-platform — and it is broken on macOS, so it would create an OS split rather than remove one. Post-flight video uses PNG+ffmpeg, though that path is currently unwired (see `scarecrow/sensors/camera/CLAUDE.md`).
 
 ## Cross-Platform Compatibility (macOS + Windows)
 All code, scripts, and tooling MUST work on both macOS and Windows. The team has devs on both OSes.
@@ -59,15 +121,36 @@ All code, scripts, and tooling MUST work on both macOS and Windows. The team has
 - Browser/network: bind to `0.0.0.0` (not `127.0.0.1` only) so WSL→Windows host browser access works.
 - When in doubt, document in the relevant sub-CLAUDE.md whether a workflow is "WSL on Windows" or "native on both".
 
-## Recent Changes
-- UI polish: spawn map moved to the LEFT of a two-column pre-connect layout (`sim-config-layout`); the parked aircraft now render as **airplane silhouettes** (not red squares) in both maps; "Settings" removed from the sidebar; the right-side `Minimap` rebuilt to draw the **real** garage to scale (walls + aircraft + pads) with the drone at its **live** Gazebo pose (`SimService.drone_pose()` → `dronePose` in sim status), falling back to spawn. Shared geometry/airplane drawing lives in `webapp/frontend/src/components/garageMap.ts`.
-- Added a **configurable drone spawn location** (garage world only): a top-down `SpawnPicker` (click a room map; the ≥3m-from-wall margin is red-hatched and click-blocked) in `SimControl`, both pre-connect (sets initial spawn → `PX4_GZ_MODEL_POSE` at launch) and post-connect ("Move Drone Here" → `/api/sim/spawn`, teleports the running drone). The chosen spawn becomes the session `SimService._spawn_pose`, so the **panic RESET returns there** too. The picker also blocks the two parked RQ-7B aircraft (rotated 6x9m footprints at (±5,0) + 0.3m), drawn as red rectangles. Backend: `validate_spawn()` / `SPAWN_BOUNDS` (x[-9,9], y[-4.5,4.5]) + `SPAWN_OBSTACLES`/`_in_obstacle()` enforced in both the API and UI; `launch(spawn=)`, `set_spawn()`, `_teleport_to()`. Tested in `test_spawn.py` + `test_sim_api.py`.
-- Added a **panic RESET button** (red, full-width, in `SimControl`, always available while connected): `POST /api/sim/reset` (1) hard-kills the flight script + its mavsdk_server child via group-kill (`DetectionService.kill()`, which also reaps any orphans so they can't squat on udp 14540), (2) disarms via PX4's **console** — `commander mode auto:hold` + `commander disarm -f` through the launcher's pxh FIFO (`SimService.disarm_via_console()`); this replaced an earlier MAVSDK/pymavlink approach that was slow (~9s mavsdk_server cold start) and flaky (SITL MAVLink streams race for an on-demand client), (3) teleports the Gazebo drone to spawn (`SimService.reset_drone_pose()` → world `set_pose`; spawn = `SPAWN_POSE` `5,-4.5,0,0,0,0`). Each step best-effort. Tested in `test_sim_api.py` + `test_sim_console.py` + `test_detection_cleanup.py`.
-- Removed the Gazebo RTF (real_time_factor) telemetry gauge end to end (inconsistent / looked bad): deleted the `gz topic -e -t /stats` poller + `rtf` property in `sim_service.py`, the `rtf` key in the sim status DTO, and `simStatus.rtf` in the frontend type. Replaced it with a **flight-log parser**: `DetectionService._parse_log_extras()` mines flight-script stdout (across all scripts) for `phase`, `agl`, `ceiling`, `leg`, lidar distances (`front`/`left`/`right`/`rear`/`wall`), commanded velocities (`fwd`/`lat`/`yaw`), pursuit `target`/`target_dist`, wall-follow `stop_reason`, and `fps`, merging them into `latest_telemetry`. Pure parser unit-tested in `tests/unit/webapp/services/test_detection_log_parser.py`. The `TelemetryRail` is now **dynamic** — it renders only the readouts the running script produces. HudHeader's RTF indicator light became a DETS light.
-- Webapp UI overhauled into a military / HUD console: top `HudHeader` (callsign, system-state pill, local clock, indicator lights), scrolling `Ticker`, dynamic `TelemetryRail` (log-parsed gauges + GPS-DENIED badge), vertical `Sidebar` (OPS / DIAGNOSTICS), `Minimap` (top-down garage with obstacle-avoiding drone path), and full-width `SystemLog` (terminal-style mock feed). All in `webapp/frontend/src/components/`.
-- Design system established at `design-system/scarecrow/MASTER.md`. UI work should read it first; future sessions stay visually consistent.
-- `ui-ux-pro-max` skill installed at `.claude/skills/ui-ux-pro-max/`. Python `python3` shim at `~/.local/bin/python3.bat` is required on Windows.
-- Webapp launcher: live per-step substatus (`Compiling [N/1157] ...`, EKF state, etc.) so users see actual progress rather than just "active".
-- Backend: `SimService.launch(world, headless)` captures stream URL from `launch_with_stream.sh`; `DetectionService.start()` accepts script name + arg dict; `script_metadata.py` introspects flight scripts via `--help` for the dynamic pre-flight argparse form.
-- `Start Scarecrow.bat` rewritten: auto-installs backend deps, hard-fails if backend doesn't respond, `-d`/`--dev` flag for visible log windows.
-- Drone class honors `MAVSDK_SERVER_ADDRESS` / `MAVSDK_SERVER_PORT` env vars so flight scripts can connect to an externally-launched `mavsdk_server` for debugging.
+## How the code is arranged, and why
+
+Two structural facts explain most of the layout. Both are recent, and code
+written against the old shape will look wrong.
+
+**Missions live in the package, not in scripts.** `scripts/flight/` holds three
+files, and the delivery mission among them is a 66-line entry point: it parses
+arguments and calls `HangarCircuitPursuitMission`. The mission itself is
+`scarecrow/missions/hangar_circuit/`, split into config, CLI, phases and
+reporting. It was previously a 2247-line script with a 1147-line `run()`, which
+could not be imported, tested or reused. **Anything runnable, testable or
+reusable belongs in `scarecrow/`**; a script is argument parsing plus an
+`asyncio.run()`. Six scripts disappeared into the package this way.
+
+**The package is installable and hardware-ready.** `scarecrow/` is a real
+Python package (`pip install -e ".[sim]"`), because the same flight code is
+meant to run on a Raspberry Pi. `scarecrow/platform/` is the seam: mission code
+depends on a `SensorSuite`, never on Gazebo. Every simulated sensor has a
+hardware counterpart behind the same interface — `lidar/rplidar.py`,
+`rangefinder/tfluna.py`, `camera/picamera.py`. None has run on a real drone
+yet; see `docs/KNOWN_LIMITATIONS.md`.
+
+Two consequences worth knowing before changing anything:
+
+- **Sensors subscribe in-process.** `scarecrow/sensors/gz_transport.py` holds
+  `gz.transport13` subscriptions; the old `gz topic -e -n 1` CLI polling
+  survives only as an automatic fallback for hosts without the bindings. The
+  fallback is a fork+exec per sample and starves the simulator, and it engages
+  **silently** — check `sensor.using_transport`.
+- **Flight-script log wording is a wire format.** The webapp parses stdout with
+  regexes to drive the live telemetry rail. Reformatting a status line removes
+  a gauge from the operator's screen and raises no error anywhere. See
+  `scripts/flight/CLAUDE.md` for the parsed lines.

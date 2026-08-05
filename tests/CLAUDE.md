@@ -28,7 +28,7 @@ This project has three distinct testing layers because "100% automated coverage"
 - Flaky (world loading, race conditions, GUI)
 - Can't run on CI without GPU/display
 - Real flight crashes require recovery
-See `docs/implementation/MANUAL_SIM_CHECKLIST.md` for the verification checklist used after drone code changes.
+See `docs/ACCEPTANCE_CHECKLIST.md` for the manual flight checklist used after drone code changes.
 
 ### What NOT to try to automate
 These are intentionally left at low unit-test coverage:

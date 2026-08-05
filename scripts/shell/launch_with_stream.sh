@@ -39,10 +39,13 @@ DEFAULT_POSE=""
 OPEN_BROWSER=1
 INTERACTIVE_PXH=1
 STREAM_FPS_EXPLICIT="${STREAM_FPS:-}"
-STREAM_FPS="${STREAM_FPS:-10}"
-STREAM_QUALITY="${STREAM_QUALITY:-68}"
+# 5 fps for the monitoring feed. Spending the budget on resolution instead of
+# frame rate: the drone cruises at 0.3 m/s, so 5 fps is a frame every 6cm.
+STREAM_FPS="${STREAM_FPS:-5}"
+# JPEG quality. 68 was sized
+# for a bandwidth budget this stream does not have: it never leaves the machine.
+STREAM_QUALITY="${STREAM_QUALITY:-92}"
 STREAM_THREADS="${STREAM_THREADS:-2}"
-STREAM_MODE="${STREAM_MODE:-webrtc}"
 SELECTED_CAMERAS=()
 DRONE_VIEW_ENABLED=0
 WORLD_SET=0
@@ -136,7 +139,7 @@ prepare_drone_view_overlay() {
 
 if [ "$DRONE_VIEW_ENABLED" -eq 1 ]; then
     if [ -z "$STREAM_FPS_EXPLICIT" ]; then
-        STREAM_FPS="10"
+        STREAM_FPS="5"
     fi
     prepare_drone_view_overlay
 fi
@@ -148,7 +151,6 @@ echo "  Stream: http://localhost:${STREAM_PORT}/"
 echo "  Open Browser: $([ "$OPEN_BROWSER" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Interactive PXH: $([ "$INTERACTIVE_PXH" -eq 1 ] && echo 'YES' || echo 'NO')"
 echo "  Build PX4: $([ -n "$NO_BUILD_FLAG" ] && echo 'NO' || echo 'YES')"
-echo "  Stream Mode: $STREAM_MODE"
 echo "  Stream FPS: $STREAM_FPS | JPEG Quality: $STREAM_QUALITY | Camera Threads: $STREAM_THREADS"
 if [ ${#SELECTED_CAMERAS[@]} -gt 0 ]; then
     echo "  Cameras: ${SELECTED_CAMERAS[*]}"
@@ -158,16 +160,21 @@ if [ "$DRONE_VIEW_ENABLED" -eq 1 ]; then
 fi
 echo "============================================"
 
-# Pick python (prefer venv if present)
+# Pick python. Order matters: a pixi environment must win over a leftover
+# .venv, because only pixi has the locked gz-python bindings the streamer
+# needs. CONDA_PREFIX is set by `pixi run` (and by conda), and is empty
+# otherwise, so the venv path is still used on the WSL/Windows track.
 PYTHON_BIN="python3"
-if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+if [ -n "${CONDA_PREFIX:-}" ] && [ -x "$CONDA_PREFIX/bin/python" ]; then
+    PYTHON_BIN="$CONDA_PREFIX/bin/python"
+elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
     PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
 fi
 
 # Ensure output directory exists for logs
 mkdir -p "$REPO_ROOT/output"
 
-_log_event step world="$WORLD" port="$STREAM_PORT" stream_mode="$STREAM_MODE" headless="$([ -n "$HEADLESS_FLAG" ] && echo true || echo false)" interactive_pxh="$([ "$INTERACTIVE_PXH" -eq 1 ] && echo true || echo false)"
+_log_event step world="$WORLD" port="$STREAM_PORT" stream_mode=mjpeg headless="$([ -n "$HEADLESS_FLAG" ] && echo true || echo false)" interactive_pxh="$([ "$INTERACTIVE_PXH" -eq 1 ] && echo true || echo false)"
 
 # Stream worker: waits for the drone+camera topics to come up, then execs the
 # stream server in its own subshell. Backgrounded so the main script can
@@ -235,15 +242,6 @@ start_stream_worker() {
     if [ "$OPEN_BROWSER" -eq 1 ]; then
         OPEN_FLAG="--open"
     fi
-    if [ "$STREAM_MODE" = "webrtc" ]; then
-        if ! "$PYTHON_BIN" -c "import aiortc, aiohttp, av" >/dev/null 2>&1; then
-            _log_warn webrtc_deps_missing python_bin="$PYTHON_BIN"
-            echo "[launch_with_stream] WARNING: WebRTC dependencies missing in $PYTHON_BIN"
-            echo "[launch_with_stream] Falling back to MJPEG stream mode"
-            STREAM_MODE="mjpeg"
-        fi
-    fi
-
     if [ ${#CAMERA_TOPICS[@]} -eq 0 ]; then
         _log_error camera_topic_missing
         echo "[launch_with_stream] ERROR: selected camera topic not found"
@@ -255,34 +253,27 @@ start_stream_worker() {
         echo "[launch_with_stream] Camera topics:  ${CAMERA_TOPICS[*]}"
     fi
 
-    if [ ${#CAMERA_TOPICS[@]} -gt 1 ] && [ "$STREAM_MODE" = "webrtc" ]; then
-        LAST_CAMERA_INDEX=$((${#CAMERA_TOPICS[@]} - 1))
-        SELECTED_CAMERA="${SELECTED_CAMERAS[$LAST_CAMERA_INDEX]}"
-        SELECTED_TOPIC="${CAMERA_TOPICS[$LAST_CAMERA_INDEX]}"
-        _log_warn webrtc_multi_camera_single_topic selected="$SELECTED_CAMERA" ignored_count="$LAST_CAMERA_INDEX"
-        echo "[launch_with_stream] WARNING: WebRTC supports one live stream; using ${SELECTED_CAMERA}"
-        CAMERA_TOPICS=("$SELECTED_TOPIC")
-        SELECTED_CAMERAS=("$SELECTED_CAMERA")
-    fi
-    _log_event stream_exec mode="$STREAM_MODE" port="$STREAM_PORT" topics="\"${CAMERA_TOPICS[*]:-}\""
+    _log_event stream_exec mode=mjpeg port="$STREAM_PORT" topics="\"${CAMERA_TOPICS[*]:-}\""
     _log_timer_end step4_stream
-    if [ "$STREAM_MODE" = "webrtc" ]; then
-        exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera_webrtc.py" \
-            --port "$STREAM_PORT" --fps "$STREAM_FPS" --threads "$STREAM_THREADS" \
-            $OPEN_FLAG ${CAMERA_TOPICS[0]+--topic "${CAMERA_TOPICS[0]}"}
-    else
-        TOPICS_ARG=""
-        if [ ${#CAMERA_TOPICS[@]} -gt 1 ]; then
-            TOPICS_ARG="--topics $(IFS=,; echo "${CAMERA_TOPICS[*]}")"
-            NAMES_ARG="--names $(IFS=,; echo "${SELECTED_CAMERAS[*]}")"
-        else
-            TOPICS_ARG=${CAMERA_TOPICS[0]+--topic "${CAMERA_TOPICS[0]}"}
-            NAMES_ARG="--names ${SELECTED_CAMERAS[0]}"
-        fi
-        exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera.py" \
-            --port "$STREAM_PORT" --fps "$STREAM_FPS" --quality "$STREAM_QUALITY" --threads "$STREAM_THREADS" \
-            $OPEN_FLAG $TOPICS_ARG $NAMES_ARG
+    echo "[launch_with_stream] Starting MJPEG stream on http://localhost:${STREAM_PORT}/"
+    MJPEG_ARGS=(
+        --port "$STREAM_PORT"
+        --fps "$STREAM_FPS"
+        --quality "$STREAM_QUALITY"
+        --threads "$STREAM_THREADS"
+    )
+    if [ -n "$OPEN_FLAG" ]; then
+        MJPEG_ARGS+=("$OPEN_FLAG")
     fi
+    if [ ${#CAMERA_TOPICS[@]} -gt 1 ]; then
+        TOPICS_VALUE="$(IFS=,; echo "${CAMERA_TOPICS[*]}")"
+        NAMES_VALUE="$(IFS=,; echo "${SELECTED_CAMERAS[*]}")"
+        MJPEG_ARGS+=(--topics "$TOPICS_VALUE" --names "$NAMES_VALUE")
+    else
+        MJPEG_ARGS+=(--topic "${CAMERA_TOPICS[0]}" --names "${SELECTED_CAMERAS[0]}")
+    fi
+    exec env PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" "$REPO_ROOT/scripts/stream_camera.py" \
+        "${MJPEG_ARGS[@]}"
 }
 
 echo "[launch_with_stream] Step 1/4: create the sim"
@@ -298,7 +289,15 @@ if [ "$INTERACTIVE_PXH" -eq 1 ]; then
     _log_timer_end step1_create_sim
     _log_event ready stream_url="http://localhost:${STREAM_PORT}/" stream_pid="$STREAM_PID" interactive=true
     "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" "$NO_BUILD_FLAG"
-    _log_event sim_exited
+    SIM_STATUS=$?
+    _log_event sim_exited exit_code="$SIM_STATUS"
+    if [ "$SIM_STATUS" -eq 0 ] && [ -n "${STREAM_PID:-}" ] && ps -p "$STREAM_PID" > /dev/null 2>&1; then
+        echo "[launch_with_stream] PX4 launcher returned; keeping stream alive at http://localhost:${STREAM_PORT}/"
+        echo "[launch_with_stream] Press Ctrl+C here to stop the stream."
+        _log_event stream_wait_begin pid="$STREAM_PID"
+        wait "$STREAM_PID"
+        _log_event stream_wait_end pid="$STREAM_PID" exit_code="$?"
+    fi
 else
     # Background mode: sim and stream both detached, sim log goes to file.
     "$SCRIPT_DIR/launch.sh" "$WORLD" "$HEADLESS_FLAG" "$NO_BUILD_FLAG" \

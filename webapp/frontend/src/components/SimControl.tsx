@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import {
   SimStatus,
   FlightStatus,
@@ -73,6 +73,11 @@ function defaultPursuitArgValues(): ScriptArgValues {
   return initial;
 }
 
+/** guiAvailable, defaulting to true when a backend does not report it. */
+function optionsGuiAvailable(options: SimOptions | null): boolean {
+  return options?.guiAvailable !== false;
+}
+
 export default function SimControl({
   simStatus, flightStatus, onConnect, onDisconnect,
   onStartFlight, onStopFlight, isConnecting, flightStartTime,
@@ -87,6 +92,12 @@ export default function SimControl({
   // Sim options (worlds + scripts) — fetched once on mount
   const [options, setOptions] = useState<SimOptions | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+
+  // A Gazebo GUI window needs a display on the SIMULATION host, not the
+  // browser's machine. The delivery container has none, so the backend reports
+  // guiAvailable=false and the GUI option is taken off the table. Older
+  // backends omit the field; treat missing as available.
+  const guiAvailable = optionsGuiAvailable(options);
   const [streamCameras, setStreamCameras] = useState<CameraInfo[]>([]);
 
   // Pre-connect form state
@@ -127,6 +138,10 @@ export default function SimControl({
       .then(([data, camerasRes]) => {
         setOptions(data);
         setStreamCameras(camerasRes.cameras);
+        // No display on the sim host (the delivery container) -- a GUI launch
+        // could only fail, and GUI is the default, so switch to headless
+        // before the user can pick it.
+        if (data.guiAvailable === false) setHeadless(true);
         const preferred = defaultWorldFromOptions(data);
         setSelectedWorld((current) => {
           if (current && data.worlds.some((w: WorldInfo) => w.name === current)) {
@@ -252,24 +267,27 @@ export default function SimControl({
                 <div className="sim-config-form">
                 <label className="form-row">
                   <span className="form-label">World</span>
-                  <select
+                  <HudSelect
                     value={selectedWorld}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleWorldChange(e.target.value)}
+                    onChange={handleWorldChange}
                     disabled={!options}
-                  >
-                    {options ? options.worlds.map((w: WorldInfo) => (
-                      <option key={w.name} value={w.name}>{w.label}</option>
-                    )) : <option>Loading...</option>}
-                  </select>
+                    options={options
+                      ? options.worlds.map((w: WorldInfo) => ({ value: w.name, label: w.label }))
+                      : [{ value: '', label: 'Loading...' }]}
+                  />
                 </label>
 
                 <fieldset className="form-row">
                   <legend className="form-label">Display</legend>
-                  <label className="radio-option">
+                  <label
+                    className="radio-option"
+                    title={guiAvailable ? undefined : 'No display available on the simulation host'}
+                  >
                     <input
                       type="radio"
                       name="display-mode"
                       checked={!headless}
+                      disabled={!guiAvailable}
                       onChange={() => setHeadless(false)}
                     />
                     GUI (open Gazebo window)
@@ -283,6 +301,12 @@ export default function SimControl({
                     />
                     Headless (browser camera stream)
                   </label>
+                  {!guiAvailable && (
+                    <span className="form-hint">
+                      The simulation host has no display, so the Gazebo window
+                      cannot open. Headless streams the camera to this page.
+                    </span>
+                  )}
                 </fieldset>
 
                 {headless && (
@@ -293,17 +317,15 @@ export default function SimControl({
                         No stream cameras found — launcher will use default ("fixed")
                       </span>
                     ) : (
-                      <select
+                      <HudSelect
                         value={selectedCamera}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedCamera(e.target.value)}
+                        onChange={setSelectedCamera}
                         disabled={!options}
-                      >
-                        {availableCameras.map((c: CameraInfo) => (
-                          <option key={c.name} value={c.name}>
-                            {c.label} ({c.name})
-                          </option>
-                        ))}
-                      </select>
+                        options={availableCameras.map((c: CameraInfo) => ({
+                          value: c.name,
+                          label: c.label,
+                        }))}
+                      />
                     )}
                   </label>
                 )}
@@ -416,6 +438,91 @@ export default function SimControl({
               </div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface HudSelectOption {
+  value: string;
+  label: string;
+}
+
+function HudSelect({
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  value: string;
+  options: HudSelectOption[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const listId = useId();
+  const selected = options.find(option => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const selectOption = (next: string) => {
+    onChange(next);
+    setOpen(false);
+  };
+
+  return (
+    <div className="hud-select" ref={rootRef}>
+      <button
+        type="button"
+        className="hud-select-trigger"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => !disabled && setOpen(current => !current)}
+      >
+        <span>{selected?.label ?? ''}</span>
+        <span className="hud-select-caret" aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="hud-select-menu" id={listId} role="listbox">
+          {options.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              className={`hud-select-option ${option.value === value ? 'selected' : ''}`}
+              role="option"
+              aria-selected={option.value === value}
+              onClick={() => selectOption(option.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  selectOption(option.value);
+                }
+              }}
+            >
+              <span>{option.label}</span>
+              {option.value === value && <span className="hud-select-check" aria-hidden="true">✓</span>}
+            </button>
+          ))}
         </div>
       )}
     </div>

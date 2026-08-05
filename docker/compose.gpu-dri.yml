@@ -1,0 +1,15 @@
+# AMD or Intel on native Linux.
+#
+# Straight /dev/dri passthrough to Mesa (radeonsi for AMD, iris for Intel). No
+# vendor toolkit needed. If the render node is missing, check the user is in
+# the `render` and `video` groups on the host.
+#
+# Applied by docker/detect-gpu.sh via COMPOSE_FILE in .env. Manually:
+#   COMPOSE_FILE=docker-compose.yml:docker/compose.gpu-dri.yml docker compose up
+services:
+  sim:
+    environment:
+      REQUIRE_GPU: "1"
+      SCARECROW_NOLOCKSTEP: "0"
+    devices:
+      - /dev/dri:/dev/dri

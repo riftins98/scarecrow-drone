@@ -9,7 +9,7 @@ from services.stream_cameras import (
 
 def test_stream_camera_enum_values():
     assert [c.value for c in StreamCamera] == [
-        "fixed", "center", "drone_cam", "drone_view",
+        "fixed", "drone_cam", "drone_view",
     ]
 
 

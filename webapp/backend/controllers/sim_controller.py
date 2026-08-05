@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from dependencies import sim_service, detection_service, flight_service
-from services.sim_service import DEFAULT_WORLD
+from services.sim_service import DEFAULT_WORLD, gui_available
 from services.world_geometry import resolve_default_world
 from services.script_metadata import (
     list_flight_scripts,
@@ -398,6 +398,9 @@ async def sim_options():
     return {
         "worlds": worlds,
         "defaultWorld": resolve_default_world(),
+        # False in the delivery container (no X/Wayland display), so the UI can
+        # stop offering a GUI launch that could only fail.
+        "guiAvailable": gui_available(),
         "scripts": [script_info_to_dict(s) for s in list_flight_scripts(SCRIPTS_DIR, fast=fast_metadata)],
         # Per-world spawn maps derived from each SDF. Top-level legacy fields
         # are kept for older frontend builds; new UI reads worlds[].spawn.

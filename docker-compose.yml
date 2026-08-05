@@ -1,0 +1,118 @@
+# Scarecrow drone — full product (webapp + simulation).
+#
+#   docker compose up
+#   -> http://localhost:8000/
+#
+# That URL is the whole interface. Pick the world, camera and drone spawn in
+# the UI, press Connect to launch PX4 + Gazebo, then fly. Nothing else to run
+# and no shell in the container: the sim is the product, the UI is how it is
+# used, and the UI is the only way in.
+#
+# The camera feed is served on :8080 and embedded by the UI, so that port has
+# to be published too — but nobody needs to open it directly.
+#
+# Available worlds: hangar, hangar_detailed, hangar_lite, hangar_small
+# Available cameras: fixed, drone_cam, drone_view
+#
+# WORLD/CAMERA below are only defaults for the UI's initial selection, and the
+# fixed choice in sim mode (SCARECROW_MODE=sim), which runs the sim headless
+# with no webapp — for CI and for debugging a launch in isolation.
+
+services:
+  sim:
+    # For delivery this resolves to a prebuilt image and nothing compiles on the
+    # customer's machine. `docker compose build` is only for maintainers who are
+    # deliberately bumping a pin in docker/versions.env.
+    image: ${SCARECROW_IMAGE:-scarecrow-sim:dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        # Empty defaults so a customer running `docker compose up` against the
+        # prebuilt image is not greeted by "variable is not set" warnings about
+        # build args that are never used. Maintainers must build via
+        # `bash docker/build.sh`, which sources docker/versions.env and fails
+        # loudly if a pin is missing.
+        UBUNTU_DIGEST: ${UBUNTU_DIGEST:-}
+        GZ_VERSION: ${GZ_VERSION:-}
+
+    ports:
+      # The webapp — this is the URL the user opens.
+      - "${WEBAPP_PORT:-8000}:8000"
+      # Camera stream, embedded by the UI.
+      - "${STREAM_PORT:-8080}:8080"
+      # PX4 MAVLink API. Published so flight scripts can optionally be run from
+      # the host against the container's PX4, in addition to running inside it.
+      - "14540:14540/udp"
+      # MAVLink GCS (QGroundControl).
+      - "14550:14550/udp"
+
+    environment:
+      # webapp (default) serves the UI and waits for Connect.
+      # sim launches the simulation headless with no UI — CI and debugging.
+      SCARECROW_MODE: ${SCARECROW_MODE:-webapp}
+
+      WORLD: ${WORLD:-hangar_small}
+      CAMERA: ${CAMERA:-fixed}
+      STREAM_PORT: "8080"
+      WEBAPP_PORT: "8000"
+
+      # Set to 1 on hardware that must not fall back to software rendering
+      # (the ROG Strix delivery machines). All 5 sensors are GPU-rendered:
+      # 3 cameras + 2 gpu_lidar. A silent llvmpipe fallback still "works",
+      # just too slowly to fly a complex world.
+      REQUIRE_GPU: ${REQUIRE_GPU:-0}
+
+      # Set to 1 to skip the ~20s Gazebo preflight once the image is trusted.
+      SKIP_PREFLIGHT: ${SKIP_PREFLIGHT:-0}
+
+      # Default ON in containers. PX4 lockstep makes PX4 wait for each Gazebo
+      # render step; without a GPU that wait dominates (measured RTF 0.055 on
+      # Apple Silicon). Nolockstep runs PX4 on wall-clock instead.
+      # Set to 0 on GPU machines that can afford full lockstep fidelity.
+      SCARECROW_NOLOCKSTEP: ${SCARECROW_NOLOCKSTEP:-1}
+
+    # Gazebo + PX4 need a moment to shut down cleanly.
+    stop_grace_period: 15s
+
+    # The UI is not reachable immediately: the entrypoint first checks the
+    # renderer and runs a ~20s Gazebo preflight. Without a healthcheck that
+    # looks like a hang, and the user opens the URL too early and sees a
+    # connection refused. `docker compose ps` shows healthy when it is ready.
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+# =====================================================================
+# GPU
+# =====================================================================
+# There is one service. The GPU variants are overlay files in docker/ that
+# modify THIS service rather than defining new ones, and `docker/detect-gpu.sh`
+# selects the right overlay by writing COMPOSE_FILE into .env -- so a plain
+# `docker compose up` is correct on any machine.
+#
+#   bash docker/detect-gpu.sh   # once, after cloning
+#   docker compose up
+#
+# Compose YAML has no conditionals, and the three GPU paths need different
+# devices: an NVIDIA runtime reservation, /dev/dxg for WSL2, /dev/dri for
+# native Linux. They cannot all be listed here, because a device that does not
+# exist on the host fails the container outright rather than being skipped.
+#
+#   docker/compose.gpu.yml       NVIDIA, Windows/WSL2 or Linux
+#   docker/compose.gpu-wsl.yml   ANY GPU on Windows via WSL2 -- AMD, Intel, NVIDIA
+#   docker/compose.gpu-dri.yml   AMD or Intel on native Linux
+#
+# Each sets REQUIRE_GPU=1, so a path that does not actually reach the GPU fails
+# loudly at startup instead of quietly rendering every camera and lidar on the
+# CPU. The image already carries the Mesa drivers they need: d3d12 (WSL2, any
+# vendor), radeonsi (AMD), iris (Intel), zink (Vulkan fallback). Only the
+# device passthrough differs.
+#
+# These were once profiles on services that `extends: sim`. That inherited the
+# base service's four published ports, so activating a profile started two
+# containers which fought over 8000, 8080, 14540 and 14550 -- and the error
+# named a port, not a profile.

@@ -51,9 +51,20 @@ class TestWorldGeometry:
         assert info["obstacles"] == []
 
     def test_world_camera_options_include_launcher_flags(self):
+        """Every launcher flag must be offered, in no particular order.
+
+        This asserted an exact ordering, so it broke when the list was
+        reordered even though nothing was missing. Order here is cosmetic
+        apart from the default, which is asserted separately below.
+        """
         worlds = {w.name: w for w in list_worlds("worlds")}
         names = [c.name for c in worlds["hangar_lite"].cameras]
-        assert names[:4] == ["fixed", "center", "drone_cam", "drone_view"]
+        assert {"fixed", "center", "drone_cam", "drone_view"} <= set(names)
+
+    def test_fixed_camera_is_the_default_option(self):
+        """First entry is what the UI preselects, so this ordering does matter."""
+        worlds = {w.name: w for w in list_worlds("worlds")}
+        assert worlds["hangar_lite"].cameras[0].name == "fixed"
 
     def test_worlds_expose_derived_labels(self):
         worlds = {w.name: w for w in list_worlds("worlds")}

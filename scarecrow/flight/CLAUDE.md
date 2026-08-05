@@ -4,10 +4,20 @@ Async MAVSDK flight helpers and the `Flight` orchestrator.
 
 ## Files
 - `__init__.py` — Package marker only. **Does NOT re-export `Flight`** because importing it would trigger a circular import (`scarecrow.flight.flight` -> `scarecrow.drone` -> `scarecrow.flight.helpers`). Import it directly: `from scarecrow.flight.flight import Flight`.
-- `helpers.py` — Standalone async helpers used by legacy scripts and the Drone class: `get_position(drone)`, `wait_for_altitude(drone, target_alt, ground_z, timeout)`, `wait_for_stable(drone, ground_z, tolerance, stable_secs, timeout)`, `log_position(drone, phase, ground_z)`. Take a raw `mavsdk.System` (not a Drone wrapper) so they work from any level.
+- `helpers.py` — Standalone async helpers used by legacy scripts and the Drone class: `get_position(drone, position_provider=None)`, `wait_for_altitude(...)`, `wait_for_stable(...)`, `log_position(drone, phase, ground_z)`. Take a raw `mavsdk.System` (not a Drone wrapper) so they work from any level.
+
+  All three accept an optional `position_provider` — an async getter such as
+  `Drone.get_position`. Without it they open a MAVSDK subscription per sample,
+  which costs ~39ms and contends with the persistent subscription `Drone`
+  already holds ("User callback queue slow"). These poll every 0.2–0.5s for up
+  to two minutes during takeoff, so `Drone.takeoff()` passes its cache through.
+  The argument stays optional because callers holding only a `System` must keep
+  working. A `None` sample is skipped, never read as altitude zero.
 - `offboard_safety.py` — Offboard safety utilities: `AltitudeHoldController`, `HealthMonitor`, `SafetyLimits`, and `apply_safety()` clamps.
 - `stabilization.py` — `lidar_stabilize(drone, lidar, targets, label, timeout)`: async wrapper that creates a DistanceStabilizerController and drives MAVSDK offboard velocity until all wall targets are within tolerance or timeout. Takes a raw `mavsdk.System`.
-- `flight.py` — `Flight` orchestrator class (OPTIONAL). Lifecycle scaffold: `run(mission_func, altitude)` handles connect -> wait_for_health -> set_ekf_origin -> takeoff -> start_offboard -> **user mission body** -> stop_offboard -> land. Includes on_status callback and abort(). The existing flight scripts (`demo_flight.py`, `demo_flight_v2.py`, `room_circuit.py`) do NOT use it -- they keep their proven procedural structure. Flight is for NEW missions that want a reusable lifecycle.
+- `altitude.py` — AGL helpers and the vertical hold law, shared by every mission that flies under a ceiling: `agl_from_position()` turns a PX4 local position into altitude-above-ground, `altitude_hold_down_speed()` picks a vertical speed to hold a target AGL, and `target_alt_from_ceiling_distance()` derives that target from the upward rangefinder. `AltitudeHoldConfig` holds the tunables.
+- `landing.py` — `safe_land()` and `wait_for_rangefinder()`. Exists so a mission cannot end with props still spinning because a telemetry read hung during descent: every step is bounded, and the sequence always reaches a disarm attempt.
+- `flight.py` — `Flight` orchestrator class (OPTIONAL). Lifecycle scaffold: `run(mission_func, altitude)` handles connect -> wait_for_health -> set_ekf_origin -> takeoff -> start_offboard -> **user mission body** -> stop_offboard -> land. Includes on_status callback and abort(). Nothing shipping uses it — the hangar mission is built on `scarecrow/missions/` instead, which owns its own phase sequence. `Flight` is for a NEW mission that wants a reusable lifecycle rather than one.
 
 ## Usage Pattern (for new missions using Flight)
 ```python

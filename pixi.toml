@@ -1,0 +1,297 @@
+# Scarecrow drone — reproducible native environment.
+#
+# WHY THIS EXISTS
+# On 2026-06-20 a single `brew upgrade` moved protobuf to 35 (breaking the PX4
+# -Werror build) and removed assimp entirely (Gazebo could not start at all).
+# Nothing in the repo changed; the host toolchain moved underneath it. Homebrew
+# has no lockfile, so `brew install` always gives you whatever is newest today.
+#
+# pixi.lock pins every package -- including all transitive dependencies -- to an
+# exact version and build hash. `pixi install` reads the lock and never
+# re-resolves, so a developer six months from now gets the identical bytes that
+# were tested here. Versions move only when someone runs `pixi update`, which
+# shows up as a reviewable diff in git.
+#
+# COMMIT BOTH pixi.toml AND pixi.lock. The lock is what provides the guarantee.
+#
+# WHEN TO USE THIS vs DOCKER
+#   pixi   -> native development, macOS included. Full GPU (Metal on Mac), so
+#             real-time performance. This is the path for anyone continuing the
+#             project on a Mac.
+#   docker -> delivery to the customer's Windows/NVIDIA machines. See
+#             docker/Dockerfile. Docker on macOS cannot access a GPU and runs
+#             the sim ~16x too slowly to fly missions (measured RTF 0.055 vs
+#             ~0.5 native), which is exactly why this file exists.
+#
+# USAGE
+#   pixi install                 # materialise the locked environment
+#   pixi run launch              # start the sim (GUI)
+#   pixi run launch-headless     # start sim + camera stream on :8080
+
+[workspace]
+name = "scarecrow-drone"
+version = "0.1.0"
+channels = ["conda-forge"]
+# Add another entry here if the pixi path is ever extended beyond macOS.
+#
+# macos = "14.0" because mavsdk 3.15.3 only publishes a macosx_14_0_arm64 wheel;
+# pixi otherwise targets 13.0 and the solve fails with "no wheels with a matching
+# platform tag". Anyone on macOS 13 or older cannot use this environment.
+platforms = [{ platform = "osx-arm64", macos = "14.0" }]
+
+[dependencies]
+# --- Gazebo Harmonic ---------------------------------------------------------
+# Exact pins, not ranges. The lock already freezes these, but pinning here makes
+# the intent explicit and stops a careless `pixi update` from silently jumping a
+# minor version.
+#
+# NOTE: conda-forge has 8.10.0 while Homebrew ships 8.14.0. Same Harmonic
+# series. gz-transport13 13.5.0 and gz-msgs10 10.3.2 match exactly what the PX4
+# build resolved against Homebrew, which is the compatibility that matters.
+gz-sim8 = "==8.10.0"
+gz-transport13 = "==13.5.0"
+gz-msgs10 = "==10.3.2"
+
+# --- PX4 build toolchain -----------------------------------------------------
+cmake = "==4.4.1"
+ninja = "==1.13.2"
+protobuf = "==7.35.1"
+eigen = "==5.0.1"
+cppzmq = "==4.11.0"          # PX4 gz_bridge + optical_flow link CPPZMQ::CPPZMQ
+assimp = "==6.0.5"           # Gazebo mesh loader. Its absence broke everything on Jun 20.
+
+# OpenCV C++ libraries + CMake config, required by the optical_flow gz plugin
+# (gz_plugins/optical_flow/optical_flow.cmake:35 does find_package(OpenCV)).
+# This is libopencv, NOT the opencv metapackage: the pip
+# opencv-python-headless below supplies the Python bindings, and installing
+# both sets of bindings would conflict.
+#
+# MUST be 4.x, not 5.x. PX4's bundled OpticalFlow library is written against the
+# OpenCV 4 API and fails to compile on 5.0.0:
+#   fatal error: 'opencv2/core/types_c.h' file not found   (C API removed in 5)
+#   error: no member named 'undistortPoints' in namespace 'cv'
+# conda-forge defaults to 5.x now, so this upper bound is load-bearing.
+libopencv = ">=4.10,<5"
+pkg-config = "*"
+git = "*"
+
+python = "3.11.*"
+
+# --- Webapp frontend ---------------------------------------------------------
+# Node comes from the lock rather than the host so `pixi run webapp` works on a
+# machine with no system Node at all -- the same guarantee the sim already has.
+# Major version pinned: react-scripts 5 does not build on Node 24.
+nodejs = "22.*"
+
+# numpy is declared here (conda) rather than under [pypi-dependencies] because
+# gz-sim8-python pulls numpy in via the conda solve. Declaring it on both sides
+# makes the environment unsatisfiable ("you require numpy==2.4.4 and
+# numpy==2.4.6"). Conda owns it; the pin matches requirements.txt.
+numpy = "==2.4.4"
+
+# --- Python packages ---------------------------------------------------------
+# Kept as pypi rather than conda so the versions match requirements.txt exactly,
+# which is what the flight code was written and tested against. Mixing conda's
+# opencv 5.x with pip's opencv-python-headless 4.x would conflict, so opencv
+# comes from pip only.
+[pypi-dependencies]
+mavsdk = "==3.15.3"
+opencv-python-headless = "==4.13.0.92"
+pillow = "==12.2.0"
+matplotlib = "==3.10.8"
+aiohttp = "==3.13.5"
+
+# Webapp backend (webapp/backend/requirements.txt). Kept in sync with that
+# file; it stays as the reference for the Docker/WSL track, which installs with
+# pip rather than pixi.
+fastapi = "==0.135.3"
+uvicorn = "==0.44.0"
+aiofiles = "==25.1.0"
+pydantic = ">=2.0"
+
+# Test deps (pyproject.toml [project.optional-dependencies].dev). In the default
+# environment rather than a separate pixi feature so `pixi run test` works with
+# no extra setup -- they are a few MB against a ~4GB environment.
+pytest = "==9.0.3"
+pytest-asyncio = "==1.3.0"
+pytest-cov = "==7.1.0"
+httpx = "==0.28.1"
+
+# YOLO pigeon detection. Large (~2GB); it is the product, not an optional extra.
+torch = "==2.11.0"
+torchvision = "==0.26.0"
+ultralytics = "==8.4.36"
+
+# PX4's own build-time Python requirements (kconfiglib, empy, jinja2, ...).
+# Unpinned upstream in px4/Tools/setup/requirements.txt, which is its own drift
+# risk; pixi.lock freezes whatever these resolve to.
+kconfiglib = "*"
+empy = "==3.3.4"
+jinja2 = "*"
+pyros-genmsg = "*"
+packaging = "*"
+toml = "*"
+jsonschema = "*"
+pyyaml = "*"
+future = "*"
+lxml = "*"
+pymavlink = "*"
+
+[activation.env]
+# Put the repo root on sys.path so `import scarecrow` works.
+#
+# The venv track gets this from `pip install -e .` and Docker sets PYTHONPATH
+# in the image; pixi had neither, so any flight script died at its first
+# `from scarecrow...` with ModuleNotFoundError. Running `python scripts/flight/
+# x.py` puts scripts/flight on sys.path -- not the repo root -- so being in the
+# right directory is not enough.
+#
+# PYTHONPATH rather than an editable install: an editable install would make
+# pixi re-resolve pyproject.toml's own dependency list on top of the pinned one
+# here, for no benefit -- nothing imports scarecrow from outside this repo.
+PYTHONPATH = "$PIXI_PROJECT_ROOT"
+
+[tasks]
+# Build PX4 SITL against THIS environment's Gazebo.
+#
+# Every flag below is load-bearing and was found by a build failure. Do not
+# drop one because it looks redundant.
+#
+#   CMAKE_PREFIX_PATH=$CONDA_PREFIX
+#       Point CMake at the pixi environment.
+#
+#   CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+#       CRITICAL. Homebrew ships the SAME gz-transport13 13.5.0, so without
+#       this CMake may silently link Homebrew's copy and the build "succeeds"
+#       while proving nothing. Verify with:
+#           otool -L px4/build/px4_sitl_default/bin/px4 | grep homebrew
+#       which must return nothing.
+#
+#   CMAKE_SHARED_LINKER_FLAGS / CMAKE_EXE_LINKER_FLAGS = -L$CONDA_PREFIX/lib
+#       PX4's gstreamer/CMakeLists.txt consumes GSTREAMER_LIBRARIES but drops
+#       GSTREAMER_LIBRARY_DIRS, so it emits -lgstreamer-1.0 with no -L. This is
+#       invisible on Ubuntu, where GStreamer lives in /usr/lib, and fails in any
+#       other prefix with "ld: library 'gstreamer-1.0' not found".
+#
+#   CMAKE_CXX_FLAGS_RELWITHDEBINFO ... -Wno-deprecated-declarations
+#       conda-forge's Gazebo requires libprotobuf >=6.31 (a downgrade is
+#       unsolvable), and protobuf 35 deprecates RepeatedField::Resize, which
+#       PX4's gz_bridge still calls. PX4 builds with -Werror, so without this
+#       the build dies on GZMixingInterfaceESC.cpp. Docker does not need this
+#       flag because Ubuntu 24.04 ships protobuf 3.21.12, where Resize is not
+#       deprecated. The real fix belongs upstream in PX4.
+#
+#   CMAKE_BUILD_RPATH / CMAKE_INSTALL_RPATH = $CONDA_PREFIX/lib
+#       Without these the binary links but cannot start:
+#       "dyld: Library not loaded: @rpath/libgz-transport13.13.dylib".
+#
+# Builds into build/px4_sitl_default -- the SAME directory launch.sh expects --
+# so `pixi run launch` uses this build directly. The launch tasks below pass
+# --no-build for exactly that reason: launch.sh's own `make px4_sitl` would
+# rebuild WITHOUT the flags above and fail on the protobuf deprecation.
+#
+# Consequence: a pixi build and a Homebrew build overwrite each other. That is
+# accepted deliberately -- on macOS, pixi is the supported path, and one
+# predictable workflow for every user beats two coexisting ones.
+build = { cmd = """
+    cd px4 && cmake -B build/px4_sitl_default -S . -G Ninja \
+      -DCONFIG=px4_sitl_default \
+      -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+      -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew" \
+      -DPYTHON_EXECUTABLE="$CONDA_PREFIX/bin/python" \
+      -DCMAKE_SHARED_LINKER_FLAGS="-L$CONDA_PREFIX/lib" \
+      -DCMAKE_EXE_LINKER_FLAGS="-L$CONDA_PREFIX/lib" \
+      -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -g -DNDEBUG -Wno-deprecated-declarations" \
+      -DCMAKE_BUILD_RPATH="$CONDA_PREFIX/lib" \
+      -DCMAKE_INSTALL_RPATH="$CONDA_PREFIX/lib" \
+    && ninja -C build/px4_sitl_default
+""", description = "Build PX4 SITL against the pixi Gazebo" }
+
+# Assert the build did not silently link Homebrew's Gazebo.
+#
+# The logic lives in a script, not inline here: pixi runs tasks through
+# deno_task_shell, which does not support `if` and fails with "Unsupported
+# reserved word". It does support `cd` and `&&`, which is why the build task
+# above works inline. An earlier inline version silently exited 1 on a clean
+# binary -- a verification that always fails is worse than none.
+verify-isolation = { cmd = "bash scripts/shell/verify_pixi_isolation.sh", description = "Verify PX4 linked pixi's Gazebo, not Homebrew's" }
+
+# Unit + integration tests. Needs no sim running.
+test = { cmd = "python -m pytest tests/ -q", description = "Run the test suite" }
+
+# --no-build is required, not an optimisation: launch.sh would otherwise run
+# `make px4_sitl` without the flags in the build task above and fail on the
+# protobuf deprecation. Run `pixi run build` first (once, or after changing PX4).
+launch = { cmd = "./scripts/shell/launch.sh", args = [{ arg = "world", default = "hangar_small" }], description = "Launch sim with GUI. Run `pixi run build` first." }
+
+# Headless sim + MJPEG camera stream on http://localhost:8080/
+# Flags are baked in so the common case is one word:  pixi run sim
+#
+# PX4_GZ_MODEL_POSE pins the start position. Without it, launch_with_stream.sh
+# derives the pose from the SDF (world_meta.py spawn-pose), which puts the drone
+# 2.0m off the walls -- for hangar_small that is -6.0,-3.0.
+#
+# -5.7,2.7 puts the drone 2.3m off the wall behind it (x=-8.0) and 2.3m off the
+# wall on its LEFT (y=+5.0). hangar_small's interior is x[-8, 8], y[-5, 5];
+# walls sit at +/-8.1 and +/-5.1 and are 0.2m thick.
+#
+# The sign of y is load-bearing, not cosmetic. At yaw 0 the drone faces +x, so
+# its left is +y. The mission's Phase 1 defaults to --start-side left and
+# stabilises against the rear-LEFT corner, capped at 0.16 m/s with a 45s
+# timeout. An earlier pin of -5.7,-2.7 put it 2.3m from the rear and the RIGHT
+# wall, leaving the left wall 7.7m away: Phase 1 then had to cross 5.7m of
+# hangar, which needs ~36s at perfect tracking and in practice timed out at
+# 3.85m. The flight aborted and landed before reaching the circuit.
+#
+# So: match the spawn corner to the mission's start side, or pass
+# --start-side right and let it stabilise where it already is.
+#
+# NOTE: this pose is world-specific. Running another world through this task
+# (WORLD=hangar_lite pixi run sim) would apply the SAME pose, which may be
+# outside that world's floor. For other worlds, unset it:
+#     WORLD=hangar_lite PX4_GZ_MODEL_POSE= pixi run sim
+# and the SDF-derived default is used again.
+sim = { cmd = """
+    ./scripts/shell/launch_with_stream.sh "$WORLD" --headless --fixed --no-open --no-build
+""", env = { WORLD = "hangar_small", PX4_GZ_MODEL_POSE = "-5.7,2.7,0,0,0,0" }, description = "Headless sim + camera stream on :8080 (hangar_small, rear-left corner 2.3m off both walls)" }
+
+# Fly the pigeon-pursuit mission against a running sim. Start `pixi run sim`
+# in another terminal first.
+fly = { cmd = "python scripts/flight/hangar_circuit_pursuit.py", env = { MPLBACKEND = "Agg" }, description = "Run the hangar circuit pursuit mission (needs `pixi run sim` running)" }
+
+# Sensor diagnostics against a running sim -- no flight. Good first check.
+sensors = { cmd = "python scripts/flight/sensor_check.py", env = { MPLBACKEND = "Agg" }, description = "Check lidar/camera/flow/rangefinder (needs `pixi run sim` running)" }
+
+launch-headless = { cmd = "./scripts/shell/launch_with_stream.sh", description = "Raw stream launcher (pass your own flags). Prefer `pixi run sim`." }
+
+# Full webapp: FastAPI backend on :8000 + React dev server on :3000.
+#
+# This is the whole product -- launch the sim, fly, watch detections -- so it
+# does NOT need `pixi run sim` running first. Press "Connect" in the UI and the
+# backend starts the sim itself.
+#
+# Run `pixi run build` once first. The backend deliberately will not build PX4
+# when a binary already exists (sim_service._skip_px4_build): launch.sh's build
+# path does not carry the CMake flags in the `build` task above and would
+# destroy a working pixi build.
+#
+# WORLD/spawn note: the backend derives the spawn from the world SDF, so the
+# webapp puts the drone 2.0m off the walls rather than the 2.3m that
+# `pixi run sim` pins. Move it in the UI's spawn picker if that matters.
+webapp = { cmd = "bash webapp/start.sh", env = { MPLBACKEND = "Agg", SCARECROW_DEFAULT_WORLD = "hangar_small" }, description = "DEV: backend :8000 + CRA dev server :3000 (hot reload). Use :3000." }
+
+# Production-shaped run: build the UI, then serve it from the backend on :8000.
+#
+# This is the SAME shape the Docker image ships -- one port, one origin, the
+# built bundle, no dev server -- so what a macOS developer sees at :8000 is
+# what the customer sees at :8000. `pixi run webapp` is for hot reload while
+# working on the UI; this is for checking the thing that actually ships.
+webapp-prod = { cmd = "python -m uvicorn app:app --host 0.0.0.0 --port 8000", cwd = "webapp/backend", depends-on = ["build-frontend"], env = { MPLBACKEND = "Agg", SCARECROW_DEFAULT_WORLD = "hangar_small" }, description = "Built UI + API on :8000 -- same shape as the Docker image" }
+
+# CI=false so a lint warning cannot fail the build (react-scripts treats
+# warnings as errors when CI is set, which CI runners and some shells do).
+build-frontend = { cmd = "npm ci --no-audit --no-fund && npm run build", cwd = "webapp/frontend", env = { CI = "false" }, description = "Build the React bundle into webapp/frontend/build" }
+
+# Backend only -- for running the frontend from another terminal or hitting the
+# REST API / OpenAPI docs at http://localhost:8000/docs directly.
+backend = { cmd = "python -m uvicorn app:app --host 0.0.0.0 --port 8000", cwd = "webapp/backend", env = { MPLBACKEND = "Agg", SCARECROW_DEFAULT_WORLD = "hangar_small" }, description = "FastAPI backend only on :8000" }

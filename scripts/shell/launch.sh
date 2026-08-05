@@ -17,6 +17,10 @@
 set -e
 trap 'echo "[launch] ERROR: script failed at line $LINENO — exit code $?"' ERR
 
+# Baseline for _dump_latest_gz_log: any Gazebo log older than this belongs to a
+# previous session and must not be presented as diagnostics for this run.
+_LAUNCH_START_EPOCH=$(date +%s)
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 _LOG_COMPONENT="launch.sim"
@@ -25,13 +29,16 @@ _log_init "sim"
 _log_host
 _log_env_snapshot
 
-WORLD="${1:-indoor_room}"
+WORLD="${1:-${SCARECROW_DEFAULT_WORLD:-hangar_small}}"
 HEADLESS_FLAG=""
 NO_BUILD=0
 if [[ "$2" == "--headless" ]] || [[ "$1" == "--headless" ]]; then
     HEADLESS_FLAG="HEADLESS=1"
     if [[ "$1" == "--headless" ]]; then
-        WORLD="indoor_room"
+        # No world was given (the first arg is the flag), so fall back to the
+        # same default as above. This used to hardcode indoor_room, whose SDF
+        # no longer exists.
+        WORLD="${SCARECROW_DEFAULT_WORLD:-hangar_small}"
     fi
 fi
 
@@ -59,85 +66,7 @@ echo "  Build PX4: $([ "$NO_BUILD" -eq 1 ] && echo 'NO' || echo 'YES')"
 echo "============================================"
 echo ""
 
-# --- Cleanup previous session ---
-_log_timer_begin cleanup
-echo "[launch] Cleaning up..."
-pkill -x px4 2>/dev/null || true
-pkill -f "gz sim" 2>/dev/null || true
-sleep 2
-rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
-_log_timer_end cleanup
-echo "[launch] Clean"
-
-# --- Copy airframe to ROMFS (always exists, build copies it to rootfs) ---
-_log_timer_begin copy_assets
-cd "$PX4_DIR"
-echo "[launch] Copying airframe and config..."
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" ROMFS/px4fmu_common/init.d-posix/airframes/
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" ROMFS/px4fmu_common/init.d-posix/airframes/
-cp "$SCARECROW_DIR/config/server.config" src/modules/simulation/gz_bridge/
-
-# Build against clean mirrors (single source of truth = local repo).
-SCARECROW_PX4_GZ_MODELS_DIR="$PX4_DIR/build/scarecrow_gz_models"
-SCARECROW_PX4_GZ_WORLDS_DIR="$PX4_DIR/build/scarecrow_gz_worlds"
-PX4_GZ_MODELS_DIR="$PX4_DIR/Tools/simulation/gz/models"
-
-rm -rf "$SCARECROW_PX4_GZ_MODELS_DIR" 2>/dev/null || true
-mkdir -p "$SCARECROW_PX4_GZ_MODELS_DIR"
-mkdir -p "$PX4_GZ_MODELS_DIR"
-link_model_dir() {
-    local src="$1"
-    local dest="$2"
-    # PX4 ships some models as real directories; ln -s fails unless we remove
-    # the destination first (otherwise holybro_x500 keeps a stale model.sdf
-    # without tf_luna_up and the ceiling rangefinder never publishes).
-    if [ -e "$dest" ] || [ -L "$dest" ]; then
-        rm -rf "$dest" 2>/dev/null || true
-    fi
-    ln -s "$src" "$dest" 2>/dev/null || true
-}
-for model_dir in "$SCARECROW_DIR/models"/*; do
-    [ -d "$model_dir" ] || continue
-    model_name="$(basename "$model_dir")"
-    link_model_dir "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name"
-    link_model_dir "$model_dir" "$PX4_GZ_MODELS_DIR/$model_name"
-done
-if [ -n "${SCARECROW_MODEL_OVERLAY_DIR:-}" ] && [ -d "$SCARECROW_MODEL_OVERLAY_DIR" ]; then
-    for model_dir in "$SCARECROW_MODEL_OVERLAY_DIR"/*; do
-        [ -d "$model_dir" ] || continue
-        model_name="$(basename "$model_dir")"
-        link_model_dir "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name"
-        link_model_dir "$model_dir" "$PX4_GZ_MODELS_DIR/$model_name"
-    done
-fi
-
-# Build a deterministic worlds set for PX4 CMake target generation.
-# This avoids accidental duplicate/invalid files from polluting targets.
-rm -rf "$SCARECROW_PX4_GZ_WORLDS_DIR" 2>/dev/null || true
-mkdir -p "$SCARECROW_PX4_GZ_WORLDS_DIR"
-for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
-    [ -f "$world_file" ] || continue
-    world_name="$(basename "$world_file")"
-    ln -s "$world_file" "$SCARECROW_PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
-done
-# PX4 still resolves worlds from Tools/simulation/gz/worlds. Mirror the
-# scarecrow worlds there so gz can open them by name.
-PX4_GZ_WORLDS_DIR="$PX4_DIR/Tools/simulation/gz/worlds"
-mkdir -p "$PX4_GZ_WORLDS_DIR"
-for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
-    [ -f "$world_file" ] || continue
-    world_name="$(basename "$world_file")"
-    ln -sf "$world_file" "$PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
-done
-if [ -n "${SCARECROW_MODEL_OVERLAY_DIR:-}" ] && [ -d "$SCARECROW_MODEL_OVERLAY_DIR" ]; then
-    export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_MODEL_OVERLAY_DIR:$SCARECROW_PX4_GZ_MODELS_DIR"
-else
-    export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_PX4_GZ_MODELS_DIR"
-fi
-export PX4_GZ_WORLDS_DIR="$SCARECROW_PX4_GZ_WORLDS_DIR"
-_log_timer_end copy_assets
-
-# --- Build PX4 first (creates rootfs with airframe) ---
+# --- PX4 target selection ---
 # SCARECROW_NOLOCKSTEP=1 (set automatically on WSL by env.sh) switches to the
 # nolockstep build target so the sim runs at ~100% real-time-factor.
 # That target builds into build/px4_sitl_nolockstep instead of build/px4_sitl_default.
@@ -152,6 +81,67 @@ if [ "${SCARECROW_NOLOCKSTEP:-0}" = "1" ]; then
     echo "[launch] SCARECROW_NOLOCKSTEP=1 — using nolockstep targets (~100% RTF)"
 fi
 
+# --- Cleanup previous session ---
+_log_timer_begin cleanup
+echo "[launch] Cleaning up..."
+pkill -x px4 2>/dev/null || true
+pkill -f "gz sim" 2>/dev/null || true
+sleep 2
+rm -f "$HOME/.px4/px4_lock-0" "$HOME/.px4/px4-sock-0"
+_log_timer_end cleanup
+echo "[launch] Clean"
+
+# --- Prepare runtime-only Scarecrow assets ---
+_log_timer_begin copy_assets
+cd "$PX4_DIR"
+echo "[launch] Preparing Scarecrow runtime assets..."
+
+# Build/runtime overlays (single source of truth = local repo).
+SCARECROW_PX4_GZ_MODELS_DIR="$PX4_DIR/build/scarecrow_gz_models"
+SCARECROW_PX4_GZ_WORLDS_DIR="$PX4_DIR/build/scarecrow_gz_worlds"
+
+rm -rf "$SCARECROW_PX4_GZ_MODELS_DIR" 2>/dev/null || true
+mkdir -p "$SCARECROW_PX4_GZ_MODELS_DIR"
+link_model_dir() {
+    local src="$1"
+    local dest="$2"
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+        rm -rf "$dest" 2>/dev/null || true
+    fi
+    ln -s "$src" "$dest" 2>/dev/null || true
+}
+for model_dir in "$SCARECROW_DIR/models"/*; do
+    [ -d "$model_dir" ] || continue
+    model_name="$(basename "$model_dir")"
+    link_model_dir "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name"
+done
+if [ -n "${SCARECROW_MODEL_OVERLAY_DIR:-}" ] && [ -d "$SCARECROW_MODEL_OVERLAY_DIR" ]; then
+    for model_dir in "$SCARECROW_MODEL_OVERLAY_DIR"/*; do
+        [ -d "$model_dir" ] || continue
+        model_name="$(basename "$model_dir")"
+        link_model_dir "$model_dir" "$SCARECROW_PX4_GZ_MODELS_DIR/$model_name"
+    done
+fi
+
+# Build a deterministic worlds set for runtime loading.
+rm -rf "$SCARECROW_PX4_GZ_WORLDS_DIR" 2>/dev/null || true
+mkdir -p "$SCARECROW_PX4_GZ_WORLDS_DIR"
+for world_file in "$SCARECROW_DIR/worlds"/*.sdf; do
+    [ -f "$world_file" ] || continue
+    world_name="$(basename "$world_file")"
+    ln -s "$world_file" "$SCARECROW_PX4_GZ_WORLDS_DIR/$world_name" 2>/dev/null || true
+done
+if [ -n "${SCARECROW_MODEL_OVERLAY_DIR:-}" ] && [ -d "$SCARECROW_MODEL_OVERLAY_DIR" ]; then
+    export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_MODEL_OVERLAY_DIR:$SCARECROW_PX4_GZ_MODELS_DIR:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
+else
+    export GZ_SIM_RESOURCE_PATH="$SCARECROW_PX4_GZ_WORLDS_DIR:$SCARECROW_PX4_GZ_MODELS_DIR:$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
+fi
+export PX4_GZ_MODELS="$SCARECROW_PX4_GZ_MODELS_DIR"
+export PX4_GZ_WORLDS="$SCARECROW_PX4_GZ_WORLDS_DIR"
+export GZ_SIM_SERVER_CONFIG_PATH="$SCARECROW_DIR/config/server.config"
+_log_timer_end copy_assets
+
+# --- Build PX4 first ---
 _log_timer_begin build_px4
 _BUILD_CACHE_HIT=true
 [ -f "$PX4_DIR/build/$PX4_BUILD_DIR_NAME/bin/px4" ] || _BUILD_CACHE_HIT=false
@@ -160,13 +150,91 @@ if [ "$NO_BUILD" -eq 1 ]; then
     _log_timer_end build_px4 cache_hit="$_BUILD_CACHE_HIT" target="$PX4_BUILD_TARGET" build_dir="$PX4_BUILD_DIR_NAME" skipped=true
 else
     echo "[launch] Building PX4 (this may take a few minutes on first run)..."
+    PX4_MAKE_CMAKE_ARGS="${CMAKE_ARGS:-}"
     if [[ "$(uname)" == "Darwin" ]]; then
-        make -j1 "$PX4_BUILD_TARGET"
+        # Homebrew protobuf 35 marks RepeatedField::Resize as deprecated.
+        # This PX4 submodule still uses that API in gz_bridge, and PX4 builds
+        # with -Werror, so suppress only the deprecation warning without
+        # changing PX4 source.
+        PROTOC_MAJOR="$(protoc --version 2>/dev/null | awk '{print $2}' | cut -d. -f1)"
+        if [[ "$PROTOC_MAJOR" =~ ^[0-9]+$ ]] && [ "$PROTOC_MAJOR" -ge 35 ]; then
+            CACHE_FILE="$PX4_DIR/build/$PX4_BUILD_DIR_NAME/CMakeCache.txt"
+            if [ ! -f "$CACHE_FILE" ] || ! grep -q 'CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=.*-Wno-deprecated-declarations' "$CACHE_FILE"; then
+                echo "[launch] Protobuf $PROTOC_MAJOR detected; building PX4 with -Wno-deprecated-declarations"
+            fi
+            PX4_MAKE_CMAKE_ARGS="$PX4_MAKE_CMAKE_ARGS -DCMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2\\ -g\\ -DNDEBUG\\ -Wno-deprecated-declarations"
+        fi
+        CMAKE_ARGS="$PX4_MAKE_CMAKE_ARGS" make -j1 "$PX4_BUILD_TARGET"
     else
         make "$PX4_BUILD_TARGET"
     fi
     _log_timer_end build_px4 cache_hit="$_BUILD_CACHE_HIT" target="$PX4_BUILD_TARGET" build_dir="$PX4_BUILD_DIR_NAME" skipped=false
 fi
+
+_sync_px4_runtime_assets() {
+    local build_dir="$PX4_DIR/build/$PX4_BUILD_DIR_NAME"
+    local rootfs_dir="$build_dir/rootfs"
+    local rootfs_airframes="$rootfs_dir/etc/init.d-posix/airframes"
+    local legacy_airframes="$build_dir/etc/init.d-posix/airframes"
+    local runtime_airframe="$rootfs_airframes/4022_gz_holybro_x500"
+    local runtime_post="$rootfs_airframes/4022_gz_holybro_x500.post"
+
+    if [ ! -d "$build_dir/etc" ]; then
+        echo "[launch] ERROR: PX4 build runtime etc directory is missing: $build_dir/etc" >&2
+        return 1
+    fi
+
+    # Keep PX4 source/ROMFS untouched. Rebuild rootfs/etc from the PX4 build
+    # output, then overlay Scarecrow-owned files from this repo only.
+    rm -rf "$rootfs_dir/etc"
+    cp -R "$build_dir/etc" "$rootfs_dir/etc"
+
+    mkdir -p "$rootfs_airframes" "$legacy_airframes"
+    cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" "$runtime_airframe"
+    cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" "$runtime_post"
+    cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" "$legacy_airframes/" 2>/dev/null || true
+    cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" "$legacy_airframes/" 2>/dev/null || true
+
+    for required_param in \
+        "EKF2_OF_CTRL" \
+        "EKF2_OF_QMIN" \
+        "EKF2_OF_POS_X" \
+        "EKF2_RNG_CTRL" \
+        "EKF2_RNG_POS_Z" \
+        "EKF2_RNG_A_HMAX"; do
+        if ! grep -q "$required_param" "$runtime_airframe"; then
+            echo "[launch] ERROR: runtime airframe is missing $required_param: $runtime_airframe" >&2
+            return 1
+        fi
+    done
+    echo "[launch] Runtime airframe synced from repo and verified: $runtime_airframe"
+
+    # PX4 persists params in rootfs/parameters.bson. The airframe uses
+    # `param set-default`, so stale persisted values can override the repo
+    # airframe and break GPS-denied optical-flow hold. Reset only the generated
+    # build rootfs by default; set SCARECROW_RESET_PX4_PARAMS=0 to preserve it.
+    if [ "${SCARECROW_RESET_PX4_PARAMS:-1}" = "1" ]; then
+        rm -f "$rootfs_dir/parameters.bson" "$rootfs_dir/parameters_backup.bson"
+        echo "[launch] Reset PX4 persisted params in build rootfs so airframe defaults apply"
+    else
+        echo "[launch] Preserving PX4 persisted params (SCARECROW_RESET_PX4_PARAMS=0)"
+    fi
+
+    if [ -f "$rootfs_dir/gz_env.sh" ]; then
+        sed -i.bak \
+            -e "s|^export PX4_GZ_MODELS=.*|export PX4_GZ_MODELS=$SCARECROW_PX4_GZ_MODELS_DIR|" \
+            -e "s|^export PX4_GZ_WORLDS=.*|export PX4_GZ_WORLDS=$SCARECROW_PX4_GZ_WORLDS_DIR|" \
+            -e "s|^export PX4_GZ_SERVER_CONFIG=.*|export PX4_GZ_SERVER_CONFIG=$SCARECROW_DIR/config/server.config|" \
+            "$rootfs_dir/gz_env.sh"
+        rm -f "$rootfs_dir/gz_env.sh.bak"
+        cp "$rootfs_dir/gz_env.sh" "$build_dir/gz_env.sh"
+    fi
+}
+
+_log_timer_begin runtime_assets
+echo "[launch] Syncing Scarecrow runtime assets into PX4 build rootfs..."
+_sync_px4_runtime_assets
+_log_timer_end runtime_assets
 
 if [[ "$(uname)" == "Darwin" ]]; then
     # PX4's Gazebo optical-flow plugin links against libOpticalFlow.dylib via
@@ -179,18 +247,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
         ln -sf "$OPTICAL_FLOW_LIB" "$OPTICAL_FLOW_RPATH_LIB"
     fi
 
-    # Some copied/restored PX4 model files can end up user-only readable, which
-    # makes Gazebo report model://LW20 as missing even when the files exist.
-    if [ -d "$PX4_DIR/Tools/simulation/gz/models/LW20" ]; then
-        chmod -R a+rX,u+w "$PX4_DIR/Tools/simulation/gz/models/LW20" 2>/dev/null || true
-    fi
 fi
-
-# --- Copy airframe to rootfs (in case build didn't pick it up from ROMFS) ---
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" "build/$PX4_BUILD_DIR_NAME/rootfs/etc/init.d-posix/airframes/" 2>/dev/null || true
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500" "build/$PX4_BUILD_DIR_NAME/etc/init.d-posix/airframes/" 2>/dev/null || true
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" "build/$PX4_BUILD_DIR_NAME/rootfs/etc/init.d-posix/airframes/" 2>/dev/null || true
-cp "$SCARECROW_DIR/airframes/4022_gz_holybro_x500.post" "build/$PX4_BUILD_DIR_NAME/etc/init.d-posix/airframes/" 2>/dev/null || true
 
 # --- Launch PX4 + Gazebo ---
 echo "[launch] Starting PX4 + Gazebo..."
@@ -275,6 +332,22 @@ _dump_latest_gz_log() {
         return
     fi
 
+    # Only a log created during THIS run describes this failure. Anything older is
+    # from a previous session and is actively misleading — it may show a healthy run
+    # and bury the real error. Observed 2026-07-31: a failed launch printed a
+    # successful log from 2026-06-25.
+    if [[ -n "${_LAUNCH_START_EPOCH:-}" ]]; then
+        local log_epoch
+        log_epoch=$(date -r "$log_file" +%s 2>/dev/null || echo 0)
+        if (( log_epoch < _LAUNCH_START_EPOCH )); then
+            echo "[launch] No Gazebo log produced by this run — gz sim never started."
+            echo "[launch] (Newest log on disk is from a previous session: $latest_dir)"
+            echo "[launch] Reproduce the failure directly with:"
+            echo "[launch]   gz sim --headless-rendering -s -r -v1 \"\$SCARECROW_DIR/worlds/$WORLD.sdf\""
+            return
+        fi
+    fi
+
     echo "[launch] Gazebo log (tail 200): $log_file"
     tail -n 200 "$log_file"
 }
@@ -290,24 +363,33 @@ _dump_latest_gz_log() {
 ) &
 GZ_GUARD_PID=$!
 
-GZ_TARGET="gz_holybro_x500"
-if [ "$WORLD" != "default" ]; then
-    WORLD_GZ_TARGET="gz_holybro_x500_${WORLD}"
-    if [ -f "$PX4_DIR/build/$PX4_BUILD_DIR_NAME/build.ninja" ] \
-        && ninja -C "$PX4_DIR/build/$PX4_BUILD_DIR_NAME" -t targets 2>/dev/null \
-            | grep -q "^${WORLD_GZ_TARGET}:"; then
-        GZ_TARGET="$WORLD_GZ_TARGET"
-    else
-        echo "[launch] PX4 target $WORLD_GZ_TARGET not generated; using gz_holybro_x500 with PX4_GZ_WORLD=$WORLD"
-    fi
-fi
+PX4_BIN="$PX4_DIR/build/$PX4_BUILD_DIR_NAME/bin/px4"
+PX4_WORKDIR="$PX4_DIR/build/$PX4_BUILD_DIR_NAME"
+PX4_RUNTIME_DIR="$PX4_WORKDIR/rootfs"
+PX4_STARTUP_FILE="$PX4_WORKDIR/etc/init.d-posix/rcS"
 
-_log_event run_px4_begin headless_flag="$HEADLESS_FLAG" pose_flag="$POSE_FLAG" world="$WORLD" run_target="$PX4_RUN_TARGET" gz_target="$GZ_TARGET"
+_log_event run_px4_begin headless_flag="$HEADLESS_FLAG" pose_flag="$POSE_FLAG" world="$WORLD" run_target="$PX4_RUN_TARGET" gz_target="direct_holybro_x500"
 
 if [ "${SCARECROW_PXH_INTERACTIVE:-0}" = "1" ]; then
-    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" "$GZ_TARGET"
+    (cd "$PX4_RUNTIME_DIR" && eval $HEADLESS_FLAG $POSE_FLAG \
+        PX4_SYS_AUTOSTART=4022 \
+        PX4_SIM_MODEL=gz_holybro_x500 \
+        PX4_GZ_WORLD="$WORLD" \
+        PX4_GZ_MODELS="$SCARECROW_PX4_GZ_MODELS_DIR" \
+        PX4_GZ_WORLDS="$SCARECROW_PX4_GZ_WORLDS_DIR" \
+        GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH" \
+        GZ_SIM_SERVER_CONFIG_PATH="$SCARECROW_DIR/config/server.config" \
+        "$PX4_BIN" -s "$PX4_STARTUP_FILE" "$PX4_WORKDIR" -w "$PX4_RUNTIME_DIR")
 else
-    eval $HEADLESS_FLAG $POSE_FLAG PX4_GZ_WORLD="$WORLD" make "$PX4_RUN_TARGET" "$GZ_TARGET" \
+    (cd "$PX4_RUNTIME_DIR" && eval $HEADLESS_FLAG $POSE_FLAG \
+        PX4_SYS_AUTOSTART=4022 \
+        PX4_SIM_MODEL=gz_holybro_x500 \
+        PX4_GZ_WORLD="$WORLD" \
+        PX4_GZ_MODELS="$SCARECROW_PX4_GZ_MODELS_DIR" \
+        PX4_GZ_WORLDS="$SCARECROW_PX4_GZ_WORLDS_DIR" \
+        GZ_SIM_RESOURCE_PATH="$GZ_SIM_RESOURCE_PATH" \
+        GZ_SIM_SERVER_CONFIG_PATH="$SCARECROW_DIR/config/server.config" \
+        "$PX4_BIN" -s "$PX4_STARTUP_FILE" "$PX4_WORKDIR" -w "$PX4_RUNTIME_DIR") \
         < "$PXH_FIFO" \
         > >(tee "$PXH_INJECT_LOG")
 fi

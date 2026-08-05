@@ -34,6 +34,35 @@ from PIL import Image
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
 
+_WORLD_CACHE = None
+
+
+def detect_world(default="hangar_small"):
+    """Return the name of the world Gazebo is actually running.
+
+    The sensor topics used to hardcode `indoor_room`, whose SDF no longer
+    exists, so every reading silently failed with "No ... data" in any other
+    world. Discover it instead, mirroring GazeboLidar._discover_topic().
+    """
+    global _WORLD_CACHE
+    if _WORLD_CACHE:
+        return _WORLD_CACHE
+    try:
+        out = subprocess.run(
+            ["gz", "topic", "-l"],
+            capture_output=True, text=True, timeout=10, env=get_gz_env(),
+        ).stdout
+        for line in out.splitlines():
+            if line.startswith("/world/"):
+                parts = line.split("/")
+                if len(parts) > 2 and parts[2]:
+                    _WORLD_CACHE = parts[2]
+                    return _WORLD_CACHE
+    except Exception:
+        pass
+    _WORLD_CACHE = os.environ.get("PX4_GZ_WORLD", default)
+    return _WORLD_CACHE
+
 
 def get_gz_env():
     """Get Gazebo environment variables."""
@@ -142,46 +171,39 @@ def capture_camera_frame():
     """Capture a mono camera frame and save as PNG."""
     print("\n--- Mono Camera (Pi Camera 3) ---")
 
-    topic = "/world/indoor_room/model/holybro_x500_0/link/camera_link/sensor/camera/image"
+    topic = f"/world/{detect_world()}/model/holybro_x500_0/link/camera_link/sensor/camera/image"
     print(f"  Capturing frame from: {topic}")
 
-    data = capture_gz_topic(topic, timeout=15)
-    if not data:
+    # Use the package's own binary parser rather than scraping the protobuf
+    # text dump with a regex. The old approach did
+    #   re.search(r'data: "(.*?)"', ...).decode('unicode_escape')
+    # which raised UnicodeDecodeError whenever the captured pixel data happened
+    # to end mid-escape-sequence ("\ at end of string"). parse_gz_frame reads
+    # the raw bytes and is what the streamer already relies on.
+    from scarecrow.sensors.camera.gazebo import parse_gz_frame
+
+    try:
+        raw = subprocess.run(
+            ["gz", "topic", "-e", "-n", "1", "-t", topic],
+            capture_output=True, timeout=20, env=get_gz_env(),
+        ).stdout
+    except subprocess.TimeoutExpired:
+        print("  ERROR: No camera data received (timeout)")
+        return False
+
+    if not raw:
         print("  ERROR: No camera data received")
         return False
 
-    # Parse image dimensions
-    width = height = 0
-    for line in data.split('\n'):
-        line = line.strip()
-        if line.startswith('width:'):
-            width = int(line.split(':')[1].strip())
-        elif line.startswith('height:'):
-            height = int(line.split(':')[1].strip())
-
-    if width == 0 or height == 0:
-        print("  ERROR: Could not parse image dimensions")
+    frame = parse_gz_frame(raw)  # BGR ndarray
+    if frame is None:
+        print(f"  ERROR: Could not parse camera frame ({len(raw)} raw bytes)")
         return False
 
-    # Extract raw pixel data from protobuf escaped string
-    import re
-    match = re.search(r'data: "(.*?)"', data, re.DOTALL)
-    if not match:
-        print("  ERROR: Could not find pixel data")
-        return False
+    height, width = frame.shape[:2]
+    print(f"  Image: {width}x{height}, {len(raw)} raw bytes")
 
-    raw_escaped = match.group(1)
-    raw_bytes = raw_escaped.encode('utf-8').decode('unicode_escape').encode('latin-1')
-    expected = width * height * 3
-
-    print(f"  Image: {width}x{height}, RGB, {len(raw_bytes)} bytes")
-
-    if len(raw_bytes) < expected:
-        print(f"  ERROR: Not enough pixel data ({len(raw_bytes)} < {expected})")
-        return False
-
-    pixels = np.frombuffer(raw_bytes[:expected], dtype=np.uint8).reshape((height, width, 3))
-    img = Image.fromarray(pixels)
+    img = Image.fromarray(frame[:, :, ::-1])  # BGR -> RGB for PIL
     outpath = os.path.join(OUTPUT_DIR, "camera_frame.png")
     img.save(outpath)
     print(f"  Saved: {outpath}")
@@ -192,13 +214,13 @@ def capture_optical_flow():
     """Capture optical flow data and display."""
     print("\n--- Optical Flow (MTF-01) ---")
 
-    topic = "/world/indoor_room/model/holybro_x500_0/link/flow_link/sensor/optical_flow/optical_flow"
+    topic = f"/world/{detect_world()}/model/holybro_x500_0/link/flow_link/sensor/optical_flow/optical_flow"
     print(f"  Capturing flow from: {topic}")
 
     data = capture_gz_topic(topic, timeout=10)
     if not data:
         # Flow may not publish when stationary — check camera instead
-        cam_topic = "/world/indoor_room/model/holybro_x500_0/link/flow_link/sensor/flow_camera/image"
+        cam_topic = f"/world/{detect_world()}/model/holybro_x500_0/link/flow_link/sensor/flow_camera/image"
         cam_data = capture_gz_topic(cam_topic, timeout=5)
         if cam_data:
             print("  Flow camera is active (publishing images)")
@@ -291,7 +313,7 @@ def capture_rangefinder():
     """Capture downward rangefinder reading."""
     print("\n--- Downward Rangefinder (TF-Luna) ---")
 
-    topic = "/world/indoor_room/model/holybro_x500_0/link/lidar_sensor_link/sensor/lidar/scan"
+    topic = f"/world/{detect_world()}/model/holybro_x500_0/link/lidar_sensor_link/sensor/lidar/scan"
     print(f"  Capturing from: {topic}")
 
     data = capture_gz_topic(topic, timeout=10)
