@@ -28,18 +28,24 @@ This guide walks through:
 
 Complete project setup once before your first demo. Full instructions are in the [project README](../../README.md).
 
-**Summary:** clone the repo with submodules, create the Python 3.11 virtualenv, install dependencies, and build PX4/Gazebo (same as Part 1).
+**Summary:** set up the environment for your platform exactly as in Part 1. macOS uses pixi; Windows and Linux use Docker.
 
 **Platform notes**
 
 > **macOS** — `pixi run webapp` (dev, `http://localhost:3000`) or `pixi run webapp-prod`
 > (built UI on `http://localhost:8000`, the same shape the Docker image ships).
 
-> **Windows (WSL2)** — Double-click `webapp/Start Scarecrow.bat`. Backend runs in WSL (port 8000); frontend runs on Windows (port 3000). Use your Windows browser at `http://localhost:3000`.
+> **Windows and Linux** — `docker compose up`, then open `http://localhost:8000`.
+> That single URL is the whole interface: the backend serves the UI and the API
+> on one port. Run it inside WSL2 on Windows, and run `bash docker/build.sh`
+> once first, which also detects the GPU.
 
-> **Linux / WSL terminal** — From repo root: `cd webapp && ./start.sh`, then open `http://localhost:3000`.
+> **Legacy (WSL virtualenv)** — `cd webapp && ./start.sh`, then open
+> `http://localhost:3000`. `webapp/Start Scarecrow.bat` does the same from
+> Windows Explorer.
 
-First simulation connect may take several minutes while PX4 builds.
+The first connect after a fresh build is slow because PX4 relinks. Later
+connects are quick.
 
 ---
 
@@ -61,14 +67,14 @@ The dashboard uses a military-style HUD layout:
 
 ## 4. Connect the simulation
 
-Open the **Control** tab. Before connecting, configure the session on the left; use the **spawn map** on the right to pick a start position (for worlds that support it, e.g. `drone_garage`).
+Open the **Control** tab. Before connecting, configure the session on the left; use the **spawn map** on the right to pick a start position. The map is derived from the world's own geometry, so it works for any mapped world.
 
 ### Pre-connect options
 
 | Field | Description |
 |-------|-------------|
 | **World** | Gazebo environment to load (`hangar_lite` for the capstone pursuit mission) |
-| **Display** | **GUI** — opens a Gazebo window; **Headless** — browser camera stream at port 8080 |
+| **Display** | **GUI** opens a Gazebo window; **Headless** streams the cameras to the browser on port 8080. In the container GUI is hidden, because there is no display it could open a window on. |
 | **Stream camera** | Headless only — overhead fixed camera (or other world cameras) |
 | **Spawn map** | Click a valid floor tile; red-hatched margins and parked aircraft are blocked |
 
@@ -90,11 +96,15 @@ Once connected, choose a **flight script** and any parameters shown in the dynam
 
 | Script | What the audience sees |
 |--------|------------------------|
-| `demo_flight_v2.py` | Short mission: takeoff, hover, YOLO detection, landing, flight video |
-| `demo_flight_pursuit.py` | Hover → detect → pursue pigeon → hold at range |
-| `hangar_circuit_pursuit.py` | **Capstone:** 4-leg hangar circuit, live detection, pursuit, target removal, mission map |
+| `hangar_circuit_pursuit.py` | **The full mission.** Four-leg hangar circuit, live detection, pursuit, return to the break-off point, resume the leg, annotated mission map. |
+| `room_circuit_map.py` | A mapping circuit. Shorter, and it produces a map without the pursuit behaviour. |
+| `sensor_check.py` | Sensor diagnostics with no takeoff. Useful to show the sensors are live before flying. |
 
-For the full deterrence demo, select **`hangar_lite`** as the world and **`hangar_circuit_pursuit.py`** as the flight script. Set `--ceiling-clearance` to `1.0` if the form exposes it.
+These are the only three the dropdown offers, because the form is built by
+introspecting `scripts/flight/`. For the full deterrence demo pick
+**`hangar_lite`** as the world and **`hangar_circuit_pursuit.py`** as the
+script. `--ceiling-clearance` of `1.0` is worth setting if the form exposes
+it.
 
 During flight:
 
@@ -126,7 +136,7 @@ Click a card to open the detail modal:
 |-----|---------|
 | **Summary** | Flight metadata and status |
 | **Detections** | Gallery of saved YOLO frames |
-| **Recording** | Flight video (when the script recorded one, e.g. `demo_flight_v2.py`) |
+| **Recording** | Flight video. No mission enables recording today, so this is normally empty. |
 
 `hangar_circuit_pursuit.py` saves pursuit images and `map.json` under `webapp/output/<flight_id>/`. View detections in the modal; open the **Mission Map** tab to see the annotated circuit rendered on demand by the backend.
 
