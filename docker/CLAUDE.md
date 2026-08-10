@@ -7,6 +7,9 @@ API, PX4 SITL and Gazebo — in one container.
 docker compose up            # -> http://localhost:8000/
 ```
 
+Operator command cheat sheet (build, compose, `sim.sh`, teardown):
+[`docs/guides/docker-simulation.md`](../docs/guides/docker-simulation.md).
+
 That URL is the entire interface. The container starts only the backend; the
 user picks world/camera/spawn in the UI and presses Connect to launch the sim.
 There is deliberately no other way in — the sim is the product, the UI is how

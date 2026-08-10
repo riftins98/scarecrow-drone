@@ -270,6 +270,7 @@ load-bearing.
 Step-by-step walkthroughs with screenshots live in
 [`docs/guides/`](docs/guides/README.md):
 
+- [Docker simulation commands](docs/guides/docker-simulation.md) — all `docker` / `sim.sh` commands (WSL2 & Linux)
 - [Simulation from the command line](docs/guides/simulation-cli.md) — no webapp
 - [Webapp user guide](docs/guides/simulation-webapp.md) — the HUD console
 

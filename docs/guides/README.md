@@ -4,6 +4,7 @@ Step-by-step guides for running the simulation and flight system.
 
 | Guide | Audience | Status |
 |-------|----------|--------|
+| [Docker simulation commands](docker-simulation.md) | Windows/WSL2 & Linux operators | Command cheat sheet |
 | [Simulation (CLI, no webapp)](simulation-cli.md) | Academic reviewers, live demos | Part 1 |
 | [Webapp user guide](simulation-webapp.md) | Academic reviewers, HUD console demos | Part 2 |
 
