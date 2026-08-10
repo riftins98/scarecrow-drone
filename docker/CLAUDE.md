@@ -43,6 +43,12 @@ to fly. macOS uses pixi. See the header of `pixi.toml`.
 - `build.sh` — **Use this instead of `docker compose build`.** Sources
   `versions.env` (a plain compose build produces `FROM ubuntu@` and fails) and
   prunes the images/cache the rebuild orphaned.
+- `deploy.sh` — Rebuild the image from local repo changes and restart
+  `docker compose`. **Required after editing worlds, models, scripts,
+  scarecrow/, airframes, config or the webapp** — those are COPYed into the
+  image; there are no bind mounts, so `docker compose up` alone keeps the old
+  copy. Changing a world only invalidates the late COPY layers (PX4 stays
+  cached). `--no-up` rebuilds without starting compose.
 - `self-test.sh` — Runs **inside** the image, needs no GPU. Proves nothing is
   missing. See below.
 - `verify-delivery.sh` — Acceptance test. **Run on the target machine before

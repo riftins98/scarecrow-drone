@@ -146,15 +146,20 @@ bash docker/sim.sh down
 ## Everyday lifecycle
 
 ```bash
-# Start product UI
+# Start product UI (uses the *already built* image — not live repo files)
 docker compose up
 
-# Or restart after .env / overlay changes
+# After editing worlds/, models/, scripts/, scarecrow/, airframes/, config/,
+# or webapp/ — rebuild then restart (required; compose up alone will not see it)
+bash docker/deploy.sh
+# bash docker/deploy.sh --no-up    # rebuild only
+
+# Or restart after .env / GPU overlay changes only (no image rebuild)
 docker compose down --remove-orphans
 bash docker/detect-gpu.sh
 docker compose up
 
-# Rebuild image after Dockerfile / dependency pin changes
+# Full rebuild after Dockerfile / dependency pin changes
 bash docker/build.sh
 
 # Confirm nothing scarecrow-related is left
@@ -163,6 +168,12 @@ bash docker/sim.sh down
 docker ps
 ```
 
+**What needs `deploy.sh` / `build.sh`?** Anything COPYed into the image:
+`worlds/`, `models/`, `scripts/`, `scarecrow/`, `airframes/`, `config/`,
+`webapp/`. A new `worlds/my_hangar.sdf` is invisible until you rebuild.
+
+**What does not?** `.env` / GPU overlays (`detect-gpu.sh`), then
+`docker compose up` again.
 ---
 
 ## Quick troubleshooting commands

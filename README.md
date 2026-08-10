@@ -123,6 +123,11 @@ bash docker/build.sh       # builds the image, then detects your GPU and
 docker compose up          # → http://localhost:8000/
 ```
 
+After you change worlds, models, flight code or the webapp, rebuild with
+`bash docker/deploy.sh` (or `bash docker/build.sh`) — those files are copied
+into the image at build time, so `docker compose up` alone will not pick them
+up. See [`docs/guides/docker-simulation.md`](docs/guides/docker-simulation.md).
+
 **You do not pick a GPU setting.** `build.sh` runs `docker/detect-gpu.sh`,
 which looks for NVIDIA runtime **and** `/dev/dxg` (WSL+NVIDIA → both overlays),
 then NVIDIA alone, then `/dev/dxg`, then `/dev/dri`, and writes the matching
