@@ -68,9 +68,14 @@ Open the **Control** tab. Before connecting, configure the session on the left; 
 | Field | Description |
 |-------|-------------|
 | **World** | Gazebo environment to load (`hangar_lite` for the capstone pursuit mission) |
-| **Display** | **GUI** — opens a Gazebo window; **Headless** — browser camera stream at port 8080 |
+| **Display** | **GUI** — opens a Gazebo window (needs a real display inside the container; on WSL2 that is WSLg via the GPU-WSL overlay). **Headless** — browser camera stream at port 8080 — **prefer this on Windows/WSL** |
 | **Stream camera** | Headless only — overhead fixed camera (or other world cameras) |
 | **Spawn map** | Click a valid floor tile; red-hatched margins and parked aircraft are blocked |
+
+> **WSL tip:** If GUI is greyed out, the container has no `DISPLAY` (re-run
+> `bash docker/detect-gpu.sh` so the WSL overlay mounts WSLg). If the Gazebo
+> window opens for a second and closes, use Headless — the Qt GUI under WSLg
+> is still unreliable even when rendering for sensors is fine.
 
 Click **Connect**. A live checklist shows launch progress (cleanup → build → Gazebo → sensors → ready).
 

@@ -32,9 +32,11 @@ and still 404 rather than falling back to `index.html`.
 
 **GUI mode is hidden where it cannot work.** `/api/sim/options` reports
 `guiAvailable`, from `sim_service.gui_available()` (Linux with no
-`DISPLAY`/`WAYLAND_DISPLAY` → false). In the container GUI was the preselected
-option, so the customer's first click would have started a launch that could
-only fail.
+`DISPLAY`/`WAYLAND_DISPLAY` → false). On WSL2 the GPU-WSL overlay mounts
+WSLg so the radio can enable; prefer Headless anyway — Gazebo's Qt window
+under WSLg is still unreliable. In the container GUI used to be the
+preselected option with no display, so the customer's first click would
+have started a launch that could only fail.
 
 **The webapp does not build PX4 when a binary already exists.** `SimService`
 passes `--no-build` to the launcher in that case — see

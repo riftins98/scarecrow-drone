@@ -30,11 +30,18 @@ ENV_FILE="$REPO_ROOT/.env"
 PRINT_ONLY=0
 [ "${1:-}" = "--print" ] && PRINT_ONLY=1
 
-# Same order of checks as verify-delivery.sh, which is the acceptance test.
-# NVIDIA first: a machine with the toolkit installed should use it rather than
-# the vendor-neutral WSL path, and on Windows both may be present.
+# On native Linux, NVIDIA toolkit OpenGL works. On WSL2 it does not: CUDA
+# reaches the container (nvidia-smi works) but EGL stays on llvmpipe. Gazebo
+# needs Mesa d3d12 via /dev/dxg. Hybrid NVIDIA+Intel laptops also need
+# MESA_D3D12_DEFAULT_ADAPTER_NAME or Mesa picks the iGPU.
+has_nvidia_runtime() {
+    docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia
+}
+
 detect_gpu_kind() {
-    if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+    if [ -e /dev/dxg ] && has_nvidia_runtime; then
+        echo "nvidia-wsl"
+    elif has_nvidia_runtime; then
         echo "nvidia"
     elif [ -e /dev/dxg ]; then
         echo "wsl"
@@ -46,8 +53,13 @@ detect_gpu_kind() {
 }
 
 GPU_KIND="$(detect_gpu_kind)"
+ADAPTER_NAME=""
 
 case "$GPU_KIND" in
+    nvidia-wsl)
+        OVERLAY="docker/compose.gpu.yml:docker/compose.gpu-wsl.yml"
+        ADAPTER_NAME="NVIDIA"
+        ;;
     nvidia) OVERLAY="docker/compose.gpu.yml"     ;;
     wsl)    OVERLAY="docker/compose.gpu-wsl.yml" ;;
     dri)    OVERLAY="docker/compose.gpu-dri.yml" ;;
@@ -62,16 +74,24 @@ if [ "$PRINT_ONLY" = "1" ]; then
     exit 0
 fi
 
-# Preserve any other settings the user keeps in .env; replace only our line.
+# Preserve any other settings the user keeps in .env; replace only our lines.
 TMP="$(mktemp)"
 if [ -f "$ENV_FILE" ]; then
-    grep -vE '^(COMPOSE_FILE|COMPOSE_PROFILES)=' "$ENV_FILE" > "$TMP" 2>/dev/null || true
+    grep -vE '^(COMPOSE_FILE|COMPOSE_PROFILES|MESA_D3D12_DEFAULT_ADAPTER_NAME)=' "$ENV_FILE" > "$TMP" 2>/dev/null || true
 fi
 echo "COMPOSE_FILE=$COMPOSE_FILE_VALUE" >> "$TMP"
+if [ -n "$ADAPTER_NAME" ]; then
+    echo "MESA_D3D12_DEFAULT_ADAPTER_NAME=$ADAPTER_NAME" >> "$TMP"
+fi
 mv "$TMP" "$ENV_FILE"
 
 echo "[detect-gpu] GPU path: $GPU_KIND"
 case "$GPU_KIND" in
+    nvidia-wsl)
+        echo "[detect-gpu] WSL2 + NVIDIA toolkit: CUDA via nvidia, OpenGL via /dev/dxg."
+        echo "[detect-gpu] Wrote both overlays and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA"
+        echo "[detect-gpu] (without the adapter pin, Mesa often picks the Intel iGPU)."
+        ;;
     nvidia)
         echo "[detect-gpu] NVIDIA container runtime found."
         echo "[detect-gpu] Wrote the NVIDIA overlay -- 'docker compose up' will use it."

@@ -35,21 +35,20 @@ in about seven minutes, `detect-gpu.sh` selects the WSL overlay from
 `/dev/dxg`, and Mesa reports `D3D12 (AMD Radeon RX 7600S)`. That last part
 required `GALLIUM_DRIVER=d3d12` — without it Mesa silently chose llvmpipe even
 though the device, the WSL driver libraries and `d3d12_dri.so` were all present
-and correct. See the fourth trap in `docker/CLAUDE.md`.
+and correct. See the traps in `docker/CLAUDE.md`.
 
-**No mission has been flown on Windows.** Rendering reaches the GPU. Whether
-the simulator holds real-time factor there is unmeasured, and
-`SCARECROW_NOLOCKSTEP=0` on the GPU paths remains an assumption carried over
-from native Metal — paravirtualised d3d12 is not native Metal.
+**NVIDIA under WSL2 is verified on an RTX 5090 Laptop.** Docker Engine +
+nvidia-container-toolkit inside the distro; `detect-gpu.sh` selects
+`nvidia-wsl` (NVIDIA overlay + WSL d3d12 overlay, plus
+`MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`). Headless missions on `hangar_small`
+have held ~1.0 real-time factor. The Gazebo GUI via WSLg can open but is still
+unreliable — use headless for demos.
 
-*To close:* `bash docker/verify-delivery.sh` on that machine, then one full
-mission.
+**The native-Linux DRI path has never run on target hardware.**
+`docker/compose.gpu-dri.yml` is written from the documented mechanisms only.
 
-**The NVIDIA and native-Linux paths have never run.**
-`docker/compose.gpu.yml` and `docker/compose.gpu-dri.yml` are written from the
-documented mechanisms only. Only the WSL2 path has touched real hardware, and
-it needed a fix that no amount of reading the documentation would have
-predicted.
+*To close:* `bash docker/verify-delivery.sh` on each class of machine, then one
+full mission with the checklist in `docs/ACCEPTANCE_CHECKLIST.md`.
 
 ## Flight behaviour
 

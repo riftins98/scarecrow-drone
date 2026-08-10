@@ -28,9 +28,11 @@ to fly. macOS uses pixi. See the header of `pixi.toml`.
   through, so `docker run <image> bash` works for inspection.
 - `check-renderer.sh` — Detects software rendering. Fatal when `REQUIRE_GPU=1`.
 - `detect-gpu.sh` — Chooses the GPU overlay for this machine and writes
-  `COMPOSE_FILE` into `.env`. Run by `build.sh`; safe to re-run. `--print`
-  reports the value without writing. Checks in the same order as
-  `verify-delivery.sh`: NVIDIA runtime, then `/dev/dxg`, then `/dev/dri`.
+  `COMPOSE_FILE` (and on WSL+NVIDIA, `MESA_D3D12_DEFAULT_ADAPTER_NAME`) into
+  `.env`. Run by `build.sh`; safe to re-run. `--print` reports the value
+  without writing. Same order as `verify-delivery.sh`: **NVIDIA runtime and
+  `/dev/dxg` together → `nvidia-wsl`** (both overlays), else NVIDIA alone,
+  else `/dev/dxg`, else `/dev/dri`.
 - `compose.gpu.yml`, `compose.gpu-wsl.yml`, `compose.gpu-dri.yml` — GPU
   overlays; see below.
 - `smoke-test.sh` — Preflight: proves a Gazebo server can start and publish
@@ -43,16 +45,18 @@ to fly. macOS uses pixi. See the header of `pixi.toml`.
 - `verify-delivery.sh` — Acceptance test. **Run on the target machine before
   handing over.** Auto-detects the GPU path; `--no-gpu` skips the GPU checks.
 - `sim.sh` — The pixi workflow for the container: `sim`, `fly`, `sensors`,
-  `map`, `shell`, `down`. Windows and Linux previously had only the webapp,
-  because `docker compose up` starts the UI and nothing reached the scripts the
-  image already carries. `sim` forwards **`launch_with_stream.sh`'s own flags**
-  — `--headless` or not, camera flags, world name — by calling that launcher
-  through the image's command passthrough rather than through the entrypoint's
-  sim mode, which hardcodes `--headless`. That also means no rebuild was needed
-  to add GUI support, and the flags cannot drift from the native path. Reads
-  the same `.env`, so the GPU overlay applies.
+  `map`, `shell`, `down`. `sim` uses `docker compose run` and forwards
+  **`launch_with_stream.sh`'s own flags**. Without `--headless`, and when
+  WSLg is present, it also applies `compose.sim-display.yml` so Gazebo can
+  open a window. `fly` / `sensors` / `shell` resolve the one-off run
+  container via `docker compose ps -a -q` and `docker exec` — bare
+  `compose exec` / `ps -q` miss `compose run` containers and falsely report
+  "simulator is not running".
 - `compose.sim.yml` — Opens the interactive path (`stdin_open`/`tty`) for
   `sim.sh`. It does **not** choose headless or GUI; the caller's flags do.
+- `compose.sim-display.yml` — WSLg display passthrough (`DISPLAY`,
+  `/tmp/.X11-unix`, `/mnt/wslg`) for Gazebo GUI under `sim.sh`. Without it
+  the launcher still prints `GUI: YES` while no window appears on Windows.
 - `versions.env` — The two pins (Ubuntu digest, Gazebo version).
 - `requirements-px4.lock` — PX4's build-time Python deps, pinned.
 
@@ -82,16 +86,26 @@ is correct on any machine and the customer never chooses. All overlays set
 `REQUIRE_GPU=1`, so a path that does not reach the GPU fails loudly instead of
 silently rendering on CPU.
 
-| overlay | for | mechanism |
+| overlay / kind | for | mechanism |
 |---|---|---|
-| `compose.gpu.yml` | NVIDIA, Windows/WSL2 or Linux | nvidia-container-toolkit |
-| `compose.gpu-wsl.yml` | **any** GPU on Windows (AMD/Intel/NVIDIA) | `/dev/dxg` + Mesa d3d12 |
-| `compose.gpu-dri.yml` | AMD or Intel on native Linux | `/dev/dri` |
+| `compose.gpu.yml` (`nvidia`) | NVIDIA on native Linux (or Desktop-only) | nvidia-container-toolkit |
+| **both** gpu + gpu-wsl (`nvidia-wsl`) | NVIDIA **inside WSL2** with toolkit | CUDA via nvidia + OpenGL via `/dev/dxg` d3d12 |
+| `compose.gpu-wsl.yml` (`wsl`) | AMD/Intel (or any GPU) on Windows via WSL2 | `/dev/dxg` + Mesa d3d12 |
+| `compose.gpu-dri.yml` (`dri`) | AMD or Intel on native Linux | `/dev/dri` |
+
+On WSL2, the NVIDIA toolkit alone is not enough for Gazebo: `nvidia-smi`
+works and `NVIDIA_DRIVER_CAPABILITIES` can include `graphics`, but EGL still
+reports **llvmpipe**. OpenGL must go through Mesa d3d12 and `/dev/dxg`.
+`detect-gpu.sh` therefore stacks both overlays when the toolkit **and**
+`/dev/dxg` are present, and sets `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` so
+hybrid laptops do not silently pick the Intel iGPU. `compose.gpu-wsl.yml`
+also mounts WSLg (`DISPLAY`, `/mnt/wslg`) so the webapp can enable the GUI
+radio.
 
 The image carries the Mesa drivers for all of these — `d3d12_dri.so`,
 `radeonsi_dri.so`, `iris_dri.so` and `zink_dri.so` are all present in
 `/usr/lib/x86_64-linux-gnu/dri/`, confirmed on the amd64 image. Device
-passthrough differs, and so does driver *selection*: see the WSL2 trap below.
+passthrough differs, and so does driver *selection*: see the WSL2 traps below.
 
 **These were Compose profiles on services that `extends: sim`, which was a
 bug.** `extends` copies the base service's four published ports, so activating
@@ -103,7 +117,7 @@ exist. Note that `extends` **appends** profile lists rather than replacing
 them, and `!reset` clears them entirely — neither gives a child its own profile,
 which is why this could not be fixed in place.
 
-### Four traps, all of which cost real debugging
+### Traps, all of which cost real debugging
 
 **WSL2 needs `GALLIUM_DRIVER=d3d12` explicitly.** Everything can be present and
 correct — `/dev/dxg` passed through, `/usr/lib/wsl/lib` mounted with
@@ -120,11 +134,24 @@ has no `/dev/dri` at all. d3d12 is a Gallium driver reached through dxcore and
 `/dev/dxg`, so `GALLIUM_DRIVER` is what selects it. Set in
 `compose.gpu-wsl.yml`.
 
+**NVIDIA toolkit on WSL2 ≠ OpenGL for Gazebo.** With only `compose.gpu.yml`,
+`nvidia-smi` succeeds inside the container and capabilities can include
+`graphics`, but surfaceless EGL still reports llvmpipe and `REQUIRE_GPU=1`
+refuses to start. Stack the WSL overlay (`nvidia-wsl`) so rendering uses
+d3d12. Confirmed on an RTX 5090 Laptop under WSL2 with Docker Engine (apt)
+inside the distro.
+
+**Hybrid NVIDIA+Intel needs `MESA_D3D12_DEFAULT_ADAPTER_NAME`.** With
+`GALLIUM_DRIVER=d3d12` alone Mesa often picks `D3D12 (Intel(R) Graphics)`.
+A substring of `NVIDIA` selects the discrete GPU. `detect-gpu.sh` writes this
+into `.env` for the `nvidia-wsl` path.
+
 **`NVIDIA_DRIVER_CAPABILITIES` must include `graphics`.** The toolkit defaults
 to `compute,utility` — CUDA and `nvidia-smi` work, so every obvious check
 passes, but the driver's OpenGL/EGL libraries are never mounted and Gazebo
 silently renders on the CPU. The Dockerfile sets
-`compute,utility,graphics,display`.
+`compute,utility,graphics,display`. (On WSL2 this is still insufficient alone;
+see the toolkit trap above.)
 
 **The renderer probe uses EGL, not `glxinfo`.** The container is headless with
 no `DISPLAY`, so `glxinfo` prints only "unable to open display". An earlier
@@ -138,6 +165,13 @@ means hardware" accepts it — and WSL falls back to it silently whenever the
 real GPU is not exposed to the container. It is the most likely way this ships
 to someone and quietly flies the whole sim on CPU. Explicitly rejected, along
 with `lavapipe` and VMware's `SVGA3D`.
+
+**Gazebo GUI on WSLg needs display mounts; headless is still the reliable path.**
+Without `/mnt/wslg` + `DISPLAY` in the container the UI disables the GUI radio
+(`gui_available()`). With the mounts, the Qt window can open but remains
+unstable under WSL (project guides already prefer headless). Do **not** set
+`__GLX_VENDOR_LIBRARY_NAME=nvidia` on WSL — that forces a GLX path WSLg does
+not provide and the window flashes then dies.
 
 ## Known deliberate choices
 - **MJPEG is the only stream transport, here and on macOS.** A WebRTC
@@ -182,10 +216,9 @@ Mesa reaches the real GPU — `D3D12 (AMD Radeon RX 7600S)` — once
 `GALLIUM_DRIVER=d3d12` is set. `REQUIRE_GPU=1` correctly refused to start on
 llvmpipe before that was fixed, which is exactly its job.
 
-Still open:
-- **No full mission has been flown on Windows.** Rendering reaches the GPU;
-  whether the simulator holds real-time factor there is unmeasured, and
-  `SCARECROW_NOLOCKSTEP=0` on the GPU paths is still an assumption carried
-  over from native Metal.
-- **NVIDIA and native-Linux DRI paths remain unverified.** Only the WSL2 path
-  has run on real hardware.
+**amd64/Windows+WSL2, NVIDIA GeForce RTX 5090 Laptop**: Docker Engine +
+nvidia-container-toolkit **inside** the WSL distro (not Desktop-only).
+`detect-gpu.sh` selects `nvidia-wsl` (both overlays + adapter pin). Renderer
+check reports `D3D12 (NVIDIA GeForce RTX 5090 Laptop GPU)`. Headless webapp
+flights reach ~1.0 RTF on `hangar_small`; GUI mode is available via WSLg but
+remains flaky. Native-Linux DRI path still unverified.
