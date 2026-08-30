@@ -21,6 +21,23 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 
 DEFAULT_WORLD = resolve_default_world()
 
+
+def _is_wsl() -> bool:
+    """True when running under Windows Subsystem for Linux.
+
+    Used to avoid NVIDIA GLX offload env vars that break Gazebo's Qt GUI on
+    WSLg (window flashes then dies). Headless EGL still uses Mesa d3d12 via
+    GALLIUM_DRIVER from the compose overlay.
+    """
+    if os.path.exists("/dev/dxg"):
+        return True
+    try:
+        with open("/proc/version", encoding="utf-8") as fh:
+            return "microsoft" in fh.read().lower()
+    except OSError:
+        return False
+
+
 # Default drone spawn pose from SDF-derived spawn geometry for the default world.
 _pose = default_spawn_pose(DEFAULT_WORLD) if DEFAULT_WORLD else None
 DEFAULT_SPAWN_POSE = _pose or "0,0,0,0,0,0"
@@ -312,13 +329,29 @@ class SimService:
             raise FileNotFoundError(f"launch script not found at {launch_script}")
 
         env = os.environ.copy()
-        env.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
-        env.setdefault("__NV_PRIME_RENDER_OFFLOAD", "1")
+        # Native Linux NVIDIA desktops need these for Qt/GLX. On WSL2/WSLg they
+        # force a proprietary GLX path that is not what the Xwayland display
+        # provides (Mesa d3d12), and the Gazebo GUI opens for ~1s then dies.
+        if _is_wsl():
+            env.pop("__GLX_VENDOR_LIBRARY_NAME", None)
+            env.pop("__NV_PRIME_RENDER_OFFLOAD", None)
+            env.setdefault("QT_QPA_PLATFORM", "xcb")
+        else:
+            env.setdefault("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+            env.setdefault("__NV_PRIME_RENDER_OFFLOAD", "1")
         # Spawn at the session's chosen pose (custom pick or default).
         env["PX4_GZ_MODEL_POSE"] = self._spawn_pose
 
+        # Line-buffer the launcher. Without this, `tee` inside launch.sh fully
+        # buffers when stdout is a pipe, so the webapp never sees
+        # "Startup script returned" until the process exits — and GUI Connect
+        # is marked failed even though PX4 came up.
+        launch_cmd = ["bash", launch_script, *launch_args]
+        if os.path.exists("/usr/bin/stdbuf"):
+            launch_cmd = ["stdbuf", "-oL", "-eL", *launch_cmd]
+
         self.process = subprocess.Popen(
-            ["bash", launch_script, *launch_args],
+            launch_cmd,
             cwd=REPO_ROOT,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

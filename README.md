@@ -103,13 +103,14 @@ noticing:
 
 | GPU | Which Docker to install |
 |---|---|
-| **NVIDIA** | Docker Desktop, with WSL Integration enabled for your distro |
-| **AMD or Intel** | Docker Engine installed **natively inside the WSL2 distro** |
+| **NVIDIA on WSL2** | Docker Engine **natively inside the WSL2 distro** + nvidia-container-toolkit (recommended). Docker Desktop with WSL Integration also works for CUDA, but OpenGL for Gazebo still needs the WSL `/dev/dxg` path — `detect-gpu.sh` stacks both overlays as `nvidia-wsl`. |
+| **AMD or Intel on WSL2** | Docker Engine installed **natively inside the WSL2 distro** (not Desktop) |
+| **NVIDIA on native Linux** | Docker Engine + nvidia-container-toolkit |
 
-Docker Desktop's WSL2 backend forwards only NVIDIA devices, so on an AMD or
-Intel laptop `/dev/dxg` will not exist inside the container and the GPU is
-simply absent. Installing Docker Engine inside Ubuntu-on-WSL2 (the normal
-`apt` install, no Docker Desktop) is what makes that path work.
+Docker Desktop's WSL2 backend forwards NVIDIA devices for CUDA, but Gazebo's
+EGL path on WSL2 goes through `/dev/dxg` and Mesa d3d12. Installing Docker
+Engine inside Ubuntu-on-WSL2 (the normal `apt` install) is what makes the full
+GPU path reliable; `detect-gpu.sh` then records `nvidia-wsl` or `wsl` in `.env`.
 
 ```bash
 # inside WSL2 (Ubuntu). Clone into the WSL filesystem, NOT /mnt/c —
@@ -122,12 +123,20 @@ bash docker/build.sh       # builds the image, then detects your GPU and
 docker compose up          # → http://localhost:8000/
 ```
 
+After you change worlds, models, flight code or the webapp, rebuild with
+`bash docker/deploy.sh` (or `bash docker/build.sh`) — those files are copied
+into the image at build time, so `docker compose up` alone will not pick them
+up. See [`docs/guides/docker-simulation.md`](docs/guides/docker-simulation.md).
+
 **You do not pick a GPU setting.** `build.sh` runs `docker/detect-gpu.sh`,
-which looks for an NVIDIA runtime, then `/dev/dxg`, then `/dev/dri`, and writes
-the matching overlay into `.env`. Compose reads that automatically, so a bare
-`docker compose up` is already correct for the machine — and it says out loud
-what it found, so a machine that has a GPU the container cannot see tells you
-so instead of quietly running on the CPU.
+which looks for NVIDIA runtime **and** `/dev/dxg` (WSL+NVIDIA → both overlays),
+then NVIDIA alone, then `/dev/dxg`, then `/dev/dri`, and writes the matching
+`COMPOSE_FILE` into `.env`. On hybrid NVIDIA+Intel laptops it also sets
+`MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` so Mesa does not pick the iGPU.
+Compose reads that automatically, so a bare `docker compose up` is already
+correct for the machine — and it says out loud what it found, so a machine that
+has a GPU the container cannot see tells you so instead of quietly running on
+the CPU.
 
 Re-run it by hand any time the situation changes:
 
@@ -167,11 +176,12 @@ reimplementing it, so the container cannot drift from the macOS path.
 | `pixi run sim` | `bash docker/sim.sh sim --headless --fixed` |
 | `pixi run fly` | `bash docker/sim.sh fly` |
 | `pixi run sensors` | `bash docker/sim.sh sensors` |
-| `pixi run launch` (GUI) | `bash docker/sim.sh sim --fixed` — needs a display |
+| `pixi run launch` (GUI) | `bash docker/sim.sh sim --fixed` — needs WSLg |
 
-A GUI launch needs a display the container can reach (WSLg on Windows 11, or
-an X server). The flags are honoured either way; the display is a separate
-prerequisite.
+A GUI launch needs a display the container can reach. On Windows 11, `sim.sh`
+auto-applies `docker/compose.sim-display.yml` when WSLg (`/mnt/wslg`) is
+present. Prefer **headless** for demos and RTF — the Gazebo Qt window under
+WSL remains flaky even when the display mounts are correct.
 
 The GPU overlay still applies — `sim.sh` reads the same `.env`, so the
 simulator reaches the GPU exactly as `docker compose up` does.
@@ -265,6 +275,7 @@ load-bearing.
 Step-by-step walkthroughs with screenshots live in
 [`docs/guides/`](docs/guides/README.md):
 
+- [Docker simulation commands](docs/guides/docker-simulation.md) — all `docker` / `sim.sh` commands (WSL2 & Linux)
 - [Simulation from the command line](docs/guides/simulation-cli.md) — no webapp
 - [Webapp user guide](docs/guides/simulation-webapp.md) — the HUD console
 

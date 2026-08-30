@@ -47,7 +47,7 @@ class TestSkipPx4Build:
 
         argv = popen.call_args[0][0]
         assert "--no-build" in argv
-        assert argv[0] == "bash"
+        assert "bash" in argv
 
     def test_launch_omits_flag_when_build_needed(self):
         svc = sim_mod.SimService()

@@ -391,7 +391,7 @@ else
         GZ_SIM_SERVER_CONFIG_PATH="$SCARECROW_DIR/config/server.config" \
         "$PX4_BIN" -s "$PX4_STARTUP_FILE" "$PX4_WORKDIR" -w "$PX4_RUNTIME_DIR") \
         < "$PXH_FIFO" \
-        > >(tee "$PXH_INJECT_LOG")
+        > >(stdbuf -oL -eL tee "$PXH_INJECT_LOG")
 fi
 
 _log_event run_px4_end exit_code=$?

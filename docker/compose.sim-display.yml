@@ -1,0 +1,21 @@
+# Display passthrough for Gazebo GUI under WSLg (Windows 11 WSL2).
+#
+# compose.sim.yml alone opens stdin/tty but does not give the container a
+# display. Without these mounts, `bash docker/sim.sh sim --fixed` still prints
+# "GUI: YES" / "Starting gz gui" while no window ever appears on the host.
+#
+# Applied by docker/sim.sh when DISPLAY/WAYLAND_DISPLAY is set and /mnt/wslg
+# exists. Do not use this overlay on native Linux (no /mnt/wslg).
+services:
+  sim:
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
+      # WSLg's runtime dir, not the host's /run/user/$UID (absent in the container).
+      XDG_RUNTIME_DIR: /mnt/wslg/runtime-dir
+      QT_X11_NO_MITSHM: "1"
+      # So the webapp (if used) knows a window can open.
+      SCARECROW_GUI_AVAILABLE: "1"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg

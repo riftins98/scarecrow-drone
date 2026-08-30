@@ -29,9 +29,9 @@
 # .env, so the sim reaches the GPU exactly as `docker compose up` does.
 #
 # A GUI launch additionally needs a display reachable from the container
-# (WSLg on Windows 11, or an X server). Without one Gazebo will fail to open
-# a window -- the flags are honoured either way, the display is a separate
-# prerequisite.
+# (WSLg on Windows 11). Without one Gazebo still says "GUI: YES" but no
+# window appears -- compose.sim-display.yml mounts DISPLAY + /mnt/wslg when
+# available.
 
 set -uo pipefail
 
@@ -53,13 +53,26 @@ base_compose_file() {
     fi
 }
 
+# `docker compose run` (used by `sim`) creates a one-off container. Those show
+# up in `ps -a` but NOT in bare `ps -q`, and `compose exec` refuses them with
+# "service is not running". Resolve the container id and use `docker exec`.
+running_sim_id() {
+    docker compose ps -a -q "$SERVICE" 2>/dev/null | head -n1
+}
+
 require_running() {
-    if [ -z "$(docker compose ps -q "$SERVICE" 2>/dev/null)" ]; then
+    CID="$(running_sim_id)"
+    if [ -z "$CID" ]; then
         echo "[sim] The simulator is not running." >&2
         echo "[sim] Start it in another terminal first:" >&2
         echo "[sim]     bash docker/sim.sh sim" >&2
         exit 1
     fi
+}
+
+exec_in_sim() {
+    require_running
+    exec docker exec "$@" "$CID"
 }
 
 CMD="${1:-}"
@@ -72,7 +85,24 @@ case "$CMD" in
         # command passthrough, so this needs no rebuild -- and it means the
         # flags below are literally launch_with_stream.sh's flags, not a
         # reimplementation of them that could drift.
-        export COMPOSE_FILE="$(base_compose_file):docker/compose.sim.yml"
+        COMPOSE_FILES="$(base_compose_file):docker/compose.sim.yml"
+        # Without a display mount, Gazebo still says "GUI: YES" / "Starting gz
+        # gui" but no window appears on the Windows host. WSLg needs the
+        # X11 socket + /mnt/wslg inside the container.
+        case " $* " in
+            *" --headless "*) ;;
+            *)
+                if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ -d /mnt/wslg ]; then
+                    COMPOSE_FILES="$COMPOSE_FILES:docker/compose.sim-display.yml"
+                    echo "[sim] Passing host display into the container (WSLg)." >&2
+                else
+                    echo "[sim] WARNING: no WSLg display for the container." >&2
+                    echo "[sim] Gazebo GUI will not open a window. Use --headless," >&2
+                    echo "[sim] or run under Windows 11 WSLg with DISPLAY set." >&2
+                fi
+                ;;
+        esac
+        export COMPOSE_FILE="$COMPOSE_FILES"
         set -- "${@:---headless --fixed}"
         case " $* " in
             *" --fixed "*|*" --center "*|*" --drone_cam "*|*" --drone_view "*) ;;
@@ -94,28 +124,23 @@ case "$CMD" in
         ;;
 
     fly)
-        require_running
-        # -T because the mission is not interactive and a TTY would mangle the
-        # log lines the webapp's parser and the acceptance checklist rely on.
-        exec docker compose exec -T "$SERVICE" \
+        # -T equivalent: no -t; mission logs must stay clean for parsers.
+        exec_in_sim -i \
             "$PY" scripts/flight/hangar_circuit_pursuit.py "$@"
         ;;
 
     sensors)
-        require_running
-        exec docker compose exec -T "$SERVICE" \
+        exec_in_sim -i \
             "$PY" scripts/flight/sensor_check.py "$@"
         ;;
 
     map)
-        require_running
-        exec docker compose exec -T "$SERVICE" \
+        exec_in_sim -i \
             "$PY" scripts/flight/room_circuit_map.py "$@"
         ;;
 
     shell)
-        require_running
-        exec docker compose exec "$SERVICE" bash
+        exec_in_sim -it bash
         ;;
 
     down)

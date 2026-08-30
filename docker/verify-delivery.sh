@@ -33,7 +33,7 @@ for arg in "$@"; do
         --no-gpu) GPU_KIND="none" ;;
         --gpu) NEXT_IS_KIND=1 ;;
         --gpu=*) GPU_KIND="${arg#--gpu=}" ;;
-        nvidia|wsl|dri|none|auto)
+        nvidia|nvidia-wsl|wsl|dri|none|auto)
             if [ "${NEXT_IS_KIND:-0}" = "1" ]; then GPU_KIND="$arg"; NEXT_IS_KIND=0
             else echo "unexpected argument: $arg" >&2; exit 2; fi ;;
         -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
@@ -42,7 +42,11 @@ for arg in "$@"; do
 done
 
 if [ "$GPU_KIND" = "auto" ]; then
-    if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+    # Same order as detect-gpu.sh: on WSL2, NVIDIA toolkit alone leaves EGL on
+    # llvmpipe; OpenGL needs the /dev/dxg overlay as well.
+    if [ -e /dev/dxg ] && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+        GPU_KIND="nvidia-wsl"
+    elif docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
         GPU_KIND="nvidia"
     elif [ -e /dev/dxg ]; then
         GPU_KIND="wsl"
@@ -58,11 +62,15 @@ fi
 # in place. Exporting COMPOSE_FILE makes every `docker compose` call below use
 # the right one without repeating a flag.
 case "$GPU_KIND" in
+    nvidia-wsl)
+        OVERLAY="docker/compose.gpu.yml:docker/compose.gpu-wsl.yml"
+        export MESA_D3D12_DEFAULT_ADAPTER_NAME="${MESA_D3D12_DEFAULT_ADAPTER_NAME:-NVIDIA}"
+        ;;
     nvidia) OVERLAY="docker/compose.gpu.yml"     ;;
     wsl)    OVERLAY="docker/compose.gpu-wsl.yml" ;;
     dri)    OVERLAY="docker/compose.gpu-dri.yml" ;;
     none)   OVERLAY=""                           ;;
-    *) echo "unknown --gpu value: $GPU_KIND (want nvidia|wsl|dri|none)" >&2; exit 2 ;;
+    *) echo "unknown --gpu value: $GPU_KIND (want nvidia|nvidia-wsl|wsl|dri|none)" >&2; exit 2 ;;
 esac
 SERVICE="sim"
 if [ -n "$OVERLAY" ]; then
@@ -121,33 +129,39 @@ esac
 
 # The NVIDIA container runtime is what actually passes the GPU through. Without
 # it, `--gpus all` is silently ignored and the container falls back to llvmpipe.
-if [ "$GPU_KIND" != "nvidia" ]; then
-    warn "SKIPPED nvidia runtime check (GPU path: $GPU_KIND)"
-elif docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
-    ok "nvidia container runtime registered"
-else
-    bad "No 'nvidia' runtime in Docker. Install nvidia-container-toolkit, then restart Docker."
-    bad "  Without it the container CANNOT see the GPU, whatever else is configured."
-fi
+case "$GPU_KIND" in
+    nvidia|nvidia-wsl)
+        if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+            ok "nvidia container runtime registered"
+        else
+            bad "No 'nvidia' runtime in Docker. Install nvidia-container-toolkit, then restart Docker."
+            bad "  Without it the container CANNOT see the GPU, whatever else is configured."
+        fi
+        ;;
+    *) warn "SKIPPED nvidia runtime check (GPU path: $GPU_KIND)" ;;
+esac
 
 # ---------------------------------------------------------------------
 step "2. GPU visible inside a container"
 # ---------------------------------------------------------------------
 # Tested with the image's own base rather than a separate CUDA image, so this
 # proves the GPU reaches THIS image, not just some image.
-if [ "$GPU_KIND" != "nvidia" ]; then
-    warn "SKIPPED nvidia-smi check (GPU path: $GPU_KIND)"
-elif docker run --rm --gpus all "${SCARECROW_IMAGE:-scarecrow-sim:dev}" \
-        nvidia-smi >/tmp/nvsmi.out 2>&1; then
-    ok "nvidia-smi runs inside the container"
-    sed 's/^/        /' /tmp/nvsmi.out | head -12
-else
-    bad "nvidia-smi failed inside the container. GPU is NOT passed through."
-    sed 's/^/        /' /tmp/nvsmi.out | head -12 >&2
-fi
+case "$GPU_KIND" in
+    nvidia|nvidia-wsl)
+        if docker run --rm --gpus all "${SCARECROW_IMAGE:-scarecrow-sim:dev}" \
+                nvidia-smi >/tmp/nvsmi.out 2>&1; then
+            ok "nvidia-smi runs inside the container"
+            sed 's/^/        /' /tmp/nvsmi.out | head -12
+        else
+            bad "nvidia-smi failed inside the container. GPU is NOT passed through."
+            sed 's/^/        /' /tmp/nvsmi.out | head -12 >&2
+        fi
+        ;;
+    *) warn "SKIPPED nvidia-smi check (GPU path: $GPU_KIND)" ;;
+esac
 
 case "$GPU_KIND" in
-    wsl)
+    wsl|nvidia-wsl)
         if [ -e /dev/dxg ]; then ok "/dev/dxg present on the host (WSL2 GPU)"
         else bad "/dev/dxg missing. Run Docker inside the WSL2 distro, not Docker Desktop."; fi ;;
     dri)

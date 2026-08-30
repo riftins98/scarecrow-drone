@@ -35,7 +35,22 @@ services:
       # a Gallium driver reached through dxcore and /dev/dxg, so GALLIUM_DRIVER
       # is the variable that selects it.
       GALLIUM_DRIVER: d3d12
+
+      # Optional substring match for the D3D12 adapter. On hybrid NVIDIA+Intel
+      # laptops Mesa otherwise picks the iGPU first; detect-gpu.sh sets this to
+      # NVIDIA when the toolkit is present. Leave empty on AMD/Intel-only hosts.
+      MESA_D3D12_DEFAULT_ADAPTER_NAME: ${MESA_D3D12_DEFAULT_ADAPTER_NAME:-}
+
+      # WSLg display so the webapp can offer "GUI (open Gazebo window)".
+      # Without these, gui_available() sees no DISPLAY inside the container and
+      # the UI disables the GUI radio (headless-only). Same mounts sim.sh uses.
+      DISPLAY: ${DISPLAY:-:0}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
+      XDG_RUNTIME_DIR: /mnt/wslg/runtime-dir
+      QT_X11_NO_MITSHM: "1"
     devices:
       - /dev/dxg:/dev/dxg
     volumes:
       - /usr/lib/wsl:/usr/lib/wsl:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
